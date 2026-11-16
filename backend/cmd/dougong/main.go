@@ -533,6 +533,11 @@ func run(args []string) error {
 	}
 	slog.Info("panel server listening", "addr", addr, "tls", useTLS,
 		"listenScope", bootCfg.ListenScope, "entryPathEnabled", bootCfg.EntryPathEnabled)
+	visitScheme := "http"
+	if useTLS {
+		visitScheme = "https"
+	}
+	logVisitURLs(visitScheme, addr)
 
 	var runErr error
 	select {
