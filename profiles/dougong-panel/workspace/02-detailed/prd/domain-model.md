@@ -7,7 +7,7 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v1.16 |
+| 版本 | v1.20 |
 | 状态 | 稳定 |
 | 最后更新 | 2026-11-16 |
 
@@ -30,6 +30,8 @@ PRD 范围判定：PRD 标注模块名 panel-core → 范围明确（跳过 Step
 | 本域名称 | 面板基座（panel-core） |
 | 领域分层 | 支撑域——判定依据：基础设施模块，非主差异化卖点（核心卖点=存量接管/网站管理），但含面板特有规则（R-09 零外呼、R-10 入口面、ADR-009 可审计安装）无法直接采购通用方案，故不归通用域；服务全部业务模块（交付载体/入口面/外壳/配置权威） |
 | 聚合根 | panel_config |
+
+> CLI 管理通道注记（v1.17 增量，ADR-030）：`dougong` 子命令族（status/info/reset-password/set-port/entrypath/service）为服务器终端本地通道，**无新领域对象**——读写复用既有聚合 panel_config（set-port/entrypath/info，经进程内 service 同一配置权威）与 account-auth panel_user（reset-password，环境变量注入口径同初始化，ADR-017 同族）；命令输入输出为过程数据，不入对象清单（权威说明见 prd-panel-core.md FR-19）。
 
 ### 系统监控（monitoring）本域判定
 
@@ -75,11 +77,12 @@ PRD 范围判定：PRD 标注模块名 site-mgmt → 范围明确（跳过 Step 
 |------|------|
 | 本域名称 | 网站管理（site-mgmt） |
 | 领域分层 | **核心域**（本项目首个核心域）——判定依据：idea.md D5/ADR-005 核心卖点=接管已有环境，本域是其直接承载（idea.md §3「存量接管（核心壁垒）」第一条即 nginx 站点导入→可视化编辑→安全写回），差异化直接来源于本域的 round-trip 写回能力（nginxx 为 ADR-010 自研核心资产，样本集 ≥ 20 为 M3 验收硬项）；含面板特有规则（R-06 安全写入、R-07 Raw 保留、R-15 存量发现、R-16 隔离写回）无法采购通用方案（竞品调研 §9.2：主流建站面板无一支持存量导入，「存量接管+现代技术栈」组合无占位者），故不归通用域；ACME 外部 CA 对接经 ACL 防腐（本域为核心域不被外部模型污染） |
-| 聚合根 | certificate |
+| 聚合根 | certificate、dns_credential（v1.20 增量） |
 
 聚合根与对象分类判定（详证见 prd-site-mgmt.md 第六部分辨析与第九部分过程数据表）：
 
 - **certificate → 聚合根**：A1 ✓（一致性边界——证书记录 ↔ 面板托管文件 ↔ 站点部署引用三者必须一致：续期成功=文件替换+状态回 valid+重部署，三半不可分）；A2 ✓（全局引用——被站点配置 ssl_cert 引用、被证书清单/站点列表证书状态列寻址）；A3 ✓（生命周期入口——ACME 签发（C-08）与存量识别导入（C-10-01）是唯一创建入口，证书删除（C-10-03）是唯一终结入口）；A4 ✓（cert_status 六状态机 ADR-024 拍板，驱动续期调度与清单呈现）。4/4 → 聚合根；**落 SQLite**——ACME 续期任务状态（挑战方式/账户/到期跟踪）无法从配置文件推导，必须面板自持（本模块唯一持久化对象）；
+- **dns_credential → 聚合根（v1.20 增量，⚠️A20/Gate 1 改判）**：A1 ✓（一致性边界——凭证记录 ↔ 凭据密文 ↔ 引用证书的续期通道三者必须一致：新建=密文落库即刻可用、删除=引用证书续期通道失效如实呈现，两半不可分；**凭据密文无法从任何外部状态推导，必须面板自持**，与 certificate「续期任务状态无法从配置文件推导」/db_instance 凭据同构论证）；A2 ✓（域内全局引用——certificate.dns_credential_id 引用、证书清单/申请弹窗按 id 寻址）；A3 ✓（生命周期入口——凭证新建/删除（C-08-05）是唯一创建/终结入口）；A4 ✗（无状态机——存在即有效，校验态不缓存〔每次签发时经验证〕）。3 项通过且 A1 通过 → 聚合根，**落 SQLite**（凭据材料 AES-256-GCM 密文列+独立密钥文件 dns-cred.key 0600——沿 database-mgmt CredentialVault 先例；明文永不回显）；与 certificate 为同域两个独立聚合（凭证与证书各自一致性边界；证书续期消费凭证为同域聚合引用——backup_run 按 job 归组同构）；
 - **site → 域内对象-实体（非聚合根）**：A1-A4 全不通过——无面板侧一致性边界（配置文件是唯一事实源，结构化字段为解析投影）/无跨域聚合引用（站点状态列消费 certificate 为同域读取，非 ID 引用）/无生命周期入口（导入与新建产出的都是配置文件，站点对象随文件实况进出投影，面板不「创建对象」）/无域内对象受其状态驱动（enabled 为配置侧状态投影）。实体（非值对象）：标识=来源文件内 server 块定位（跨扫描稳定、可寻址，稳定键形态 D3 定，prd-site-mgmt.md 待对齐-1）；属性可变（编辑/启停后重新解析仍为同一站点对象的属性更新）——与 systemd_service/file_entry 同构判定；**零站点台账不落库**（D2 判定：配置文件是唯一事实源，面板外修改自动反映，与 file-manager「不导入不镜像」同哲学；持久化台账反而制造镜像漂移风险）；
 - **反代上游（upstream）→ 值对象**：无独立标识（值相同即等价）、不可变只能替换（改上游=替换值）——D0 留 D1/D2 的「是否独立对象」事项关闭：site 内嵌结构（D1 落定），不独立建模；
 - **Raw 未识别指令块 / 写回落点映射 → 值对象**：Raw 块为解析保留的原文本（无标识、替换式更新，R-07 零丢失承诺的载体）；写回落点映射为扫描派生的「站点→来源文件」关系（⚠️A13，随投影派生、无独立生命周期）。
@@ -167,6 +170,23 @@ PRD 范围判定：PRD 标注模块名 cron-backup → 范围明确（跳过 Ste
 - **cron_job → 域内对象-实体（非聚合根）**：A1-A4 全不通过——无面板侧一致性边界（crontab 文件是唯一事实源，面板为投影与读写通道）/无跨域引用（消费终模块）/无生命周期入口（crontab -e 等面板外通道皆可增删任务，面板非唯一入口）/无域内对象受其状态驱动（无状态机，任务存在即状态）。实体（非值对象）：标识=crontab 内任务行定位（跨读取可寻址，编辑/删除/手动触发按其寻址同一对象；稳定形态 D3 定）——与 systemd_service/firewall_rule/file_entry 同构判定（外部实况投影实体，面板为通道之一非唯一入口）；**零任务台账不落库**（D2 口径-1：crontab 文件是唯一事实源，面板侧备注与来源标注以 crontab 注释行承载、面板外编辑如实反映——与 site 零站点台账/firewall 零规则台账/database-mgmt 零库用户台账同哲学）；
 - **备份源清单 / 备份目标 → 值对象**：内嵌于 backup_job——无独立标识（同型同址即等价）、不可变只能替换（编辑任务=整体替换定义）；源清单承载本域唯一关联领域对象载体（database 项=db_instance 引用+库名；站点目录项=路径值快照，site 无聚合根 ID 不构成持续引用，见第五部分）；rsync 目标认证凭据承载待 D3（若需按密文值对象与 db_instance 凭据同构，prd-cron-backup.md 待对齐-6）。
 
+### 环境管理（env-mgmt）本域判定（v1.19 追加）
+
+PRD 范围判定：PRD 标注模块名 env-mgmt → 范围明确（跳过 Step 1~3 业务域识别，直接判定本域分层）。
+
+| 项目 | 内容 |
+|------|------|
+| 本域名称 | 环境管理（env-mgmt） |
+| 领域分层 | 支撑域——判定依据：运行环境供给为运维面板行业通用能力（宝塔软件商店/1Panel 应用商店均有的裁剪形态），非主差异化卖点；且含面板特有规则与口径（apt/dnf·yum 双系探测 ⚠️A2、异步任务互斥与重启恢复 ⚠️A3、升级幂等 ⚠️A4、卸载保守语义 ⚠️A6、编译期包名/单元名映射 ⚠️A7、R-08 包操作参数数组纪律）无法采购通用方案（通用方案需外呼软件源元数据服务，违反 R-09 零外呼精神——本域仅经发行版本地包管理器通道），故不归通用域；为单机环境供给入口（v0.1.2 用户反馈第 4 项补位），服务全部登录角色（AA 层 C-14 环境安装与变更归核心业务域为战术建模深度判定——env_install_task 状态机+聚合根+审计单据，与 service-mgmt C-04/C-05、docker-mgmt C-12、cron-backup C-13 先例一致，不改变本域战略分层） |
+| 聚合根 | env_install_task |
+
+聚合根与对象分类判定（详证见 prd-env-mgmt.md 第六部分辨析与第九部分过程数据表）：
+
+- **env_install_task → 聚合根**：A1 ✓（一致性边界——任务记录 ↔ 执行进程 ↔ 同环境互斥约束三者必须一致：任务创建=台账落库+互斥生效（同事务原子），终态=结果落库+互斥释放，两半不可分；**执行事实与输出台账无法从包管理器状态完整推导**（已装≠面板装的成功记录），必须面板自持，与 certificate「续期任务状态无法从配置文件推导」/backup_run「执行事实无法从外部推导」同构论证）；A2 ✓（域内清单与详情按 taskId 直接寻址；环境列表在途标记按 env_type 归组派生）；A3 ✓（生命周期入口——安装/升级/卸载动作（C-14-01/02）是唯一创建入口，终态回写是唯一终结入口〔面板重启恢复 running→failed 亦为终态化路径〕）；A4 ✓（四态状态机 pending→running→succeeded/failed ⚠️A3 驱动任务详情呈现、列表在途标记与按钮态）。4/4 → 聚合根，**落 SQLite**（D2 落定：任务台账持久化——跨重启可观测、互斥跨重启一致；与 backup_run 台账同构）；
+- **环境条目（env entry）→ 域内对象-实体（非聚合根）**：A1-A4 全不通过——无面板侧一致性边界（包管理器数据库与 systemd 为事实源，面板为探测投影）/无跨域引用（消费终模块，仅软引导被消费）/无生命周期入口（apt/yum 与 shell 等面板外通道皆可装卸环境，面板非唯一入口）/无域内对象受其状态驱动（已装/服务状态为实况投影非状态机）。实体（非值对象）：标识=env_type 目录键（六值编译期枚举），跨请求稳定可寻址（服务操作/变更发起按其寻址）——与 systemd_service/site/firewall_rule 同构判定（外部实况投影实体，面板为通道之一非唯一入口）；**零环境台账不落库**（已装/版本/服务状态每次请求实时探测，与 site 零站点台账同哲学；目录条目本体为编译期常量随代码分发）；
+- **发行版映射（distro mapping）→ 值对象**：内嵌于环境条目（编译期）——每环境每发行版族的包名、systemd 单元名、版本查询方式（⚠️A7）；无独立标识（环境+族唯一确定）、不可变（随面板版本更新）；非用户可配数据。
+
+
 ## 第二部分：业务域清单
 
 | 上下文名 | 领域分层 | 聚合根 | 核心职责 | 关联上下文 |
@@ -176,14 +196,15 @@ PRD 范围判定：PRD 标注模块名 cron-backup → 范围明确（跳过 Ste
 | 系统监控（monitoring） | 支撑域 | —（无聚合根，只读观测流） | 实时指标周期采样与环形缓冲留存（ADR-014 不落库、重启清零）、实时快照/TOP 进程/1h-24h 趋势/系统信息只读视图（两角色同等，ADR-018）、监控数据读取契约（供 panel-core 仪表盘消费） | account-auth（遵奉会话鉴权 R-02）；panel-core（消费方：仪表盘页读取契约）；枚举共享 metric_window/metric_dimension（与 panel-core 共享口径） |
 | systemd 服务管理（service-mgmt） | 支撑域 | —（无聚合根，dbus 实时投影流） | system 级 unit 实时发现与自动纳管（R-15 发现即接管，零持久化无台账）、服务列表/过滤搜索/属性只读视图（两角色同等，ADR-018）、启停/重启/自启切换管控（admin 专属，dbus 通道 R-08，等待终态反馈）、变更操作经审计契约留痕（R-03） | account-auth（遵奉会话鉴权与只读边界 R-02/ADR-018；消费审计写入 OHS R-03）；枚举共享 audit_result（与 account-auth 共享口径）；systemd（本机 dbus 通道，非业务域） |
 | 文件管理器（file-manager） | 支撑域 | trash_entry | 全部路径操作白名单强制前置（R-04 EvalSymlinks+前缀校验，防逃逸为 M2 验收硬项）、目录浏览/导航实时投影视图（零文件台账，两角色同等 ADR-018）、上传（原子落盘/分块）/下载（数据取出口径）/在线编辑/整理/权限属主/压缩解压变更动作集（admin 专属，ADR-018 禁 readonly 上传下载）、删除入站回收站可逆闭环（R-17/ADR-021，还原冲突显式决策、默认仅手动清空） | account-auth（遵奉会话鉴权与只读边界 R-02/ADR-018；消费审计写入 OHS R-03）；枚举共享 audit_result（与 account-auth 共享口径）；本机文件系统（files 适配器/安全路径层，非业务域） |
-| 网站管理（site-mgmt） | 核心域 | certificate | 存量 nginx 站点接管（R-15 扫描→指令树解析→server 块提取→写回落点登记，零站点台账投影）、安全写入治理（R-06 四步+R-16 隔离，全部写回强制前置）、双模式站点编辑（结构化+Monaco 源码，R-07 Raw 保留）、三模板建站与站点启停/日志/重载、证书全生命周期治理（ACME HTTP-01/TLS-ALPN 经 ACL 申请、部署、自动续期六状态机 ADR-024、存量识别导入） | account-auth（遵奉会话鉴权与只读边界 R-02/ADR-018；消费审计写入 OHS R-03）；枚举共享 audit_result 与本域 6 枚举（入池共享口径）；ACME CA（外部系统，ACL 经 lego 封装，R-09 唯一外呼例外）；nginx/php-fpm（本机系统组件，nginxx 适配器 ADR-010，非业务域） |
+| 网站管理（site-mgmt） | 核心域 | certificate、dns_credential（v1.20+） | 存量 nginx 站点接管（R-15 扫描→指令树解析→server 块提取→写回落点登记，零站点台账投影）、安全写入治理（R-06 四步+R-16 隔离，全部写回强制前置）、双模式站点编辑（结构化+Monaco 源码，R-07 Raw 保留）、三模板建站与站点启停/日志/重载、证书全生命周期治理（ACME HTTP-01〔文件验证〕/TLS-ALPN/DNS-01 三种挑战申请、部署、自动续期六状态机 ADR-024、存量识别导入；DNS-01〔v1.20〕经 DNS 服务商 API 自动 TXT+泛域名，dns_credential 凭证聚合+三服务商初始清单 ⚠️A20） | account-auth（遵奉会话鉴权与只读边界 R-02/ADR-018；消费审计写入 OHS R-03）；枚举共享 audit_result 与本域枚举（acme_challenge 扩 dns_01+dns_provider 新增，v1.20）；ACME CA（外部系统，ACL 经 lego 封装，R-09 外呼例外）；DNS 服务商 API（Cloudflare/阿里云 DNS/腾讯云 DNSPod，v1.20——ACL 经 lego DNS provider 封装，R-09 例外语义与 ACME 同判）；nginx/php-fpm（本机系统组件，nginxx 适配器 ADR-010，非业务域） |
 | 数据库管理（database-mgmt） | 支撑域 | db_instance、redis_instance | 存量双引擎实例自动探测与纳管（R-15 发现即接管，⚠️A19 限定本机探测不扫网段）、凭据密文治理（⚠️A18 只进不出：不回显/审计脱敏/密文落库，验证失败不生效）、MySQL 库/用户/库级授权/root 密码治理（零库用户台账实时投影）、状态概览/进程列表/慢日志只读观测（两角色同等 ADR-018）、mysqldump 备份导出导入（R-08 参数数组，admin 专属）、Redis 密码设置与 key 只读浏览（MVP 严格只读） | account-auth（遵奉会话鉴权与只读边界 R-02/ADR-018；消费审计写入 OHS R-03）；枚举共享 audit_result 与本域 3 枚举（入池共享口径）；cron-backup（被依赖预期：数据库备份源复用，待其 D2 定义）；MySQL/Redis 引擎（本机系统组件，dbmysql/dbredis 适配器，非业务域） |
 | Web 终端（terminal） | 支撑域 | terminal_session | 浏览器 shell 交互通道（xterm.js↔WS↔PTY，admin 专属、readonly 整域禁用 ADR-018）、三重准入（WS 握手复用面板会话鉴权 R-18+角色判定+并发 5 ADR-023）、运行身份选择（默认面板运行用户（通常 root）/指定系统用户 su 语义不代输密码，R-18）、会话生命周期管控（空闲 30min 从严口径/硬上限 8h/面板会话失效联动断开）、统一断开清理（进程回收+记录销毁+配额释放，内存态不落库断开即无痕） | account-auth（遵奉会话握手与失效联动 R-18；消费审计写入 OHS R-03）；system_user（系统实况只读引用，非面板域对象）；docker-mgmt（被依赖预期：容器内终端二期，不预先建模） |
 | 防火墙（firewall） | 支撑域 | —（无聚合根，后端实况投影流） | 既有 ufw/firewalld 双后端自动识别接管（R-15 ufw 优先，均无引导提示、不呈现空列表）、端口规则列表/监听端口对照只读投影视图（两角色同等 ADR-018，零规则台账不落库）、规则增删即时生效管控（admin 专属，firewallx 通道 R-08，firewalld 永久+运行态双写）、面板端口保护硬项（直接命中面板端口的删放行/加阻断警示+二次确认，M7 明示）、变更操作经审计契约留痕（R-03） | account-auth（遵奉会话鉴权与只读边界 R-02/ADR-018；消费审计写入 OHS R-03）；panel-core（消费：面板监听配置为标注与涉险判定基准）；枚举共享 audit_result 与本域 4 枚举（入池共享口径）；ufw/firewalld（本机系统组件，firewallx 适配器，非业务域） |
 | 容器管理（docker-mgmt） | 支撑域 | —（无聚合根，daemon 实况投影流） | 本机既有 Docker daemon 接管式连接（R-12/R-15 sock 探测，未装引导不呈现空列表）、容器/镜像/卷/网络/Compose 项目五类实况只读投影视图（两角色同等 ADR-018，零台账不落库）、容器生命周期六动作管控（admin 专属，状态映射与动作矩阵 ADR-025、MVP 无强制删除）、镜像拉取（daemon 侧外呼、用户主动）、资源删除以 daemon 拒绝为最终权威、Compose label 自动识别 + `docker compose` CLI 参数数组操作（R-13/ADR-013，定位失败容器级兜底）、变更操作经审计契约留痕（R-03） | account-auth（遵奉会话鉴权与只读边界 R-02/ADR-018；消费审计写入 OHS R-03）；terminal（被依赖预期：容器内终端二期，不预先建模）；枚举共享 audit_result 与本域 3 枚举（入池共享口径）；Docker daemon（本机系统组件，dockerx 适配器=官方 Go SDK + compose CLI，非业务域） |
 | 计划任务与备份（cron-backup） | 支撑域 | backup_job、backup_run | root crontab 接管式治理（读写唯一域+系统预置位只读 D1 口径-1；表达式校验预览/执行日志尾部/手动触发面板代执行+超时控制 R-08 边界口径；零任务台账、备注与来源标注注释行承载 D2 口径-1）、backup_job 定义治理（源=站点目录值快照+数据库实例引用、目标本地/rsync、保留份数、调度 cron 表达式 D2 口径-2）、面板内置调度器定时执行与立即执行（触发互斥 D2 口径-4、错过不补跑 D2 口径-3、与系统 cron 解耦不写 crontab D1 口径-2）、backup_run 执行历史与产物消费（running→success/failure ADR-016、产物下载 admin 专属 ADR-018）、按保留份数轮转清理（R-11，记录产物同删 D2 口径-5） | account-auth（遵奉会话鉴权与只读边界 R-02/ADR-018；消费审计写入 OHS R-03）；database-mgmt（消费：实例清单联动+执行凭据建连；**被引用：db_instance 为全项目首个关联领域对象，见第五部分**）；site-mgmt（消费：站点清单联动选取）；rsync 远程目标（用户基础设施，ACL 经 backupx 适配器，用户主动 R-09 例外语义）；cron（本机系统组件，cronx/backupx 适配器，非业务域） |
+| 环境管理（env-mgmt）（v1.19 追加） | 支撑域 | env_install_task | 运行环境本体供给（软件包层，v0.1.2 反馈第 4 项补位）：内置六环境目录+实况实时探测合并呈现（nginx/Apache/Docker/MySQL/Redis/PHP-FPM，⚠️A1/A7，零环境台账投影——包管理器/systemd 为事实源）、apt/dnf·yum 双系通道探测择一与官方仓库源代配（⚠️A2，写入审计）、异步变更任务四态机 pending→running→succeeded/failed（⚠️A3，同环境互斥、任务台账落 SQLite、重启恢复 running→failed）、安装与升级同通道幂等（⚠️A4，先刷新索引）、卸载保守语义（⚠️A6 remove 保留配置数据+强确认风险提示）、已装环境服务启停自启（复用 service-mgmt SysdGateway 共享适配层，操作限定目录环境单元）、变更与任务终态审计留痕（R-03）、包操作参数数组纪律（R-08） | account-auth（遵奉会话鉴权与只读边界 R-02/ADR-018；消费审计写入 OHS R-03）；service-mgmt（共享 SysdGateway systemd 适配层资产，进程内共享非模块调用）；docker-mgmt/database-mgmt/site-mgmt（被消费：环境未装实况软引导，无跨模块 API 硬依赖）；apt/dnf·yum/systemd（本机系统组件，envpack 适配器，非业务域） |
 
-> 全部业务域（11 个）已完成 D2 累积，本表闭环。
+> 全部业务域（12 个）已完成 D2 累积，本表闭环。
 
 ## 第三部分：领域对象清单
 
@@ -208,7 +229,9 @@ PRD 范围判定：PRD 标注模块名 cron-backup → 范围明确（跳过 Ste
 | file_entry | 域内对象-实体 | 文件管理器（file-manager） | 投影集合条目（经读取契约以受管根内绝对路径直接寻址，无聚合根守门） | 路径、类型、大小、权限、属主（用户/组）、修改时间 | file_type{file,directory,symlink} | 文件系统实时投影不落库（kb 拍板）；标识=绝对路径（跨读取稳定、可寻址）故为实体而非值对象——属性随实况变迁（chmod 后仍为同一对象的属性更新，与 systemd_service 同构）；路径白名单校验（R-04）为全部寻址强制前置；含隐藏条目全量呈现（D1 解释性决策） |
 | 受管根配置 | 域内对象-配置实体 | 文件管理器（file-manager） | 域级单例（域配置，不经聚合根） | 受管根路径（默认 `/`）、排除目录清单（默认建议 `/proc`、`/sys`、`/dev`） | —（配置值为路径列表，无枚举字段） | R-04 白名单业务边界载体（⚠️A12，D1 新增假设）；修改记审计、对后续操作即予生效；载体=fs_path_scope 单行表（D3 定稿，api-file-manager.md D-02：同事务审计+写后刷新内存副本即予生效，区别于 account-auth D-10 配置文件重启生效） |
 | certificate | 聚合根 | 网站管理（site-mgmt） | — | 域名列表、issuer、有效期、来源、托管路径（acme）、续期挑战方式（acme）、失败原因（renew_failed）、导入原路径（imported）、关联站点引用 | cert_status{pending,valid,expiring_soon,expired,renew_failed}；cert_source{acme,imported}；acme_challenge{http_01,tls_alpn} | 落 SQLite（本模块唯一持久化对象：续期任务状态无法从配置文件推导）；六状态机 ADR-024（A2 关闭）；一致性边界=证书记录↔托管文件↔站点部署引用（续期成功=替换+回 valid+重部署三半不可分）；ADR-024 文本「6 状态」与枚举命名 5 状态的计数差异已登记（prd-site-mgmt.md 第六部分，待 ADR-024 侧澄清） |
-| site | 域内对象-实体 | 网站管理（site-mgmt） | 投影集合条目（经扫描读取契约以来源文件内 server 块定位寻址，无聚合根守门） | server_name 列表、listen、root、ssl_cert 引用、location 列表、反代上游（upstream 内嵌值对象）、enabled、Raw 块（内嵌值对象）、来源文件路径（写回落点映射） | site_enabled{enabled,disabled}；site_type{static,php_fpm,reverse_proxy}（创建时模板来源标记） | 配置文件实时投影不落库（D2 判定：配置文件是唯一事实源，零站点台账，与 file-manager「不导入不镜像」同哲学）；标识=来源文件内 server 块定位（跨扫描稳定可寻址，稳定键形态 D3 定待对齐-1）；证书状态列为 certificate 同域数据只读消费 |
+| dns_credential | 聚合根 | 网站管理（site-mgmt）（v1.20 追加） | —（certificate.dns_credential_id 引用为同域聚合引用，非父子隶属） | 名称（显示名）、服务商（dns_provider）、凭据材料（内嵌值对象，密文列） | dns_provider{cloudflare,aliyun,dnspod} | 落 SQLite（v1.20/Gate 1 改判 ⚠️A20：凭据材料 AES-256-GCM 密文+独立密钥文件 dns-cred.key 0600——沿 db_instance 凭据先例；明文永不回显、审计脱敏）；无状态机（存在即有效，校验态不缓存）；删除引用警示不硬阻断（引用证书自动续期将失败如实呈现）；admin 专属（readonly 全负空间，解释性决策） |
+| DNS 凭据材料 | 值对象 | 网站管理（site-mgmt）（v1.20 追加） | 内嵌于 dns_credential（密文列整体加密） | 按 provider 形态：API Token（cloudflare）/ AccessKeyId+AccessKeySecret（aliyun）/ SecretId+SecretKey（dnspod） | — | 密文整体存储（JSON 序列化后 AES 加密单列）；不可变替换式更新（轮换=删除重建，MVP 无独立 update）；明文仅内存态签发/续期建连（db_instance 凭据同构） |
+| site | 域内对象-实体 | 网站管理（site-mgmt） | 投影集合条目（经扫描读取契约以来源文件内 server 块定位寻址，无聚合根守门） | server_name 列表、listen、root、ssl_cert 引用、location 列表、反代上游（upstream 内嵌值对象）、enabled、Raw 块（内嵌值对象）、来源文件路径（写回落点映射） | site_enabled{enabled,disabled}；site_type{static,php_fpm,reverse_proxy}（创建时模板来源标记） | 配置文件实时投影不落库（D2 判定：配置文件是唯一事实源，零站点台账，与 file-manager「不导入不镜像」同哲学）；标识=来源文件内 server 块定位（跨扫描稳定可寻址，稳定键形态 D3 定待对齐-1）；证书状态列为 certificate 同域数据只读消费；v1.18：列表聚合呈现（同源文件同 server_name 全集多块合并，⚠️A18）为投影组装规则非新对象，siteId 寻址不变 |
 | 反代上游（upstream） | 值对象 | 网站管理（site-mgmt） | 内嵌于 site | 上游地址、Host 头、WebSocket 透传开关 | —（透传开关为布尔语义，不入池，与 totp_enabled 同口径） | D0「是否独立对象」事项关闭：site 内嵌结构不独立建模（D1 落定）；不可变替换语义 |
 | Raw 未识别指令块 | 值对象 | 网站管理（site-mgmt） | 内嵌于 site | 原文本、所在文件位置 | — | R-07 原文保留写回（零丢失底线）；round-trip 样本集 ≥ 20 验收兜底 |
 | 写回落点映射 | 值对象 | 网站管理（site-mgmt） | 随 site 派生（1:1） | 来源文件路径、所属配置目录 | — | ⚠️A13 多配置目录（conf.d/sites-enabled）消重、写回原文件；扫描派生随投影刷新 |
@@ -231,6 +254,9 @@ PRD 范围判定：PRD 标注模块名 cron-backup → 范围明确（跳过 Ste
 | 备份源清单 | 值对象 | 计划任务与备份（cron-backup） | 内嵌于 backup_job（1:N 值集合） | 源类型 + 站点目录路径（site_dir：值快照）或 实例引用+库名（database：db_instance 关联引用） | backup_source_type{site_dir,database} | 无独立标识（同型同址即等价）、不可变只能替换（编辑任务=整体替换源清单）；站点目录项为路径值快照（site 为实况投影无聚合根 ID，选取时联动 site-mgmt 站点清单、保存后不持续引用）；database 项为本域唯一关联领域对象载体（见第五部分） |
 | 备份目标 | 值对象 | 计划任务与备份（cron-backup） | 内嵌于 backup_job（1:1） | 目标类型 + 本地目录路径（local）或 rsync 远程地址（rsync） | backup_target_type{local,rsync} | 无独立标识（同型同址即等价）、不可变只能替换；rsync 认证凭据承载待 D3（若需按密文值对象与 db_instance 凭据同构，prd-cron-backup.md 待对齐-6）；rsync 推送为用户主动配置传输（R-09 例外语义） |
 | cron_job | 域内对象-实体 | 计划任务与备份（cron-backup） | 投影集合条目（经读取契约以 crontab 内任务行定位直接寻址，无聚合根守门；系统预置位条目为只读投影分区） | cron 表达式、命令、备注（面板侧，注释行承载）、来源标注 | cron_source{panel,existing} | crontab 实况投影不落库（D2 口径-1 零任务台账：crontab 文件是唯一事实源，面板外编辑如实反映——与 site 零站点台账/firewall 零规则台账/database-mgmt 零库用户台账同哲学）；备注与来源标注以 crontab 注释行承载（面板写回附加标记注释，缺失按 existing 呈现；语法 D3 定 prd-cron-backup.md 待对齐-1）；标识=crontab 内任务行定位（跨读取可寻址，稳定形态 D3 定）故实体而非值对象——与 systemd_service/firewall_rule 同构；无状态机（任务存在即状态） |
+| env_install_task | 聚合根 | 环境管理（env-mgmt）（v1.19 追加） | —（环境列表在途标记按 env_type 归组派生，非父子隶属） | 目标环境（env_type）、动作、状态、发起者、发起时间、开始/结束时间、命令输出尾部（终态定格）、失败原因 | env_task_status{pending,running,succeeded,failed}；env_task_action{install,upgrade,uninstall} | 落 SQLite（D2 落定：执行事实与输出台账无法从包管理器状态完整推导必须面板自持，与 backup_run 同构）；一致性边界=任务记录↔执行进程↔同环境互斥约束（创建=台账落库+互斥生效同事务原子，终态=结果落库+互斥释放）；四态状态机 ⚠️A3（终态不可逆，重新发起=新任务；面板重启恢复 running→failed 如实呈现）；A1-A4 全过（4/4） |
+| 环境条目（env entry） | 域内对象-实体 | 环境管理（env-mgmt）（v1.19 追加） | 投影集合条目（目录条目编译期常量+实况运行时探测合并，无聚合根守门） | 目录字段（显示名/描述/关联模块提示，编译期）+ 实况字段（已装、版本、服务运行态、自启态、通道可用性、在途任务标记——每请求实时探测） | env_type{nginx,apache,docker,mysql,redis,php_fpm}；package_manager_family{apt,dnf,yum}（通道探测结论） | 零环境台账不落库（D2 判定：包管理器数据库与 systemd 为事实源，实况探测投影——与 site 零站点台账/systemd_service 投影同哲学；目录条目本体为编译期常量随代码分发非用户可配 ⚠️A1）；标识=env_type 目录键（六值稳定可寻址，服务操作/变更发起按其寻址）故实体而非值对象——与 systemd_service 同构；已装/服务状态为实况投影非状态机（prd-env-mgmt.md 第六部分辨析） |
+| 发行版映射（distro mapping） | 值对象 | 环境管理（env-mgmt）（v1.19 追加） | 内嵌于环境条目（编译期，1:N per 发行版族） | 每族的包名、systemd 服务单元名、版本查询方式、是否需官方仓库源 | —（族判定经通道探测结论承载，非对象字段枚举） | ⚠️A7 编译期映射表（Debian：nginx/apache2/docker.io/mysql-server/redis-server/php-fpm；RHEL 系：nginx/httpd/docker-ce/mysql-server/redis/php-fpm 等）；无独立标识（环境+族唯一确定）、不可变（随面板版本更新）；非用户可配数据（与枚举池同性质） |
 
 > role 为固定枚举非实体（MVP 不做角色 CRUD）；「关联领域对象」在本域不存在（见第五部分）。
 > 面板基座（panel-core）：版本标识/模块挂载点清单/更新检查比对结果均为过程数据（prd-panel-core.md 过程数据分类表），不入本清单；面板证书 ACME 申请/续期在途与挑战 location 临时注入/撤除过程为机制链路过程数据（ADR-029，v1.16 增量），不入本清单；无关联领域对象（见第五部分）。
@@ -243,13 +269,14 @@ PRD 范围判定：PRD 标注模块名 cron-backup → 范围明确（跳过 Ste
 > 防火墙（firewall）：监听端口清单条目与开放状态对照结论为系统实况只读投影+规则对照读取时派生值（事实源在系统网络栈与防火墙后端，面板无留存语义，读取响应即消亡，与 database-mgmt 慢日志/进程列表条目同口径），不入本清单；域级判定值 firewall_backend（识别结论）与对照派生值 listen_port_state 为整值刷新的枚举值，不构成对象状态字段；无聚合根（第一部分判定）——投影流无守门需求，与 monitoring/service-mgmt 同构、差异在对象有稳定标识且被删除操作寻址（实体而非值对象，判定见 prd-firewall.md 第六部分辨析）；规则清单筛选参数、页头后端状态摘要、添加/删除在途、无后端引导视图、保护警示交互均为过程数据（prd-firewall.md 过程数据分类表），不入本清单；无关联领域对象（见第五部分）。
 > 容器管理（docker-mgmt）：五类清单（容器/镜像/卷/网络/Compose 项目）为各自实体的 daemon 实况投影载体（SDK 读取即呈现，基础设施承载），不单独建模为领域对象；域级判定值 docker_daemon_state（接管结论：available/unavailable）为整值刷新的枚举值，不构成对象状态字段（与 firewall_backend/instance_conn_state 同构）；容器资源占用快照与 Compose 项目运行态汇总为读取时派生值（响应即消亡，与 firewall 监听端口对照同口径）；日志流内容为 daemon 实况流式读取（不持久化不轮转，OUT）；无聚合根（第一部分判定）——投影流无守门需求，与 monitoring/service-mgmt/firewall 同构、差异在对象有稳定标识且被生命周期与删除操作寻址（实体而非值对象，判定见 prd-docker-mgmt.md 第六部分辨析）；五类清单筛选参数、页头接管结论摘要、启停/拉取/up-down 在途、未装引导视图、删除确认与数据销毁警示交互均为过程数据（prd-docker-mgmt.md 过程数据分类表），不入本清单；无关联领域对象（见第五部分）。
 > 计划任务与备份（cron-backup）：crontab 投影集合与系统预置位清单为 cron_job 实体的实况投影载体（读取即呈现，基础设施承载），不单独建模为领域对象；面板标记注释行为来源标注与备注的存储载体（crontab 文件的一部分，非领域对象）；backup_run 的 running 为聚合内过程态（非独立状态机）；表达式校验与预览结果、执行日志尾部内容、手动触发输出、备份在途进度、站点/数据库选取候选清单、调度器内部计时状态均为过程数据（prd-cron-backup.md 过程数据分类表），不入本清单；关联领域对象仅 db_instance 一项（database 项引用，见第五部分——站点目录项为值快照不构成引用）。
+> 环境管理（env-mgmt，v1.19 追加）：环境条目为「编译期目录常量+运行时实况探测」的合并投影载体（包管理器/systemd 为事实源，读取即呈现，基础设施承载），实况字段不落库；命令输出尾部 ring 缓冲（执行中）为 P7 计算中间值（终态定格落 env_install_task.output_tail）；服务操作在途、安装/卸载发起在途、风险提示确认交互、任务列表筛选参数均为过程数据（prd-env-mgmt.md 过程数据分类表），不入本清单；无关联领域对象（见第五部分——docker-mgmt/database-mgmt/site-mgmt 为软引导被消费方向，不持有对方聚合根 ID）。
 
 ## 第四部分：子流程 I/O 契约
 
 | 子流程 | 触发条件 | 输入（来自父聚合根） | 输出（写入父聚合根） | 输出写入哪个对象 |
 |--------|---------|------------------|------------------|---------------|
 | 审计过期清理任务 | 后台每日调度 | 当前时间 + 审计保留策略（90 天） | 过期审计批次删除结果（批次条数） | audit_log（清理动作审计记录） |
-| 自动续期任务（site-mgmt） | 证书转 expiring_soon（到期前 30 天，ADR-024）后台调度；renew_failed 手动重试进入同一通道 | certificate（域名列表、挑战方式 acme_challenge、托管路径、ACME 账户引用） | 续期结果：成功=托管证书文件原路径替换（⚠️A16）+状态回 valid+触发重部署引用站点；失败=转 renew_failed+失败原因 | certificate 聚合根（cert_status 字段与托管文件） |
+| 自动续期任务（site-mgmt） | 证书转 expiring_soon（到期前 30 天，ADR-024）后台调度；renew_failed 手动重试进入同一通道；v1.18：手动立即续期（FR-28，valid/expiring_soon/renew_failed 发起）进入同一通道——失败迁移分流（valid 保持 valid+last_error，其余转 renew_failed）；v1.20：dns_01 证书续期输入含 dns_credential 引用（凭证缺失=失败 last_error=凭证缺失） | certificate（域名列表、挑战方式 acme_challenge 含 dns_01、托管路径、ACME 账户引用、DNS 凭证引用〔dns_01，v1.20〕） | 续期结果：成功=托管证书文件原路径替换（⚠️A16）+状态回 valid+触发重部署引用站点；失败=转 renew_failed+失败原因（valid 手动续期失败例外：保持 valid） | certificate 聚合根（cert_status 字段与托管文件） |
 | 面板证书自动续期任务（panel-core，v1.16 增量） | 面板证书（acme 来源）转 expiring_soon（到期前 30 天，沿 ADR-024 阈值）后台调度；renew_failed 手动重试进入同一通道 | panel_cert（绑定域名、挑战方式固定 http_01、ACME 账户引用） | 续期结果：成功=证书替换+状态回 valid+HTTPS 模式联动确认；失败=转 renew_failed+失败原因落库 | panel_cert（panel_config 聚合内 HTTPS 证书实体的状态与证书材料，ADR-029） |
 
 > 登录尝试计数、会话滑动续期为聚合内即时行为，不构成独立聚合子流程。
@@ -263,6 +290,7 @@ PRD 范围判定：PRD 标注模块名 cron-backup → 范围明确（跳过 Ste
 > 防火墙（firewall）：无子流程——后端识别为进入模块的只读判定链路（探测即结论、无独立生命周期）、规则增删为单动作即时执行（与 database-mgmt 建删库同口径）、面板端口保护警示确认为提交动作的同步前置环节（交互层危险操作防护、非审批流）、firewalld 双写为命令执行口径非独立过程；均不构成独立聚合子流程。
 > 容器管理（docker-mgmt）：无子流程——容器启停/重启/暂停恢复/删除为「提交→daemon 执行→终态反馈」的单动作过程（与 service-mgmt 启停同构）；镜像拉取为「提交→执行→进度反馈」的单动作过程（一次性执行无独立生命周期状态，与 database-mgmt 备份导出/压缩解压同口径）；Compose up/down/restart 为单动作 CLI 执行（终态反馈即消亡）；label 识别为读取时聚合的机制链路（与 nginx 扫描/服务发现纳管同口径）；日志跟踪为流式读取非过程聚合；均不构成独立聚合子流程。
 > 计划任务与备份（cron-backup）：无子流程——备份执行过程（running→success/failure）为 backup_run 聚合根自身的状态机（run 即聚合根本体，非服务于父聚合根的独立过程）；定时调度执行为面板内置调度器的后台机制链路（触发即创建 run，自身无独立生命周期状态，与服务发现纳管/nginx 扫描同口径）；轮转清理为成功执行后随终态回写触发的治理环节（区别于审计过期清理任务/自动续期任务的独立调度形态——两者为后台定时任务，本域轮转无独立调度周期）；手动触发为单动作代执行（终态反馈即消亡）；均不构成独立聚合子流程。
+> 环境管理（env-mgmt，v1.19 追加）：无子流程——环境变更任务过程（pending→running→succeeded/failed）为 env_install_task 聚合根自身的状态机（task 即聚合根本体，非服务于父聚合根的独立过程，与 backup_run 同构判定）；实况探测为请求时只读机制链路（与 nginx 扫描/服务发现纳管同口径）；服务启停为「提交→等待终态→反馈」的单动作过程（与 service-mgmt 启停同构，复用同一通道资产）；任务执行 worker 为后台机制链路（消费任务台账非独立调度周期任务——无定时触发，创建即触发）；面板重启恢复为启动扫描的即时环节；均不构成独立聚合子流程。
 
 ## 第五部分：关联领域对象
 
@@ -282,6 +310,7 @@ PRD 范围判定：PRD 标注模块名 cron-backup → 范围明确（跳过 Ste
 > 防火墙（firewall）：无关联领域对象——零持久化不持有任何域聚合根 ID；面板端口标注与涉险判定的基准为 panel-core 监听配置的实况值消费（panel_config 单例值只读读取，非聚合根 ID 引用，读取通道 D3 定 prd-firewall.md 待对齐-6）；跨域方向为「消费方」（遵奉会话鉴权、消费审计写入 OHS 与面板监听配置，见第六部分）。
 > 容器管理（docker-mgmt）：无关联领域对象——零持久化不持有任何域聚合根 ID（审计操作者字段为会话上下文快照字符串，与 audit_log 同口径；compose_project 的容器清单为对 container 的同域引用集合，非跨域引用）；terminal 容器内终端为二期「被依赖」预期方向（terminal 域第五部分已同口径登记，二期前不预先建模，与 database-mgmt 对 cron-backup 同口径）；跨域方向为「消费方」（遵奉会话鉴权、消费审计写入 OHS，见第六部分）。
 > 计划任务与备份（cron-backup）：**全项目首个真实关联领域对象引用**——db_instance（database-mgmt 聚合根）经 backup_job 源清单 database 项以 ID 引用（上表行，database-mgmt 第二部分「被依赖预期」就此兑现）；站点目录项为路径值快照（site 为实况投影无聚合根 ID，选取时联动 site-mgmt 站点清单、保存后不持续引用——区别于 database 项的持续 ID 引用）；backup_run 的任务引用为同域聚合引用（cron-backup 域内 job→run，非跨域）；跨域方向为「消费方」（遵奉会话鉴权、消费审计写入 OHS 与 database-mgmt/site-mgmt 清单契约，见第六部分）。
+> 环境管理（env-mgmt，v1.19 追加）：无关联领域对象——零环境台账不持有任何域聚合根 ID（审计操作者字段为会话上下文快照字符串，与 audit_log 同口径）；环境未装实况被 docker-mgmt/database-mgmt/site-mgmt 引导态**软引导消费**（无跨模块 API 硬依赖，关联模块 PageSpec 指引链接，AA 附录B）；与 service-mgmt 的 SysdGateway 共享为平台支撑层适配器资产共享（非业务域集成，见第六部分注行）；跨域方向为「消费方」（遵奉会话鉴权、消费审计写入 OHS，见第六部分）。
 
 ## 第六部分：跨业务域集成
 
@@ -311,6 +340,7 @@ PRD 范围判定：PRD 标注模块名 cron-backup → 范围明确（跳过 Ste
 | ACL（防腐层，file-manager） | 不适用 | 本机文件系统经 files 适配器（安全路径层，R-04 技术规约）访问，非外部业务系统对接（R-09 零外呼，本模块无外呼路径）；EvalSymlinks→前缀校验翻译属技术实现（D1 AA 平台支撑域判定），与 monitoring/service-mgmt 本机资源口径一致 |
 | 遵奉者（site-mgmt） | 会话鉴权与只读边界协议 | 全部接口位于登录会话后（R-02）；站点列表/详情/证书清单/日志尾部两角色同等（D0 口径）、全部变更 admin 专属（ADR-018），越界经 account-auth S-03-02 边界拒绝并提示原因 |
 | OHS（消费，site-mgmt） | 审计写入接口 | 全部变更类操作（编辑/源码保存/建站/启停/重载/证书申请/部署/续期重试/删除）+ 自动续期结果写审计（R-03，经 account-auth OHS，同事务）；结果复用 audit_result 枚举 |
+| ACL（防腐层，site-mgmt，DNS 服务商 API——v1.20 增补） | Cloudflare / 阿里云 DNS / 腾讯云 DNSPod（外部系统） | DNS-01 TXT 自动化通道：经 lego DNS provider 封装（服务商 API 模型不渗透面板领域模型，出止于 TXT 添加/验证/清理语义）；R-09 例外语义与 ACME CA 同判（用户主动申请/续期调度）；凭证密文经 dns_credential 聚合承载（⚠️A20，独立密钥文件沿 CredentialVault 先例） |
 | 共享内核（site-mgmt） | audit_result + 站点/证书枚举 | audit_result 复用 account-auth 定稿；site_type / site_enabled / cert_source / acme_challenge / cert_status（既有 draft 定稿，⚠️A2 随 ADR-024 关闭）/ site_log_type（新增）本模块 D2 定稿入池（04-business-enum.md），与 D4 页面口径共享 |
 | ACL（防腐层，site-mgmt） | ACME CA（Let's Encrypt 等） | **本项目首个真实外部系统 ACL**：ACME 协议交互（order/challenge）经 lego 客户端（idea.md §5.3 选型）封装，证书产物翻译为 certificate 对象——外部 CA 概念不渗透面板领域模型；R-09 除外条款的唯一外呼路径（用户主动申请/既有证书续期调度） |
 | 遵奉者（database-mgmt） | 会话鉴权与只读边界协议 | 全部接口位于登录会话后（R-02）；查看两角色同等、变更与导出导入/key 浏览 admin 专属（ADR-018），越界经 account-auth S-03-02 边界拒绝并提示原因 |
@@ -337,6 +367,11 @@ PRD 范围判定：PRD 标注模块名 cron-backup → 范围明确（跳过 Ste
 | OHS（消费，cron-backup） | 站点清单（site-mgmt） | 备份源站点目录项的联动选取来源（S-28 站点实况只读）；保存后为路径值快照不持续引用（site 无聚合根 ID，区别于 database 项） |
 | 共享内核（cron-backup） | audit_result + 本域枚举 | audit_result 复用 account-auth 定稿；backup_target_type / backup_run_status（既有 draft 定稿，R-11/ADR-016 依据）/ backup_trigger / backup_source_type / cron_source（新增）本模块 D2 定稿入池（04-business-enum.md），与 D3/D4 接口与页面口径共享 |
 | ACL（防腐层，cron-backup） | rsync 远程目标（用户基础设施） | 备份产物经 backupx 适配器（R-08 参数数组）推送到用户配置的远程地址——外部系统经 ACL（rsync 协议与远端路径模型不渗透面板领域模型，传输载荷=产物文件流）；**用户主动配置的数据传输**（材料 §4.1 M8 明示目标形态），与 ACME 申请同「用户主动」例外语义、R-09 零遥测口径不破（面板无任何 phone-home）；本地目录目标为本机文件系统写入（与 file-manager files 适配器同口径，非外部系统）；cron 本机组件（crontab 读写/cron 日志）经 cronx 适配器同 monitoring/service-mgmt 本机资源口径；rsync 认证凭据承载 D3 定（prd-cron-backup.md 待对齐-6） |
+| 遵奉者（env-mgmt，v1.19 追加） | 会话鉴权与只读边界协议 | 全部接口位于登录会话后（R-02）；环境列表/任务状态输出两角色同等、全部变更 admin 专属（ADR-018），越界经 account-auth S-03-02 边界拒绝并提示原因 |
+| OHS（消费，env-mgmt） | 审计写入接口 | 全部变更类操作（安装/升级/卸载发起与终态、仓库源写入、服务启停自启）写审计（R-03，经 account-auth OHS，同事务）；任务终态结果一并留痕；结果复用 audit_result 枚举 |
+| 共享适配层（env-mgmt，v1.19 追加，非业务域集成） | SysdGateway（service-mgmt 适配器资产） | 环境服务启停自启与实况服务状态查询复用同一 systemd 网关实现（进程内适配器共享，非模块间调用）；本模块服务操作限定目录环境单元（⚠️A7 映射），service-mgmt 保持全部单元治理 |
+| 共享内核（env-mgmt） | audit_result + 本域枚举 | audit_result 复用 account-auth 定稿；env_type / env_task_action / env_task_status / package_manager_family（均新增）本模块 D2 定稿入池（04-business-enum.md），与 D3/D4 接口与页面口径共享 |
+| ACL（防腐层，env-mgmt） | 不适用 | apt/dnf·yum/systemd 为本机系统组件：经 envpack 适配器（R-08 参数数组）访问，非外部业务系统对接（R-09 零外呼，本模块无外呼路径——包索引刷新/安装均经发行版本地包管理器通道，不直接触网）；仓库源代配为本机文件写入（与 site-mgmt 配置写回同口径）；与 monitoring/service-mgmt 本机资源口径一致 |
 
 **存储映射**：panel_user→panel_user/panel_user_totp；session→panel_session；audit_log→audit_log；初始化状态→init_state；panel_config→panel_config；HTTPS 证书→panel_cert；配置生效分类→无表；trash_entry→trash_entry；file_entry→无表；受管根配置→fs_path_scope；certificate→certificate；site/upstream/Raw 块/写回落点映射→无表；db_instance/redis_instance→db_instance（合一档案表，engine 列区分，D3 定稿 D-01）；database/db_user→无表；凭据→实例档案内嵌密文列（AES-256-GCM，无独立表）；terminal_session→无表（内存态不落库）；运行身份/限流策略→无表（内嵌值对象/域级固定策略）；firewall_rule→无表（后端实况投影零规则台账）；container/image/volume/network/compose_project→无表（daemon 实况投影零台账）；backup_job→backup_job、backup_run→backup_run（SQLite 两表，D0 拍板，DDL 归 D3）；备份源清单/备份目标→无表（backup_job 内嵌值对象）；cron_job→无表（crontab 实况投影零任务台账）
 
@@ -350,6 +385,7 @@ PRD 范围判定：PRD 标注模块名 cron-backup → 范围明确（跳过 Ste
 > 存储映射说明（firewall，D2 定稿）：firewall_rule→无表（ufw/firewalld 后端实况投影，kb 拍板不落库，零规则台账——与 site 零站点台账/database-mgmt 零库用户台账同哲学）；监听端口对照结论为读取时派生——本模块零持久化，无 DDL、无数据侧设计（与 monitoring/service-mgmt/terminal 同口径）。
 > 存储映射说明（docker-mgmt，D2 定稿）：container/image/volume/network/compose_project→无表（Docker daemon 实况投影，kb 拍板不落库，零台账——与 firewall 零规则台账同哲学，五对象同判）；容器状态为 daemon 实况映射呈现、无面板侧状态留存；日志为实况流无留存——本模块零持久化，无 DDL、无数据侧设计（与 monitoring/service-mgmt/terminal/firewall 同口径）。
 > 存储映射说明（cron-backup，D2 判定 + D3 定稿回填）：backup_job/backup_run→SQLite 两表（DDL 见 api-cron-backup.md 5.3：backup_job.source_items/target_config 为 JSON 值列内嵌；backup_run.job_id 弱引用无 FK + job_name 冗余快照 + idx_run_running 部分唯一索引承载执行互斥 I-01）；备份源清单/备份目标→无表（backup_job 内嵌 JSON 值列）；cron_job→无表（crontab 实况投影零任务台账，D2 口径-1——备注与来源标注以 crontab 注释行承载，与 site/firewall/database-mgmt 零台账同哲学）；DbGateway.DumpDatabase 消费契约经 api-database-mgmt.md 4.1.5/5.1 预告位由本模块 D3 正式登记兑现。
+> 存储映射说明（env-mgmt，D2 判定）：env_install_task→SQLite 表（DDL 归 D3：env_type/action/status/输出尾部/失败原因/发起者/时间字段，env_type+status 组合索引承载在途互斥查询；任务台账全量保留不建清理任务）；环境条目→无表（包管理器/systemd 实况实时探测投影，零环境台账——目录条目为编译期常量随代码分发）；发行版映射→无表（编译期常量内嵌目录条目）。
 
 ## 更新记录
 
@@ -372,3 +408,7 @@ PRD 范围判定：PRD 标注模块名 cron-backup → 范围明确（跳过 Ste
 | v1.14 | 2026-11-14 | 追加 cron-backup 域（1 业务域 / 2 聚合根 backup_run〔A1-A4 全过：记录↔产物↔轮转水位一致性；ADR-016 状态机；落 SQLite〕+ backup_job〔A1/A2/A3 通过：定义单据整体一致性、无状态机；落 SQLite；与 run 为两个独立聚合，run 按 job 归组同域引用〕/ 1 域内对象-实体 cron_job（crontab 投影零任务台账，备注与来源标注注释行承载 D2 口径-1）/ 2 内嵌值对象 备份源清单+备份目标 / 无子流程（执行状态机为 run 聚合内、调度与轮转为机制链路）/ **全项目首个关联领域对象 db_instance 引用**〔源清单 database 项 ID 引用+执行建连；站点目录项为路径值快照不构成引用；database-mgmt「被依赖预期」就此兑现〕；集成=遵奉会话鉴权 + 消费审计 OHS + 消费 database-mgmt 实例清单与凭据建连 OHS + 消费 site-mgmt 站点清单 OHS + 共享内核 audit_result 与 5 枚举（backup_target_type/backup_run_status 既有 draft 定稿 + backup_trigger/backup_source_type/cron_source 新增）+ ACL rsync 远程目标〔用户主动，R-09 例外语义，与 ACME 同判〕）；持久化=backup_job/backup_run 两表（DDL 归 D3）；业务域清单占位行关闭（11 域全部完成 D2 累积）；权威说明见 prd-cron-backup.md（完备性检查通过：G 5/5、T 适用 6/6、N 4/4） |
 | v1.15 | 2026-11-14 | D3 定稿回填（cron-backup 本模块行）：存储载体落定——backup_job/backup_run 两表 DDL 见 api-cron-backup.md 5.3（source_items/target_config JSON 值列内嵌、job_id 弱引用+job_name 快照、idx_run_running 部分唯一索引承载 I-01 执行互斥）；DbGateway.DumpDatabase 消费契约正式登记（database-mgmt 5.1 预告兑现）；关闭 prd-cron-backup.md 待对齐-1~-9（api D-01~D-14）；不改对象分类/枚举/业务字段 |
 | v1.16 | 2026-11-16 | panel-core 增量 D2（ADR-028/029，权威说明 prd-panel-core.md v1.1）：panel_config 聚合根核心业务字段 +绑定域名（bind_domain，Host 强校验门槛）；HTTPS 证书实体 source 扩展 acme 取值 +签发状态/上次失败原因字段（状态沿用 ADR-024 六状态语义按需简化引用，单例对象非多实例状态机，对象分类不变）并订正其备注滞后的「物理存储 D3 复核」为已定稿 D-P04；新增子流程「面板证书自动续期任务」（第四部分表行，与 site-mgmt 自动续期任务同构）；业务域清单 panel-core 行职责/关联上下文同步；第六部分新增「OHS（消费，panel-core）ACME 签发通道与 nginx 安全写回」行并将 ACL 行订正为「经 site-mgmt ACL 通道复用」；第五/三部分 panel-core 注脚补 ACME 过程数据与无关联领域对象口径；存储映射说明补增量注 |
+| v1.17 | 2026-11-16 | panel-core CLI 增量 D2（ADR-030，权威说明 prd-panel-core.md v1.3）：**零新领域对象/零分类变化**——panel-core 本域判定表后增一行注记：CLI 管理通道（`dougong` 六命令族）为服务器终端本地通道，读写复用既有聚合 panel_config 与 account-auth panel_user（经进程内 service，ADR-017 同族），命令输入输出为过程数据不入对象清单；业务域清单/领域对象清单/子流程/关联领域对象/存储映射均零改动（对象分类仍为 1 聚合根 + 1 实体 + 1 值对象 + 1 子流程契约） |
+| v1.18 | 2026-11-16 | site-mgmt 增量 D2（v0.1.2 用户反馈三项，权威说明 prd-site-mgmt.md v1.1）：**零新领域对象/零新枚举**——site 行备注补列表聚合注记（同源文件同 server_name 全集多块合并呈现为投影组装规则，⚠️A18，仅展示层、siteId 寻址不变）；第四部分自动续期任务触发行扩展手动立即续期入口（FR-28：valid/expiring_soon/renew_failed 发起复用同一通道，失败迁移分流 valid 保持 valid+last_error）；imported 文件替换（FR-28）为聚合根字段更新动作（origin_path 文件写前备份原子替换+元数据读时刷新 D-08 通道），无状态机扩展；其余各部分零改动 |
+| v1.19 | 2026-11-16 | 追加 env-mgmt 域（v0.1.2 用户反馈第 4 项，权威说明 prd-env-mgmt.md v1.0）：1 业务域 / 1 聚合根 env_install_task（A1-A4 全过：任务记录↔执行进程↔互斥约束一致性，执行事实无法从包管理器状态推导必须面板自持；四态状态机 ⚠️A3；落 SQLite）/ 1 域内对象-实体 环境条目（目录常量+实况探测合并投影，零环境台账——与 site/systemd_service 同哲学）/ 1 值对象 发行版映射（编译期 ⚠️A7）/ 无子流程（任务状态机为聚合根本体，与 backup_run 同构）/ 无关联领域对象（软引导被消费方向）；集成=遵奉会话鉴权 + 消费审计 OHS + SysdGateway 共享适配层（service-mgmt，非业务域集成）+ 共享内核 audit_result 与 4 新增枚举（env_type/env_task_action/env_task_status/package_manager_family）+ ACL 不适用（apt/dnf·yum/systemd 本机组件）；业务域清单 12 域闭环更新；存储映射=env_install_task 单表（DDL 归 D3）；doccenter 已同步 |
+| v1.20 | 2026-11-16 | site-mgmt DNS-01 增量 D2（Gate 1 改判 P2，⚠️A20，权威说明 prd-site-mgmt.md v1.2）：**新增聚合根 dns_credential**（A1/A2/A3 通过：凭据密文无法从外部推导必须面板自持+certificate 引用+CRUD 唯一入口；无状态机；落 SQLite，密文 AES-256-GCM+dns-cred.key 0600 沿 database-mgmt CredentialVault 先例）+ 值对象 DNS 凭据材料（按 provider 三形态，密文单列）；certificate 与 dns_credential 为同域两个独立聚合（证书续期消费凭证为同域聚合引用）；业务域清单 site-mgmt 行聚合根/职责/关联上下文同步（+DNS 服务商 API ACL 行）；子流程自动续期任务输入补 dns_01 凭证引用（凭证缺失=失败如实）；枚举 acme_challenge +dns_01、dns_provider 新增（池同步）；第三部分清单 +2 行；第六部分 +ACL 行；其余零改动 |

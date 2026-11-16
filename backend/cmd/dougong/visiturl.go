@@ -5,13 +5,15 @@ import (
 	"net"
 )
 
-// logVisitURLs 打印可直接访问的候选 URL。listen 日志的 addr=0.0.0.0:port 是
-// 绑定地址、不可直接当访问地址用——枚举本机非环回 IPv4（至多 4 个防刷屏）
+// visitURLs 由 scheme 与绑定地址枚举可直接访问的候选 URL（纯函数，v2.1
+// D-P17：服务启动日志与 CLI status 访问 URL 列举共用同一结论）。绑定
+// 地址 0.0.0.0/:: 不可直接访问——枚举本机非环回 IPv4（至多 4 个防刷屏）
 // 帮助首访用户定位入口；绑定到具体地址时仅列该地址；枚举失败回退环回。
-func logVisitURLs(scheme, addr string) {
+// 返回空切片=地址不可解析（调用方自行决定呈现方式）。
+func visitURLs(scheme, addr string) []string {
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
-		return
+		return nil
 	}
 	var hosts []string
 	switch host {
@@ -51,6 +53,15 @@ func logVisitURLs(scheme, addr string) {
 			break
 		}
 		urls = append(urls, scheme+"://"+net.JoinHostPort(h, port)+"/")
+	}
+	return urls
+}
+
+// logVisitURLs 服务启动时打印可直接访问的候选 URL（visitURLs 的日志消费方）。
+func logVisitURLs(scheme, addr string) {
+	urls := visitURLs(scheme, addr)
+	if len(urls) == 0 {
+		return
 	}
 	slog.Info("panel ready — open in browser", "urls", urls)
 }

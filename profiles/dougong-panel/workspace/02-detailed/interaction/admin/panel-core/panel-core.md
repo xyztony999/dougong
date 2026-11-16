@@ -2,11 +2,11 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v1.1 |
+| 版本 | v1.2 |
 | 状态 | 稳定 |
 | 最后更新 | 2026-11-16 |
 | 用户类型 | admin（框架级行为：菜单渲染/首访 HTTPS 提示在本节定义，readonly 文档引用本文） |
-| 唯一数据源 | 02-detailed/api/api-panel-core.md v2.0 |
+| 唯一数据源 | 02-detailed/api/api-panel-core.md v2.2 |
 | 组件体系 | Vue 3 + Naive UI（knowledge/architecture-choices 栈版本表；无激活栈 profile，不使用 vue3-engine 栈 Scm* 组件） |
 | 确认方式 | headless run：7 项交互确认依据 D3 契约 + R-09/R-10 + ADR-018 + FL v1.1 + ADR-028/029 推导，标注于各节 |
 
@@ -89,6 +89,17 @@ lang 为字符串非枚举（MVP 固定 `zh-CN` 单选项，api I-P08；多语�
 |------|------|
 | detail.pendingRestart=true | NAlert type=warning「监听配置已修改，重启服务后生效（systemctl restart dougong）」——关闭横幅不可手动消除，重启后随 pendingRestart=false 自动消失（api D-P02 派生标识） |
 | location.protocol==='http:' 且 detail.https.mode==='off' | NAlert type=info「当前使用 HTTP 明文连接，建议启用 HTTPS（设置页下方可配置）」——FR-07「建议但不强制」口径；HTTPS 模式非 off 时不展示 |
+
+**页面分组与顺序（v1.2 重排，v0.1.2 用户反馈第 7 项）**：8 Card 语义编号不变（Card 1~8），**呈现顺序按四分组重排**并加分组标题（NText depth=3 分组小节标题，视觉层级：分组标题—Card 两级）：
+
+| 分组 | 顺序 | Card |
+|------|------|------|
+| 常规 | ① | Card 6 面板参数（lang） |
+| 网络与访问 | ② | Card 1 监听设置（listen）→ Card 2 安全入口（entryPath）→ Card 3 域名绑定（bindDomain） |
+| 安全与证书 | ③ | Card 4 HTTPS 设置（https）→ Card 5 面板证书（cert ACME）→ Card 7 会话参数（session） |
+| 关于 | ④ | Card 8 更新检查（updateCheck） |
+
+（原 v1.1 顺序 Card 1→2→3→4→5→6→7→8 的「语言被挤至第 6、会话第 7」跳跃问题就此收敛；HTTPS Card 的 to acme 前置引导锚点仍指向 Card 5（同分组相邻）。）
 
 **提交粒度决策**（确认项 5）：8 个 Card 各自独立提交（同 account-auth profile-self 惯例：无跨 Card 草稿态），每 Card 一个「保存」按钮，仅提交本 Card 字段（api configUpdate 为部分字段集语义）；成功后统一 re-fetch configDetail 刷新 effectMode/pendingRestart（域名绑定 Card 生效无需刷新绑定值以外的状态；面板证书 Card 动作后另行 re-fetch certStatus）。
 
@@ -213,8 +224,8 @@ lang 为字符串非枚举（MVP 固定 `zh-CN` 单选项，api I-P08；多语�
 
 | 路由 | 页面 | meta |
 |------|------|------|
-| /settings | settings | `{requiresAuth:true}`（readonly 只读渲染） |
-| /about | about | `{requiresAuth:true}` |
+| /settings | settings | `{requiresAuth:true, title:'面板设置'}`（readonly 只读渲染） |
+| /about | about | `{requiresAuth:true, title:'关于'}` |
 
 **守卫**：复用 account-auth 全局守卫（initCheck → sessionCurrent → roles）；本模块无新增守卫（全部接口要求会话，api D-P11，未登录由全局守卫拦截）。
 
@@ -225,7 +236,7 @@ lang 为字符串非枚举（MVP 固定 `zh-CN` 单选项，api I-P08；多语�
 | 侧边菜单渲染 | menuList → NMenu 树 | 进入框架后调用一次（D-P07 服务端按角色过滤下发，前端不硬编码菜单、不做二次过滤）；panel-core 自身菜单（面板设置/关于）亦经 ModuleMenuRegistry 构建期登记、由同一接口返回 |
 | 首访 HTTPS 建议 | configDetail.https.mode + location.protocol | 见 5.1 页面级横幅（FR-07，无独立接口） |
 | 安全入口前缀 | 透明 | 前端不感知 `/{entryPath}` 前缀：静态资源与 API 均相对路径；未携带前缀的请求由 EntryPathGuard 返回标准 404（api D-P03，不进前端拦截器分流；书签丢失前缀 = 看到 404，属预期安全行为） |
-| 顶栏 | 复用 account-auth | 用户名/角色/登出（非本模块范围） |
+| 顶栏（v1.2） | 路由 meta.title + 菜单树 | 顶栏标题=当前页面标题（D-P18：路由 meta.title 优先、菜单 title 兜底——替换硬编码业务域显示名，内部术语不泄漏用户 UI）；用户名/角色/登出区不变（account-auth 复用）；非菜单页（403/编辑页等）以 meta.title 呈现 |
 
 ## 第 8 节 全局一致性
 
@@ -252,5 +263,6 @@ lang 为字符串非枚举（MVP 固定 `zh-CN` 单选项，api I-P08；多语�
 |------|------|---------|------|
 | v1.0 | 2026-11-12 | initial | 首次生成：2 页面（settings 6 Card + about）、7 Action、4 字典 Key、0 列表页/2 表单页/0 详情路由；框架级职责（菜单渲染/HTTPS 提示/入口前缀透明）并入第 7 节 |
 | v1.1 | 2026-11-16 | interface_added / field_added / enum_value_added | 增量 D4（ADR-028/029，数据源 api-panel-core.md v2.0）：**新增 Action 3 个**（certStatus/certRequest/certRetryRenewal，7→10）；settings 新增 Card 3 域名绑定（绑定强确认 NModal/解绑 NPopconfirm，经 configUpdate.bindDomain）与 Card 5 面板证书（申请/状态/手动重试，同步等待 ≤120s loading 态），原 Card 3~6 顺延为 4/6/7/8（6→8）；HTTPS Card 模式下拉扩四态（+acme，to acme 前置引导至面板证书 Card）；字典 +cert_status 引用（4 值子集）、https_mode/panel_cert_source 取值扩 acme；错误处理 +PANEL_007~011 文案；第 8 节自查 12→14 项（ADR-028 风险对策、ACME 同步等待交互）；S7 机械 diff 10/10 通过（见本次自检记录） |
+| v1.2 | 2026-11-16 | copy_revision / structural | 增量 D4（v0.1.2 用户反馈第 5/7 项，数据源 api-panel-core.md v2.2 D-P18）：**设置页四分组重排**（常规/网络与访问/安全与证书/关于——8 Card 语义编号不变、呈现顺序与分组标题落地，Card 6 语言回归常规首卡）；**顶栏标题=当前页面标题**（路由 meta.title 优先、菜单 title 兜底，替换硬编码业务域显示名——框架级职责本节登记）；路由 meta +title 两项；Action/字典/契约零变化（菜单 IA 变更见 api v2.2 与 PageSpec account-auth v1.3） |
 
 > FX 质量清单说明：FX-001~FX-141 逐条清单文件未随引擎 0.5.2 payload 发布（本次 find 复核：payload 下无 design/front-spec checklist，frontend-specs 仅存在于未激活的栈 profile vue3-engine/react-vite 下），本节按分册 9 节结构逐节落实，并以第 8 节 12 项全局一致性自查替代可机械执行部分；全量 141 项留待 Gate 1 validation 执行。

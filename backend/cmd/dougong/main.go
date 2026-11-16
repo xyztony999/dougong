@@ -7,6 +7,13 @@
 //	dougong init -username <u> [-password <p>] CLI 初始化首个 admin（§4.4.4；
 //	                                         密码推荐经 DOUGONG_INIT_PASSWORD 注入）
 //	dougong version                           打印版本/commit/构建时间
+//	dougong status                            systemd 状态+初始化态+访问 URL（CLI 通道，
+//	                                         v2.1 4.1.4/ADR-030，详见 cmd/dougong/cli.go）
+//	dougong info                              版本/监听/安全入口/HTTPS/数据目录
+//	dougong reset-password -username <u>      重置密码（新密码仅经 DOUGONG_INIT_PASSWORD）
+//	dougong set-port <port>                   改监听端口（1024..65535，重启生效）
+//	dougong entrypath show|regen|off          安全入口查看/重生成/关闭
+//	dougong service start|stop|restart|status systemctl 治理 dougong.service
 package main
 
 import (
@@ -93,6 +100,15 @@ func main() {
 		v := panelsvc.GetVersionInfo()
 		fmt.Printf("dougong %s (commit %s, built %s)\n", v.Version, v.GitCommit, v.BuildTime)
 		return
+	}
+	// 面板管理 CLI 六命令族（v2.1 4.1.4「CLI 入口」，ADR-030/D-P17）：终端本地
+	// 通道，进程内复用 service 层（无 HTTP 绕行）；裸 dougong（无子命令）仍=
+	// 启动面板服务。退出码 0/2/1（systemctl 失败透传）。
+	if len(args) > 0 {
+		switch args[0] {
+		case "status", "info", "reset-password", "set-port", "entrypath", "service":
+			os.Exit(runCLI(args, newCLIEnv()))
+		}
 	}
 	// 生产二进制默认静音 gin 调试横幅；DOUGONG_DEBUG=1 保留调试输出。
 	if os.Getenv("GIN_MODE") == "" && os.Getenv("DOUGONG_DEBUG") == "" {

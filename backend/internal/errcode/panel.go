@@ -1,8 +1,9 @@
 package errcode
 
-// panel-core 模块错误码（api-panel-core.md v2.0 §3.4，PANEL_001~011；PANEL_ 前缀
+// panel-core 模块错误码（api-panel-core.md v2.1 §3.4，PANEL_001~012；PANEL_ 前缀
 // 为本模块新增，鉴权/CSRF/参数校验复用 AUTH 码族）。symbol 即契约 code 列
-// 原值，经响应包络 code 字段上线符号串。PANEL_007~011 为 v2.0 增量（ADR-028/029）。
+// 原值，经响应包络 code 字段上线符号串。PANEL_007~011 为 v2.0 增量（ADR-028/029）；
+// PANEL_012 为 v2.1 增量（ADR-030/D-P17 CLI 通道）。
 var (
 	// ErrCustomAddressRequired PANEL_001 listen_scope=custom 但监听地址缺失/非法（I-P02）。
 	ErrCustomAddressRequired = New("PANEL_001", "监听范围为 custom 时必须提供合法监听地址")
@@ -28,4 +29,8 @@ var (
 	ErrAcmeStateInvalid = New("PANEL_010", "证书当前状态不允许该操作")
 	// ErrAcmeCertExists PANEL_011 已有 valid/expiring_soon 的 acme 证书再次申请（防 CA 配额浪费）。
 	ErrAcmeCertExists = New("PANEL_011", "已有有效的 ACME 证书，续期请走续期通道")
+	// ErrInitPasswordMissing PANEL_012 CLI reset-password 未设置 DOUGONG_INIT_PASSWORD
+	// 环境变量（v2.1，ADR-030/D-P17：新密码仅经环境变量注入、不经 argv，同 init
+	// 口径；CLI 退出码 2）。
+	ErrInitPasswordMissing = New("PANEL_012", "未设置 DOUGONG_INIT_PASSWORD 环境变量（新密码仅经环境变量注入，不经命令行参数）")
 )

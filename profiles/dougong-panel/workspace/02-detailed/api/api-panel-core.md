@@ -2,23 +2,23 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v2.0 |
+| 版本 | v2.2 |
 | 状态 | 稳定 |
 | 最后更新 | 2026-11-16 |
-| 输入 | prd-panel-core.md v1.1（完备性增量复核通过，ADR-028/029）、domain-model.md v1.16、d0-clarification-panel-core.md、D1 三文档（BA/AA/FL v1.1） |
+| 输入 | prd-panel-core.md v1.3（CLI 增量完备性复核通过，ADR-028/029/030）、domain-model.md v1.17、d0-clarification-panel-core.md、D1 三文档（BA/AA/FL v1.2，含 CLI 增量 D1） |
 | 接口规约 | 无激活技术栈（ACTIVE_STACKS 为空）——按通用 REST/JSON 契约设计；认证/鉴权/CSRF 复用 account-auth 中间件契约（R-02/ADR-018，api-account-auth.md 3.1）；全局入口前置=安全入口路径网关（R-10） |
 
 ## 1. 模块设计概述
 
 ### 1.1 业务背景及目标
 
-面板基座是斗拱面板的全模块宿主基座，API 层解决四个问题：① **面板自身配置的唯一读写入口**——panel_config 单例（监听/安全入口/域名绑定/HTTPS/更新检查/语言）的查看与变更，含即时生效与需重启生效的分类提示（R-10、D1 AA 附录C、ADR-028）；② **全模块统一外壳的数据供给**——按角色过滤的菜单树下发（ADR-018）与版本信息可观测；③ **克制的更新检查**——默认关闭、显式开启后单次手动触发的外呼比对（R-09 零外呼承诺）；④ **面板自身证书 ACME 签发与续期**——HTTP-01 挑战经服务器已有 nginx，复用 site-mgmt AcmeGateway 与 nginx 安全写回通道，同步终态（ADR-029）。服务对象：面板管理员（admin）、只读观察者（readonly）；全部 `/panel/*` 接口无公开端点（未认证访客仅触达 account-auth 认证接口与本模块入口网关）。
+面板基座是斗拱面板的全模块宿主基座，API 层解决五个问题：① **面板自身配置的唯一读写入口**——panel_config 单例（监听/安全入口/域名绑定/HTTPS/更新检查/语言）的查看与变更，含即时生效与需重启生效的分类提示（R-10、D1 AA 附录C、ADR-028）；② **全模块统一外壳的数据供给**——按角色过滤的菜单树下发（ADR-018）与版本信息可观测；③ **克制的更新检查**——默认关闭、显式开启后单次手动触发的外呼比对（R-09 零外呼承诺）；④ **面板自身证书 ACME 签发与续期**——HTTP-01 挑战经服务器已有 nginx，复用 site-mgmt AcmeGateway 与 nginx 安全写回通道，同步终态（ADR-029）；⑤ **CLI 管理通道**——`dougong` 子命令族（status/info/reset-password/set-port/entrypath/service）服务器终端直读本机数据目录/SQLite、复用进程内 service 层（无 HTTP 绕行，ADR-030），读命令运行时可直读、写命令提示 `systemctl restart dougong` 生效（契约见 4.1.4 CLI 入口）。服务对象：面板管理员（admin）、只读观察者（readonly）；全部 `/panel/*` 接口无公开端点（未认证访客仅触达 account-auth 认证接口与本模块入口网关；CLI 为非 HTTP 终端通道，不在此列）。
 
 ### 1.2 边界说明
 
 | 项 | 说明 |
 |----|------|
-| 本模块做 | panel_config 配置读写与生效分类（含绑定域名 bind_domain）、安全入口路径网关与域名绑定 Host 强校验网关（全局中间件）、面板自身 HTTPS 证书管理（自签/导入/ACME 签发与续期经 site-mgmt 通道）、菜单树按角色下发、版本信息、更新检查开关与手动触发、构建期菜单挂载登记约定 |
+| 本模块做 | panel_config 配置读写与生效分类（含绑定域名 bind_domain）、安全入口路径网关与域名绑定 Host 强校验网关（全局中间件）、面板自身 HTTPS 证书管理（自签/导入/ACME 签发与续期经 site-mgmt 通道）、菜单树按角色下发、版本信息、更新检查开关与手动触发、构建期菜单挂载登记约定、CLI 管理通道六命令族契约（非 HTTP，ADR-030，4.1.4 CLI 入口） |
 | 本模块不做（接口边界） | ① 登录/会话/RBAC/审计接口——归 account-auth（本模块仅消费其中间件与 AuditService.Record）；② 站点 SSL 证书（站点侧 ACME/续期）——归 site-mgmt，本模块仅管面板自身证书（其 ACME 签发/挑战写回复用 site-mgmt 通道，ADR-029，见 1.5/3.2）；③ 面板服务重启/自升级——重启经 systemctl（FR-02，OS 层），无面板自重启/自升级接口（idea.md §4.2）；④ 监控/业务页面数据接口——归各业务模块（本模块仅供给菜单树骨架）；⑤ DNS-01 通配符证书与独立 80 端口监听——二期/非目标（ADR-029） |
 | 与存储的关系 | SQLite 单文件（ADR-011），panel_config/panel_cert 两表，DDL 见 5.3；会话有效期参数不在库——载体为配置文件（account-auth D-10，见 3.4 配置项） |
 
@@ -42,6 +42,8 @@
 | D-P14 | **https_mode 扩展 acme 四态**：ACME 申请成功联动切 https_mode='acme'（唯一自动切换路径，R-10 三态基础上的来源态）；update httpsMode=acme 前置 panel_cert.source=acme 且推算未过期（PANEL_003 扩展语义）；手动切至其他态后 acme 证书行保留（可再切回）——关闭 prd 待对齐-6 模式联动部分 | ADR-029「https_mode 联动」的定稿形态：模式=当前 HTTPS 以何种来源证书运行 |
 | D-P15 | **挑战 location 注入落点**（关闭 prd 待对齐-6 nginx 侧部分）：优先 server_name 匹配 bind_domain 的 80 端口 server 块，无则回退默认 server（listen 80 default_server，再无则首个 listen 80 块）；注入临时 location `/.well-known/acme-challenge/`（alias 指向面板临时挑战目录）；签发结束（成败皆然）撤除并 `nginx -t` 校验、失败回滚保障——全部写回经 site-mgmt WritePipeline（R-06/R-16，隔离写回其余站点零影响） | nginx 侧落点唯一未定项的从简落法：域名精确匹配优先、默认兜底；挑战文件由 AcmeGateway 写入临时目录 |
 | D-P16 | **HostGuard 全局前置**：与 EntryPathGuard 同层 net/http 包装、紧随其后（Entry → Host → 引擎中间件链）；绑定后 Host 不匹配（含 IP 直连）一律**标准 404 无业务码**（与 D-P03 同防探测语义）；读态失败 fail-closed 404（沿 A-P7 先例）；作用于全部路由含未认证访问；绑定/解绑即时生效 | ADR-028 强校验语义；两网关失败响应同为标准 404，先后顺序不泄露信息 |
+| D-P17 | **CLI 管理通道=进程内 service 复用、无 HTTP 绕行**（ADR-030）：六命令族直接操作本机数据目录/SQLite，复用 4.1.1 领域服务与 4.1.5 仓储契约，不经 HTTP/中间件链（服务器终端本地通道，权限=终端系统权限而非面板会话/角色）；退出码约定 **0=成功 / 2=参数校验失败（AUTH_012/PANEL_012 语义）/ 1=执行失败（对应错误码语义，stdout 同步打印 code 与人类可读原因**，沿 init CLI「非 0 退出+stdout 提示」先例，api-account-auth.md 4.4.4）；**读命令服务运行时可直读**（SQL #2 通道）；**写命令完成后统一输出 `systemctl restart dougong` 提示**（ADR-030 口径；实际生效分类仍按 config_effect_mode——即时项即刻生效、重启项待重启，与 prd FR-19/N2 衔接）；**变更审计 source=cli**（枚举池既有 audit_source，动作码全量复用既有常量，见 3.4）；reset-password 新密码仅经环境变量 DOUGONG_INIT_PASSWORD 注入、**不经 argv**（防 ps 泄密，同 init 口径；缺失=PANEL_012）；裸 `dougong`（无子命令）=启动面板服务（既有行为不变） | ADR-030 宝塔同款定位；单二进制优势（进程内复用免 HTTP 绕行）；退出码沿通用终端惯例（0 成功/2 用法错误/1 失败） |
+| D-P18 | **菜单 IA 增量（v2.2，v0.1.2 用户反馈第 5/6 项）**：①**分组结构启用**——MenuItem.children 父子两级（menu/list 响应结构 v1.0 起预留，本轮侧栏分组渲染落地）：分组节点 path 为空（分组非路由）、visibility 取子项并集、children 非空的叶节点不合法（两级封顶）；②**account-auth 域菜单登记补全**——「用户与安全」分组（组内：用户管理 /users、在线会话 /sessions、审计日志 /audit-logs、个人资料 /profile，两角色可达；页面内操作差异按既有页面级负空间 ADR-018）——设计侧 PageSpec account-auth 第 7 节本有侧栏菜单四项，实现侧 ModuleMenuRegistry 未登记致 /users 不可达，本增量**实现回归设计**并升格为分组；③**env-mgmt 菜单登记**——「环境管理」/env（两角色，随 env-mgmt 新模块 v1.0）；④**顶栏标题=当前页面标题**（前端框架职责：路由 meta.title 优先、菜单 title 兜底——替换 MainLayout 硬编码业务域显示名「账户与安全基座」，内部设计术语不泄漏用户 UI；呈现细节归 PageSpec panel-core v1.2 第 7 节，无接口变更）；⑤设置页重排（第 7 项）纯 PageSpec 层零接口变更 | v0.1.2 用户实测反馈：顶栏「账户与安全基座」内部术语泄漏（第 5 项）+设置里找不到用户管理（第 6 项，根因=菜单登记缺失）；菜单内容为构建期数据非接口契约，本决策登记登记表变更口径供 Gate 对齐基线 |
 
 ### 1.4 领域对象总览
 
@@ -55,12 +57,12 @@
 
 | 上下文 | 关系 | 机制 |
 |--------|------|------|
-| account-auth | 消费 | 遵奉者：Cookie+CSRF/RBAC 中间件链（InitGuard→AuthRequired→CsrfGuard→RoleRequired，本模块 EntryPathGuard/HostGuard 置于其前）；OHS：`AuditService.Record`（配置/证书变更审计，R-03）；internal/config 会话键为其会话策略载体（D-10）——本域只读透传（D-P08） |
+| account-auth | 消费 | 遵奉者：Cookie+CSRF/RBAC 中间件链（InitGuard→AuthRequired→CsrfGuard→RoleRequired，本模块 EntryPathGuard/HostGuard 置于其前）；OHS：`AuditService.Record`（配置/证书变更审计，R-03）；internal/config 会话键为其会话策略载体（D-10）——本域只读透传（D-P08）；CLI reset-password 复用其用户密码重置业务（HTTP /auth/user/reset-password 同源逻辑与审计常量 password_reset，进程内调用——OHS 方法签名待其文档登记，5.1 消费预告，v2.1/ADR-030） |
 | site-mgmt | 消费（OHS） | **跨模块消费契约（ADR-029，与 D1 被依赖登记对应 api-site-mgmt.md 1.5/5.1 v1.1）**：面板证书 ACME 签发/续期复用其 AcmeGateway（4.1.5 ACL）与 nginx 安全写回 WritePipeline/NginxGateway（4.2.5）——HTTP-01 挑战 location 临时注入/撤除走 R-06 四步；不新增独立 80 端口监听；ACME 账户密钥与 CA 目录复用其载体（D-P13）；契约要点见 5.1 消费表 |
 | ACME CA（经 site-mgmt ACL 间接） | 间接外呼（受限） | 面板不直连 CA、不自建 ACL；R-09 例外语义同 site-mgmt ACME 判定（用户主动申请/续期调度，D-P13）；外部 ACME 概念经 AcmeGateway 翻译为止于证书产物（防腐层归 site-mgmt） |
 | 全部业务模块 | 被依赖 | 构建期：ModuleMenuRegistry 挂载登记（菜单树单一数据源，D-P07）；运行期：EntryPathGuard 全局入口拦截 + HostGuard 域名绑定强校验（AA 附录B 契约，D-P16） |
 | 版本源（外部） | 消费（受限） | 仅 update_check=1 且显式触发时单次外呼（I-P05）；ACL 适配器隔离源格式（待对齐-1） |
-| install.sh / systemd | 部署契约（非接口） | 脚本每行可读（ADR-009）；unit 生成与开机自启（FR-01/02）；启动绑定参数读 panel_config（D-P02） |
+| install.sh / systemd | 部署契约（非接口） | 脚本每行可读（ADR-009）；unit 生成与开机自启（FR-01/02）；启动绑定参数读 panel_config（D-P02）；CLI service 子命令经 systemctl 参数数组治理 dougong.service（R-08，v2.1/ADR-030） |
 
 ## 2. 跨聚合根设计（单聚合根声明）
 
@@ -96,6 +98,7 @@ panel_config (panel_config, 单行 id=1)
 | CSRF | 变更类（POST）须带 `X-CSRF-Token` 头（R-02）；GET 豁免 |
 | 中间件链 | **EntryPathGuard（本模块，全局第一环，D-P03）** → **HostGuard（本模块，域名绑定强校验，D-P16，绑定后不匹配 Host 一律标准 404）** → InitGuard → AuthRequired → CsrfGuard（POST）→ RoleRequired（按接口）——后四者归 account-auth（api-account-auth.md 3.1），顺序固定 |
 | 用户类型标注 | 每接口标注：admin / admin+readonly（全可看，ADR-018）；无公开接口 |
+| CLI 通道（非 HTTP） | `dougong` 子命令族契约见 4.1.4「CLI 入口」（ADR-030，D-P17）；**不经上表中间件链**——服务器终端本地通道，权限=终端系统权限而非面板会话/角色；裸 `dougong`（无子命令）=启动服务 |
 
 ### 3.2 依赖与约束
 
@@ -150,6 +153,7 @@ panel_config (panel_config, 单行 id=1)
 | PANEL_009 | ACME_FAILED | 操作失败 | ACME 签发/续期失败（挑战不通/CA 拒绝/超时 ≤ACME_TIMEOUT），data.reason（沿 site-mgmt CERT_004/D-09 口径，不自动无限重试）；续期失败落 panel_cert.last_error（renew_failed 呈现，D-P13） |
 | PANEL_010 | ACME_STATE_INVALID | 状态冲突 | 证书非 acme 来源或当前状态不允许该操作（retry 要求 renew_failed；request 在非 acme 来源行上为替换语义不触发本码），data.currentStatus |
 | PANEL_011 | ACME_CERT_EXISTS | 参数冲突 | 已有 source=acme 且推算 valid/expiring_soon 的证书再次申请（沿 site-mgmt D-10 同域名防重先例，防 CA 配额浪费），data.notAfter——续期走 retry-renewal/自动调度 |
+| PANEL_012 | INIT_PASSWORD_MISSING | 参数错误 | CLI reset-password 未设置 DOUGONG_INIT_PASSWORD 环境变量（v2.1 新增，ADR-030/D-P17：新密码仅经环境变量注入、不经 argv，同 init 口径；CLI 退出码 2） |
 
 **枚举**（均在 workspace/01-solution/04-business-enum.md 定义；v2.0 增量：https_mode/panel_cert_source 取值扩展、新增 cert_status 引用）：
 
@@ -163,7 +167,7 @@ panel_config (panel_config, 单行 id=1)
 
 布尔约定：entry_path_enabled / update_check 以 INTEGER 0/1 存储（公共布尔约定，同 api-account-auth.md panel_user_totp.enabled）；lang 为字符串，MVP 固定 zh-CN（多语言二期再登记 panel_lang 枚举，prd 待对齐项已注明）。
 
-**业务常量**（审计细粒度动作码，非枚举池条目；category=audit_action.change）：`panel_config_changed`（detail 携带 {field, before, after}[]——v2.0 起 field 可为 bindDomain，值为公开访问名明文记录）/ `panel_cert_updated` / `panel_entry_path_regenerated` / `panel_cert_requested` / `panel_cert_renewed`（source=system 后台动作）/ `panel_cert_renewal_retried`（object_type ∈ panel_config / panel_cert）。域名绑定/解绑经 config/update 落 panel_config_changed（不另设动作码，D-P12）。手动更新检查触发不落审计（PRD FR-16 审计口径：仅开关变更；外呼受开关+显式触发双重约束）。
+**业务常量**（审计细粒度动作码，非枚举池条目；category=audit_action.change）：`panel_config_changed`（detail 携带 {field, before, after}[]——v2.0 起 field 可为 bindDomain，值为公开访问名明文记录）/ `panel_cert_updated` / `panel_entry_path_regenerated` / `panel_cert_requested` / `panel_cert_renewed`（source=system 后台动作）/ `panel_cert_renewal_retried`（object_type ∈ panel_config / panel_cert）。域名绑定/解绑经 config/update 落 panel_config_changed（不另设动作码，D-P12）。手动更新检查触发不落审计（PRD FR-16 审计口径：仅开关变更；外呼受开关+显式触发双重约束）。**CLI 写命令动作码全量复用、不新增（v2.1，source=cli，ADR-030/D-P17）**：set-port / entrypath off → panel_config_changed（field=listenPort / entryPathEnabled）；entrypath regen → panel_entry_path_regenerated（脱敏口径同接口）；reset-password → account-auth 常量族 `password_reset`（security，归其契约）；CLI 读命令与服务启停不落审计（prd FR-19 审计列）。
 
 **业务常量**（操作参数与阈值，非枚举池条目）：
 
@@ -280,11 +284,26 @@ panel_cert：
 - **GET /panel/cert/status**：无参；data=`{cert:{source(panel_cert_source), status:cert_status|null, issuer, notBefore, notAfter, lastError:string|null}|null, acme:{domain:string|null（=bind_domain 当前值）, challenge:"http_01", autoRenew:true（内置每日调度，固定开启，4.1.3）}}`；cert=null 即未配置证书；status 由 PanelCertStatusCalculator 读时推算（D-P13：valid/expiring_soon/expired 由 notAfter、renew_failed=lastError 非空；source≠acme 时 status=null——自签/导入无续期语义）。审计无（查看类）。
 - **POST /panel/cert/request**：无 req（域名=bind_domain、挑战=http_01 固定，D-P13）。校验链：bind_domain 非空（PANEL_007）→ nginx 可用（PANEL_008，data.reason）→ 防重：panel_cert.source=acme 且推算 ∈ {valid, expiring_soon} → PANEL_011（data.notAfter，提示走续期通道）；source=self_signed/imported 或无行 → 放行（替换式更新语义）。执行（PanelCertAcmeService，同步 ≤ACME_TIMEOUT=120s）：WritePipeline 注入挑战 location（D-P15 落点，R-06 备份→注入）→ AcmeGateway.Issue(domains=[bind_domain], http_01，经 site-mgmt OHS）→ 撤除+`nginx -t`（失败回滚保障）→ 成功：UPSERT panel_cert（source=acme、issuer/notBefore/notAfter、last_error=NULL）+ https_mode='acme' 联动（D-P14）；失败：挑战注入已撤除/回滚，返回 PANEL_008/009（data.reason），首次申请失败无证书行不落库（D-P13）。审计 panel_cert_requested（change，detail={domain, result}，object_type=panel_cert）。响应 data=`{cert:{source:"acme", status, issuer, notBefore, notAfter}, httpsMode:"acme"}`。
 - **POST /panel/cert/retry-renewal**：无 req。校验链：panel_cert 行存在且 source=acme（否则 PANEL_010，data.currentSource）→ 推算/落库态=renew_failed（valid/expiring_soon 走自动调度无需重试、expired 重新 request，PANEL_010 data.currentStatus）→ bind_domain 非空（PANEL_007）。执行：进入 4.1.3 同一通道（PanelCertAcmeService，同步终态；续期域名=当前 bind_domain，域名变更后续期即换域名证书）；成功：UPDATE not_before/not_after/issuer + last_error=NULL（推算回 valid）+（域名变更场景）domains 随证书产物更新；失败：UPDATE last_error（保持 renew_failed 呈现）+ PANEL_009（data.reason）。审计 panel_cert_renewal_retried（change，结果一并 detail）。响应 data 同 request 形态。
-- **GET /panel/menu/list**：无参；ModuleMenuRegistry（构建期登记）为数据源，按操作者角色过滤：admin=全量、readonly=仅 visibility 含 readonly 的查看类节点（D-P07）；data=`{items:[{key, title, path, icon, order, children:[...]}]}`；审计无。
+- **GET /panel/menu/list**：无参；ModuleMenuRegistry（构建期登记）为数据源，按操作者角色过滤：admin=全量、readonly=仅 visibility 含 readonly 的查看类节点（D-P07）；data=`{items:[{key, title, path, icon, order, children:[...]}]}`（v2.2：children 分组结构启用——分组节点 path 为空、两级封顶，D-P18；登记实例变更：+「用户与安全」分组四子项〔两角色〕与「环境管理」〔两角色〕，响应结构零变化）；审计无。
 - **GET /panel/system/version**：无参；数据源=构建 ldflags 注入（FR-03）；data=`{version, gitCommit, buildTime}`；审计无。
 - **POST /panel/system/update-check**：无 req；前置 I-P05：update_check=0 → PANEL_004；UpdateCheckService 单次外呼（ACL 适配版本源，源未锁定=prd 待对齐-1，超时常量见 3.4）比对语义化版本；成功 data=`{currentVersion, latestVersion|null, updateAvailable, checkedAt}`；失败 PANEL_005（不自动重试，D-P09）；结果不落库（过程数据）；审计无（PRD FR-16 口径，见 3.4 常量注）。
 
-**跨接口复用规则**：审计写入统一走 `AuditService.Record`（account-auth OHS，同事务 I-05）；生效分类判定统一走 RestartClassifier（响应 effectMode/pendingRestart 单一来源）；证书摘要提取统一走 CertPairValidator（upload 与 detail 共用）；ACME 通道统一 PanelCertAcmeService（request / retry-renewal / 4.1.3 调度三者共用，经 site-mgmt AcmeGateway 与 nginx 安全写回 OHS，D-P13/D-P15）；acme 状态推算统一 PanelCertStatusCalculator（cert/status 与 detail 摘要共用，D-P13）；HostGuard 与 EntryPathGuard 同层装配（顺序固定，D-P16）。
+**跨接口复用规则**：审计写入统一走 `AuditService.Record`（account-auth OHS，同事务 I-05）；生效分类判定统一走 RestartClassifier（响应 effectMode/pendingRestart 单一来源）；证书摘要提取统一走 CertPairValidator（upload 与 detail 共用）；ACME 通道统一 PanelCertAcmeService（request / retry-renewal / 4.1.3 调度三者共用，经 site-mgmt AcmeGateway 与 nginx 安全写回 OHS，D-P13/D-P15）；acme 状态推算统一 PanelCertStatusCalculator（cert/status 与 detail 摘要共用，D-P13）；HostGuard 与 EntryPathGuard 同层装配（顺序固定，D-P16）；CLI 写命令复用上述同一服务层与审计通道（source=cli，D-P17）。
+
+**CLI 入口（非 HTTP）——命令族契约（v2.1 新增，ADR-030，D-P17；结构沿 api-account-auth.md 4.4.4 init CLI「服务方法规格」先例）**：
+
+通用约定：直接操作本机数据目录/SQLite，复用 4.1.1 领域服务与 4.1.5 仓储契约，**无 HTTP 绕行、不经 3.1 中间件链**（服务器终端本地通道，权限=终端系统权限）；执行结果人类可读输出至 stdout；**退出码 0=成功 / 2=参数校验失败（AUTH_012/PANEL_012 语义）/ 1=执行失败**（对应错误码语义，stdout 同步打印 code 与原因）；**写命令完成后统一追加输出提示「请执行 `systemctl restart dougong` 使变更生效」**（ADR-030 口径；实际生效分类仍按 config_effect_mode——entry_path 即时生效、listen_port 待重启，prd FR-19/N2）；变更动作写审计 **source=cli**（动作码复用，见 3.4）；裸 `dougong`（无子命令）=启动面板服务（既有行为不变）。
+
+| 命令 | 参数 | 语义与处理（输出要点） | 退出码 | 审计 |
+|------|------|----------------------|--------|------|
+| `dougong status`（读） | 无 | systemd 单元状态（active/…）+ 初始化态（init_state）+ 访问 URL（scheme 按 https_mode 推导 + 监听地址:端口 + 开启时的安全入口路径前缀）；服务运行时可直读（SQL #2 通道，D-P17） | 0；1=systemd 状态查询失败（stdout 呈现原因） | 无（读命令） |
+| `dougong info`（读） | 无 | 版本（构建 ldflags，同 /panel/system/version 数据源）+ 监听地址:端口 + 安全入口路径（开关+值）+ HTTPS 模式（https_mode 四态）+ 数据目录路径；服务运行时可直读 | 0 | 无 |
+| `dougong reset-password -username <name>`（写） | -username 必填（缺失 → AUTH_012 语义，退出码 2）；新密码**仅经环境变量 DOUGONG_INIT_PASSWORD 注入**（缺失 → PANEL_012，退出码 2；不经 argv，同 init 口径） | 复用 account-auth 用户密码重置业务（与 HTTP /auth/user/reset-password 同源：A10 长度校验、成功吊销目标用户全部会话、审计 password_reset（security，source=cli）；进程内调用——OHS 方法签名待其文档登记，5.1 消费预告）；目标用户不存在 → 退出码 1（stdout 提示，错误语义与 HTTP 同源）；完成后输出 restart 提示（会话吊销即时不依赖重启，提示为统一口径） | 0 / 2（参数或密码长度校验失败）/ 1 | `password_reset`（account-auth 常量族，security，source=cli） |
+| `dougong set-port <port>`（写） | port ∈ 1024..65535（I-P02/R-14；非法 → AUTH_012 语义，退出码 2） | 更新 panel_config.listen_port（SQL #3 单事务，I-P07，进程内 ConfigRepository——与 config/update 同一配置权威）；**需重启生效**（config_effect_mode=restart_required，D-P02）→ 完成后输出 restart 提示（本命令即该提示的目标场景） | 0 / 2 / 1（落库失败） | `panel_config_changed`（detail={field:"listenPort", before, after}，source=cli） |
+| `dougong entrypath show\|regen\|off` | 子命令三选一（未知子命令 → 退出码 2） | **show**（读）：输出开关状态与当前路径值；**regen**（写）：EntryPathGenerator 生成新值替换 entry_path（保持 enabled 不变，同 regenerate-entry-path 接口语义，I-P03；审计脱敏口径同接口）；**off**（写）：entry_path_enabled=0（SQL #3）；即时生效（EntryPathGuard 下一请求即用）；写分支完成后输出 restart 提示（即时项即刻生效，提示为 ADR-030 统一口径不阻塞） | 0 / 2 / 1 | regen=`panel_entry_path_regenerated`；off=`panel_config_changed`（field=entryPathEnabled）；show 无 |
+| `dougong service start\|stop\|restart\|status` | 子命令四选一（未知子命令 → 退出码 2） | 经 systemctl 对 dougong.service 的**参数数组调用**（R-08；FR-02 OS 层治理口径）；status 输出 systemd 状态摘要；不产生面板数据变更；不输出 restart 提示（本命令族即启停治理本身） | 0；2=用法错误；非 0 透传 systemctl 失败（stdout/stderr 呈现原因） | 无（OS 层治理，同 FR-02） |
+
+命令族与 HTTP 接口的关系：set-port/entrypath 为 config 域既有写入口的**终端等价通道**（同一 service 层与 SQL，source=cli 区分来源）；status/info 为只读观测（不新增 HTTP 等价接口）；reset-password/service 为终端专属（无 HTTP 等价——服务启停无面板自重启接口，1.2 边界③）。
 
 #### 4.1.5 领域事件与集成
 
@@ -298,24 +317,25 @@ panel_cert：
 |----------|--------|---------|
 | EntryPathGuard（中间件） | api 路由层全局第一环（含 /auth/* 与全部业务路由） | 未携带/错携带安全入口 → 标准 404 无业务码（D-P03）；开关关闭直通；作用于未认证访问 |
 | HostGuard（中间件，v2.0 新增） | api 路由层全局第二环（EntryPathGuard 之后，D-P16） | bind_domain 非空时 Host 不匹配（含 IP 直连）→ 标准 404 无业务码（I-P09/ADR-028）；未绑定直通；读态失败 fail-closed 404；作用于全部路由含未认证访问 |
-| ModuleMenuRegistry（构建期登记约定） | 全部业务模块 | 模块以 {key,title,path,icon,order,visibility} 登记；GET /panel/menu/list 单一数据源（D-P07） |
+| ModuleMenuRegistry（构建期登记约定） | 全部业务模块 | 模块以 {key,title,path,icon,order,visibility,children?} 登记（v2.2：children 分组启用，D-P18）；GET /panel/menu/list 单一数据源（D-P07）；登记实例增量（v2.2）：account-auth 域「用户与安全」分组（用户管理/在线会话/审计日志/个人资料，两角色）+ env-mgmt「环境管理」（两角色） |
 | 设置页透传区（detail.session 键） | account-auth 会话策略展示 | 只读透传 internal/config 会话键（D-P08/D-10），本模块不提供其修改接口 |
 | 中间件链顺序约束 | api 路由层 | EntryPathGuard → HostGuard → InitGuard → AuthRequired → CsrfGuard → RoleRequired（3.1，顺序固定） |
 
-**跨模块消费契约（本模块引入，v2.0；与 D1 被依赖登记对应 api-site-mgmt.md 1.5/5.1 v1.1）**：
+**跨模块消费契约（本模块引入，v2.0；v2.1 追加 CLI 消费预告一行；与 D1 被依赖登记对应 api-site-mgmt.md 1.5/5.1 v1.1）**：
 
 | 消费契约 | 提供方 | 契约要点 |
 |---------|--------|---------|
 | AcmeGateway（lego ACL） | site-mgmt（api-site-mgmt.md 4.1.5，D-09） | `Issue(domains, challenge=http_01, timeout≤120s)` / `Renew(...)`——面板证书签发/续期的 ACME 协议交互；外部 CA 概念止步于其防腐层；ACME 账户密钥（acme-account.key 0600）与 CA 目录（acme.directory_url）复用其载体（D-P13）；R-09 例外语义（用户主动申请/续期调度） |
 | nginx 安全写回（WritePipeline/NginxGateway） | site-mgmt（api-site-mgmt.md 4.2.5，R-06/R-16） | HTTP-01 挑战 location 的临时注入与撤除：备份→注入 `/.well-known/acme-challenge/`（D-P15 落点）→签发→撤除→`nginx -t`→失败回滚；隔离写回其余站点零影响；不新增独立 80 端口监听（ADR-029） |
+| 用户密码重置业务（进程内，**v2.1 消费预告**） | account-auth（HTTP /auth/user/reset-password 同源逻辑，api-account-auth.md 4.4） | CLI reset-password 子命令（4.1.4 CLI 入口，S-06-04）复用其校验（A10）/目标用户会话级联吊销/审计常量 `password_reset`（security，source=cli）；OHS 方法签名（进程内服务方法，形态待其文档登记）后续回填本表（ADR-030/D-P17；本版以消费预告登记，不改动 api-account-auth.md） |
 
 ### 5.2 SQL 清单
 
 | # | SQL | 场景 |
 |---|-----|------|
 | 1 | INSERT INTO panel_config(id,...) VALUES(1,...) OR IGNORE | 启动自检确保单例（I-P01） |
-| 2 | SELECT * FROM panel_config WHERE id=1 | 启动绑定读取（D-P02）+ GET detail + HostGuard 读态（I-P09 fail-closed 输入） |
-| 3 | UPDATE panel_config SET {变更列}, updated_at=? WHERE id=1 | 配置保存（单事务，I-P07，同事务审计；v2.0 起变更列可含 bind_domain） |
+| 2 | SELECT * FROM panel_config WHERE id=1 | 启动绑定读取（D-P02）+ GET detail + HostGuard 读态（I-P09 fail-closed 输入）；v2.1 起 CLI status/info 直读（D-P17） |
+| 3 | UPDATE panel_config SET {变更列}, updated_at=? WHERE id=1 | 配置保存（单事务，I-P07，同事务审计；v2.0 起变更列可含 bind_domain）；v2.1 起承载 CLI set-port（listen_port）与 entrypath off（entry_path_enabled），审计 source=cli（D-P17） |
 | 4 | INSERT OR REPLACE INTO panel_cert(id, cert_pem, key_pem, source, issuer, not_before, not_after, last_error, updated_at) VALUES(1,...) | 证书导入/自签生成/ACME 申请成功落库（acme 时 last_error=NULL，D-P13） |
 | 5 | SELECT cert_pem, key_pem, source, issuer, not_before, not_after, last_error FROM panel_cert WHERE id=1 | TLS 启动/回调读取 + detail/cert-status 摘要与推算输入 |
 | 6 | UPDATE panel_cert SET not_before=?, not_after=?, issuer=?, last_error=NULL, updated_at=? WHERE id=1 | ACME 续期成功回写（4.1.3 / retry-renewal，推算回 valid） |
@@ -364,6 +384,8 @@ CREATE TABLE IF NOT EXISTS panel_cert (
 |------|------|---------|---------|---------|
 | v1.0 | 2026-11-12 | initial | 首次生成：7 个 HTTP 接口（/panel/{config,menu,system}/*，全部需会话、无公开端点）+ 全局中间件 EntryPathGuard + 构建期 ModuleMenuRegistry 登记契约 + 2 表 DDL（panel_config/panel_cert 单行表）+ 4 枚举（D2 已定稿，无新增）+ 6 新增错误码（PANEL_001~006，复用 AUTH_001/002/003/008/012）；关闭 prd 待对齐-3（结构化单例表）/待对齐-4（独立证书表）；无旧版对比 | — |
 | v2.0 | 2026-11-16 | interface_added / field_added / enum_value_added / rule_changed / table_changed | 增量 D3（ADR-028/029，输入 prd v1.1/domain-model v1.16/D1 三文档 v1.1）：**新增接口 3 个**——GET /panel/cert/status（两角色）、POST /panel/cert/request（ACME 申请，HTTP-01 经已有 nginx、同步终态 ≤120s）、POST /panel/cert/retry-renewal（手动重试，4.1.3 同通道），域名绑定/解绑**并入** config/update（bindDomain 字段，D-P12 设计判断：用户输入值走 update 唯一写入口，解绑=置空，不设独立接口）；**字段新增**——panel_config.bind_domain（HostGuard 强校验 I-P09/D-P16）、panel_cert.last_error（acme 排障）；**枚举扩展**——https_mode +acme（D-P14 联动，池行同步）、panel_cert_source +acme（D2 已扩，本文对齐）、新增 cert_status 引用（4 值子集呈现）；**规则**——设计决策 D-P12~D-P16、不变量 I-P04 扩展 + I-P09/I-P10、子流程 4.1.3 面板证书自动续期任务、中间件链 +HostGuard、跨模块消费契约（site-mgmt AcmeGateway + nginx 安全写回，5.1 消费表，与 D1 登记对应）；**DDL**——两表 CHECK 扩展与新列 + 增量迁移 007（表重建流程，5.3）；**错误码** PANEL_007~011 接力（PANEL_003 语义扩展 acme 分支）；关闭 prd 待对齐-6/-7；M1~M5 增量重跑通过 | 1.2/1.3/1.4/1.5/2.1/2.3/3.1/3.2/3.3/3.4/4.1.1/4.1.2/4.1.3/4.1.4/4.1.5/5.1/5.2/5.3 |
+| v2.1 | 2026-11-16 | interface_added / rule_added | CLI 增量 D3（ADR-030，输入 prd v1.3/domain-model v1.17/D1 三文档 v1.2）：**新增 CLI 入口命令族契约（非 HTTP）6 项**（4.1.4「CLI 入口」，结构沿 api-account-auth.md 4.4.4 init 先例）——`status`（systemd 状态+初始化态+访问 URL）/`info`（版本/端口/入口路径/HTTPS/数据目录）/`reset-password -username`（DOUGONG_INIT_PASSWORD 环境变量注入、复用 account-auth 密码重置业务）/`set-port`（写 listen_port，需重启）/`entrypath show\|regen\|off`（即时生效）/`service start\|stop\|restart\|status`（systemctl 参数数组 R-08），逐项参数/退出码/输出要点/生效语义（写命令统一 `systemctl restart dougong` 提示，实际按 config_effect_mode）/审计；**规则**——设计决策 D-P17（进程内复用无 HTTP 绕行、退出码 0/2/1 约定、source=cli）、3.1 增 CLI 通道规范行（不经中间件链）、3.4 审计动作码全量复用注（panel_config_changed/panel_entry_path_regenerated/account-auth password_reset）与 1.5 account-auth 消费方向 + systemd 治理注；**错误码** PANEL_012 接力（INIT_PASSWORD_MISSING）；**5.1 增 account-auth 用户密码重置业务消费预告**（OHS 方法签名待其文档登记，本版不改 api-account-auth.md）；**DDL/表结构零变更**（复用 SQL #2/#3 通道，5.2 场景注）；HTTP 接口清单与权限矩阵零变化；M1~M5 增量重跑通过 | 1.1/1.2/1.3/1.5/3.1/3.4/4.1.4/5.1/5.2 |
+| v2.2 | 2026-11-16 | rule_added | 菜单 IA 增量（v0.1.2 用户反馈第 5/6/7 项，输入 PageSpec panel-core v1.2/PageSpec account-auth v1.3 增量方向）：**规则新增 D-P18**——①MenuItem.children 分组结构启用（响应结构 v1.0 预留、本轮落地侧栏分组渲染：分组 path 空、两级封顶、visibility 并集）；②account-auth 域菜单登记补全（「用户与安全」分组四子项两角色——实现回归 PageSpec account-auth 第 7 节既有设计，修复 /users 不可达）；③env-mgmt「环境管理」菜单登记（两角色）；④顶栏标题=当前页面标题（路由 meta.title 优先、菜单 title 兜底，替换 MainLayout 硬编码业务域显示名——内部术语不泄漏用户 UI，前端框架职责归 PageSpec）；⑤设置页重排纯 PageSpec 层零接口变更；**HTTP 接口清单/权限矩阵/DDL/错误码/枚举零变化**（menu/list 响应结构不变，内容为构建期登记数据）；M1~M5 增量重跑通过 | 1.3、4.1.4、5.1 |
 
 ### 6.2 变更类型词汇表
 

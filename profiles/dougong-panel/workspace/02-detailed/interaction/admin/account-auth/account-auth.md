@@ -238,18 +238,20 @@
 | /init-wizard | init-wizard | `{guestOnly:true, initRequired:true}` |
 | /login | login | `{guestOnly:true, initializedRequired:true}` |
 | / | 框架布局（NLayout：侧边菜单+顶栏） | `{requiresAuth:true}`；子路由挂载点；首页重定向由面板全局路由决定（非本模块范围） |
-| /users | user-list | `{requiresAuth:true}`（readonly 可见只读视图） |
-| /sessions | session-list | `{requiresAuth:true}` |
-| /audit-logs | audit-log-list | `{requiresAuth:true}` |
-| /profile | profile-self | `{requiresAuth:true}` |
+| /users | user-list | `{requiresAuth:true, title:'用户管理'}`（readonly 可见只读视图） |
+| /sessions | session-list | `{requiresAuth:true, title:'在线会话'}` |
+| /audit-logs | audit-log-list | `{requiresAuth:true, title:'审计日志'}` |
+| /profile | profile-self | `{requiresAuth:true, title:'个人安全设置'}` |
 
 **守卫顺序**（对应 api 3.1 中间件链前端镜像）：路由级 initCheck（首次进入缓存，AUTH_009 语境刷新）→ sessionCurrent 探测（AUTH_001 → /login；AUTH_002 → /login + 提示过期）→ roles 校验（ unauthorized → 403 页提示边界原因 ADR-018）。
 
-**顶栏**：当前用户名 + 角色 NTag + `登出`（logout → 成功后清 authStore → 跳 /login；接口 AUTH_002 容错同样跳转）。
+**顶栏**（v1.3）：标题=当前页面标题（路由 meta.title 优先、菜单 title 兜底——替换此前硬编码业务域显示名「账户与安全基座」，内部设计术语不泄漏用户 UI，D-P18 框架级职责承载于 PageSpec panel-core v1.2 第 7 节）；右侧当前用户名 + 角色 NTag + `登出`（logout → 成功后清 authStore → 跳 /login；接口 AUTH_002 容错同样跳转）。
 
-**侧边菜单（admin 视角）**：用户管理 / 在线会话 / 审计日志 / 个人安全设置（其余菜单由其他模块路由注入，非本模块范围）。
+**侧边菜单（admin 视角，v1.3 分组化）**：「用户与安全」分组（组内：用户管理 /users、在线会话 /sessions、审计日志 /audit-logs、个人安全设置 /profile；两角色可达——页面内操作差异按 ADR-018 页面级负空间，export 等写入口 admin 专属）——登记经 panel-core ModuleMenuRegistry（api-panel-core.md v2.2 D-P18；v0.1.2 反馈第 6 项：实现侧此前未登记致 /users 不可达，本增量实现回归本节既有设计）。
 
 ## 第 8 节 全局一致性
+**列表页加载失败态规范（v1.3，v0.1.2 反馈第 5 项「正文空白」修复）**：user-list/session-list/audit-log-list 统一——loadError=true 时渲染 NAlert error「加载失败：{原因}」+「重试」按钮（重新发起本页主查询），**不呈现裸空表格**（此前 user-list loadError 分支无 UI 反馈致正文空白；空态 NEmpty 仅在加载成功且无数据时呈现）。
+
 
 | # | 检查 | 结果 |
 |---|------|------|
@@ -271,5 +273,6 @@
 | v1.0 | 2026-11-12 | initial | 首次生成：7 页面（3 公共/认证页 + 4 功能页）、18 Action、8 字典 Key、3 列表页/4 表单/0 详情路由 |
 | v1.1 | 2026-11-12 | field_added | audit-log-list 筛选区补"对象标识"（objectId eq），对齐 API query 修订（Gate 1 W3 修正）；W4 动态码提交字段统一为 totpSecret+totpCode | 4.3 |
 | v1.2 | 2026-11-16 | copy_revision | 首启 UI 缺陷修复增量：全局 dark 背景同步/响应式跟随/暗色对比度（App.vue 装配，独立页 5.1/5.2 受益）；5.1/5.2 说明文案净化（去「不阻断/单向/ADR-017/经 CLI」术语表述，功能语义不变）——UI 文案未在本 PageSpec 逐字锁定，Action/契约/校验零变更 | 5.1/5.2 |
+| v1.3 | 2026-11-16 | copy_revision / structural | 增量 D4（v0.1.2 用户反馈第 5/6 项）：侧栏菜单分组化登记（「用户与安全」分组四子项两角色，经 panel-core ModuleMenuRegistry 补全——实现回归本节既有设计，修复 /users 不可达）；顶栏标题=当前页面标题（替换硬编码「账户与安全基座」业务域显示名）；路由 meta +title 四项；列表页加载失败态规范（loadError NAlert+重试，修复正文空白缺陷）；Action/字典/接口契约零变化 |
 
 > FX 质量清单说明：FX-001~FX-141 逐条清单文件未随引擎 0.5.2 payload 发布（find 验证无 checklist.md），本节按分册 9 节结构逐节落实，并以第 8 节 10 项全局一致性自查替代可机械执行部分；全量 141 项留待 Gate 1 validation 执行。

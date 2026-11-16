@@ -2,7 +2,7 @@
   "_generated": {
     "version": 3,
     "note": "本文件由 engine-gui 文档中心根据项目架构自动生成，可手工编辑（编辑后原样生效）；删除本文件后下次访问将按最新架构重新生成。",
-    "generatedAt": "2026-11-16T11:00:52.118Z",
+    "generatedAt": "2026-11-16T15:37:32.870Z",
     "generator": "engine-gui doc-center 生成器（/dc/api/domains · /api/projects/:id/funcview）"
   },
   "names-map": {},
@@ -106,13 +106,18 @@
       "网站管理（site-mgmt）": {
         "name": "网站管理（site-mgmt）",
         "layer": "核心域",
-        "related": "account-auth（遵奉会话鉴权与只读边界 R-02/ADR-018；消费审计写入 OHS R-03）；枚举共享 audit_result 与本域 6 枚举（入池共享口径）；ACME CA（外部系统，ACL 经 lego 封装，R-09 唯一外呼例外）；nginx/php-fpm（本机系统组件，nginxx 适配器 ADR-010，非业务域）",
+        "related": "account-auth（遵奉会话鉴权与只读边界 R-02/ADR-018；消费审计写入 OHS R-03）；枚举共享 audit_result 与本域枚举（acme_challenge 扩 dns_01+dns_provider 新增，v1.20）；ACME CA（外部系统，ACL 经 lego 封装，R-09 外呼例外）；DNS 服务商 API（Cloudflare/阿里云 DNS/腾讯云 DNSPod，v1.20——ACL 经 lego DNS provider 封装，R-09 例外语义与 ACME 同判）；nginx/php-fpm（本机系统组件，nginxx 适配器 ADR-010，非业务域）",
         "fishbone": {
           "spine": [
             {
               "code": "certificate",
               "name": "certificate",
               "desc": "域名列表、issuer、有效期、来源、托管路径（acme）、续期挑战方式（acme）、失败原因（renew_failed…"
+            },
+            {
+              "code": "AGG-2",
+              "name": "dns_credential",
+              "desc": "名称（显示名）、服务商（dns_provider）、凭据材料（内嵌值对象，密文列）"
             }
           ],
           "upperRibs": [],
@@ -203,6 +208,22 @@
               "code": "AGG-2",
               "name": "backup_run",
               "desc": "任务引用、触发方式、状态、开始时间、结束时间、耗时（派生）、产物路径、产物大小、失败原因"
+            }
+          ],
+          "upperRibs": [],
+          "lowerRibs": []
+        }
+      },
+      "环境管理（env-mgmt）（v1.19 追加）": {
+        "name": "环境管理（env-mgmt）（v1.19 追加）",
+        "layer": "支撑域",
+        "related": "account-auth（遵奉会话鉴权与只读边界 R-02/ADR-018；消费审计写入 OHS R-03）；service-mgmt（共享 SysdGateway systemd 适配层资产，进程内共享非模块调用）；docker-mgmt/database-mgmt/site-mgmt（被消费：环境未装实况软引导，无跨模块 API 硬依赖）；apt/dnf·yum/systemd（本机系统组件，envpack 适配器，非业务域）",
+        "fishbone": {
+          "spine": [
+            {
+              "code": "AGG-1",
+              "name": "env_install_task",
+              "desc": "目标环境（env_type）、动作、状态、发起者、发起时间、开始/结束时间、命令输出尾部（终态定格）、失败原因"
             }
           ],
           "upperRibs": [],
@@ -396,7 +417,7 @@
         ]
       },
       "网站管理（site-mgmt）": {
-        "description": "存量 nginx 站点接管（R-15 扫描→指令树解析→server 块提取→写回落点登记，零站点台账投影）、安全写入治理（R-06 四步+R-16 隔离，全部写回强制前置）、双模式站点编辑（结构化+Monaco 源码，R-07 Raw 保留）、三模板建站与站点启停/日志/重载、证书全生命周期治理（ACME HTTP-01/TLS-ALPN 经 ACL 申请、部署、自动续期六状态机 ADR-024、存量识别导入）",
+        "description": "存量 nginx 站点接管（R-15 扫描→指令树解析→server 块提取→写回落点登记，零站点台账投影）、安全写入治理（R-06 四步+R-16 隔离，全部写回强制前置）、双模式站点编辑（结构化+Monaco 源码，R-07 Raw 保留）、三模板建站与站点启停/日志/重载、证书全生命周期治理（ACME HTTP-01〔文件验证〕/TLS-ALPN/DNS-01 三种挑战申请、部署、自动续期六状态机 ADR-024、存量识别导入；DNS-01〔v1.20〕经 DNS 服务商 API 自动 TXT+泛域名，dns_credential 凭证聚合+三服务商初始清单 ⚠️A20）",
         "tablePrefix": "",
         "tableCount": 6,
         "aggregateRoot": "certificate",
@@ -406,6 +427,22 @@
             "table": "certificate",
             "type": "aggregate",
             "relation": "",
+            "parent": null,
+            "condition": ""
+          },
+          {
+            "name": "dns_credential",
+            "table": "",
+            "type": "aggregate",
+            "relation": "—（certificate.dns_credential_id 引用为同域聚合引用，非父子隶属）",
+            "parent": null,
+            "condition": ""
+          },
+          {
+            "name": "DNS 凭据材料",
+            "table": "",
+            "type": "entity",
+            "relation": "内嵌于 dns_credential（密文列整体加密）",
             "parent": null,
             "condition": ""
           },
@@ -630,6 +667,38 @@
             "table": "",
             "type": "entity",
             "relation": "投影集合条目（经读取契约以 crontab 内任务行定位直接寻址，无聚合根守门；系统预置位条目为只读投影分区）",
+            "parent": null,
+            "condition": ""
+          }
+        ]
+      },
+      "环境管理（env-mgmt）（v1.19 追加）": {
+        "description": "运行环境本体供给（软件包层，v0.1.2 反馈第 4 项补位）：内置六环境目录+实况实时探测合并呈现（nginx/Apache/Docker/MySQL/Redis/PHP-FPM，⚠️A1/A7，零环境台账投影——包管理器/systemd 为事实源）、apt/dnf·yum 双系通道探测择一与官方仓库源代配（⚠️A2，写入审计）、异步变更任务四态机 pending→running→succeeded/failed（⚠️A3，同环境互斥、任务台账落 SQLite、重启恢复 running→failed）、安装与升级同通道幂等（⚠️A4，先刷新索引）、卸载保守语义（⚠️A6 remove 保留配置数据+强确认风险提示）、已装环境服务启停自启（复用 service-mgmt SysdGateway 共享适配层，操作限定目录环境单元）、变更与任务终态审计留痕（R-03）、包操作参数数组纪律（R-08）",
+        "tablePrefix": "",
+        "tableCount": 6,
+        "aggregateRoot": "env_install_task",
+        "objects": [
+          {
+            "name": "env_install_task",
+            "table": "",
+            "type": "aggregate",
+            "relation": "",
+            "parent": null,
+            "condition": ""
+          },
+          {
+            "name": "环境条目（env entry）",
+            "table": "",
+            "type": "entity",
+            "relation": "投影集合条目（目录条目编译期常量+实况运行时探测合并，无聚合根守门）",
+            "parent": null,
+            "condition": ""
+          },
+          {
+            "name": "发行版映射（distro mapping）",
+            "table": "",
+            "type": "entity",
+            "relation": "内嵌于环境条目（编译期，1:N per 发行版族）",
             "parent": null,
             "condition": ""
           }
