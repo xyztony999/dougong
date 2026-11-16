@@ -186,7 +186,8 @@ export interface PanelMenuItem {
   path: string
   icon: string
   order: number
-  children?: PanelMenuItem[]
+  /** 叶子节点后端序列化为 null（api-panel-core 契约），消费端须双防护。 */
+  children?: PanelMenuItem[] | null
 }
 
 export interface MenuListData {

@@ -2,9 +2,11 @@
 //
 // 用法：
 //
-//	dougong [-config dougong.json]            启动面板服务
+//	dougong [-config dougong.json]            启动面板服务（生产默认静音 gin 调试输出；
+//	                                         DOUGONG_DEBUG=1 或 GIN_MODE 恢复）
 //	dougong init -username <u> [-password <p>] CLI 初始化首个 admin（§4.4.4；
 //	                                         密码推荐经 DOUGONG_INIT_PASSWORD 注入）
+//	dougong version                           打印版本/commit/构建时间
 package main
 
 import (
@@ -72,6 +74,8 @@ import (
 	storefileman "github.com/dougong/dougong/internal/store/fileman"
 	storepanel "github.com/dougong/dougong/internal/store/panel"
 	storesitemgmt "github.com/dougong/dougong/internal/store/sitemgmt"
+
+	"github.com/gin-gonic/gin"
 )
 
 func main() {
@@ -84,6 +88,15 @@ func main() {
 			os.Exit(1)
 		}
 		return
+	}
+	if len(args) > 0 && args[0] == "version" {
+		v := panelsvc.GetVersionInfo()
+		fmt.Printf("dougong %s (commit %s, built %s)\n", v.Version, v.GitCommit, v.BuildTime)
+		return
+	}
+	// 生产二进制默认静音 gin 调试横幅；DOUGONG_DEBUG=1 保留调试输出。
+	if os.Getenv("GIN_MODE") == "" && os.Getenv("DOUGONG_DEBUG") == "" {
+		gin.SetMode(gin.ReleaseMode)
 	}
 	if err := run(args); err != nil {
 		slog.Error("dougong exit", "err", err)

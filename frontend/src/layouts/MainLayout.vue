@@ -100,8 +100,10 @@ function toMenuOptions(items: PanelMenuItem[]): MenuOption[] {
         key: it.path !== '' ? it.path : it.key,
         icon: renderIcon(resolveIcon(it.icon))
       }
-      if (it.children !== undefined && it.children.length > 0) {
-        option.children = toMenuOptions(it.children)
+      // 契约：叶子节点后端序列化为 children:null（非 undefined），双防护。
+      const kids = it.children
+      if (kids != null && kids.length > 0) {
+        option.children = toMenuOptions(kids)
       }
       return option
     })
