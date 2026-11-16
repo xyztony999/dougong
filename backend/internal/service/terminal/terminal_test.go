@@ -752,9 +752,11 @@ func TestSessionProtocolViolations(t *testing.T) {
 				return false
 			})
 			waitFor(t, "registry 注销", func() bool { return env.svc.registry.Len() == 0 })
-			if got := len(env.audit.byAction(ActionSessionClosed)); got != 1 {
-				t.Fatalf("closed 审计 = %d, want 1", got)
-			}
+			// 审计是清理链第 6 步（registry.Remove 之后，session.go 清理序）——
+			// 注册表清零与审计落库之间存在调度窗口，必须等待而非立即断言。
+			waitFor(t, "closed 审计恰好一条", func() bool {
+				return len(env.audit.byAction(ActionSessionClosed)) == 1
+			})
 		})
 	}
 }

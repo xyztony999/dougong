@@ -23,15 +23,21 @@ type Service struct {
 	backupRoot string // {dataDir}/conf.backup（R-06）
 	certsDir   string // {dataDir}/certs（A-SM11）
 	webrootDir string // {dataDir}/acme-webroot（A-SM10）
-	clock      func() time.Time
+	// defaultAccessLog/defaultErrorLog：nginx 默认日志路径回退（D-07 ⚠️A15），
+	// 可经 Options 覆写——测试环境无关性（CI runner 可能装有 nginx）。
+	defaultAccessLog string
+	defaultErrorLog  string
+	clock            func() time.Time
 }
 
 // Options 是路径派生覆盖项（缺省由 DataDir 派生；测试注入用）。
 type Options struct {
-	DataDir    string
-	BackupRoot string
-	CertsDir   string
-	WebrootDir string
+	DataDir          string
+	BackupRoot       string
+	CertsDir         string
+	WebrootDir       string
+	DefaultAccessLog string
+	DefaultErrorLog  string
 }
 
 // New 构造服务；clock 为 nil 用 time.Now（白盒测试可覆写）。
@@ -46,6 +52,8 @@ func New(gw NginxGateway, phpfpmGw PhpFpmGateway, acmeGw AcmeGateway,
 		dataDir: dataDir, clock: time.Now,
 	}
 	s.backupRoot = orDefault(opts.BackupRoot, filepath.Join(dataDir, BackupDirName))
+	s.defaultAccessLog = orDefault(opts.DefaultAccessLog, NginxDefaultAccessLog)
+	s.defaultErrorLog = orDefault(opts.DefaultErrorLog, NginxDefaultErrorLog)
 	s.certsDir = orDefault(opts.CertsDir, filepath.Join(dataDir, "certs"))
 	s.webrootDir = orDefault(opts.WebrootDir, filepath.Join(dataDir, "acme-webroot"))
 	return s

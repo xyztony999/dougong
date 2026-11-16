@@ -44,7 +44,7 @@ func (s *Service) TailLog(ctx context.Context, siteID, logType, linesParam strin
 	if err != nil {
 		return nil, err
 	}
-	logPath := resolveLogPath(e, logType)
+	logPath := s.resolveLogPath(e, logType)
 	if logPath == "" || !s.gw.Exists(logPath) {
 		return nil, errcode.ErrLogNotFound.WithData(ReasonData{
 			Reason: fmt.Sprintf("日志路径缺失（%s）", logPath),
@@ -58,18 +58,18 @@ func (s *Service) TailLog(ctx context.Context, siteID, logType, linesParam strin
 }
 
 // resolveLogPath ⚠️A15 路径解析链：server 块指令 → nginx 默认路径回退。
-func resolveLogPath(e *SiteEntry, logType string) string {
+func (s *Service) resolveLogPath(e *SiteEntry, logType string) string {
 	switch logType {
 	case LogTypeAccess:
 		if e.Block.AccessLog != "" && e.Block.AccessLog != "off" {
 			return e.Block.AccessLog
 		}
-		return NginxDefaultAccessLog
+		return s.defaultAccessLog
 	case LogTypeError:
 		if e.Block.ErrorLog != "" {
 			return e.Block.ErrorLog
 		}
-		return NginxDefaultErrorLog
+		return s.defaultErrorLog
 	}
 	return ""
 }

@@ -240,7 +240,13 @@ func newEnv(t *testing.T) *testEnv {
 	}
 	repo := storeauth.New(db)
 	env.rec = &recordingAudit{inner: audit.New(repo.Audit(), func() time.Time { return env.now })}
-	env.svc = New(gw, env.php, env.acmeGw, st, env.rec, Options{DataDir: dataDir})
+	env.svc = New(gw, env.php, env.acmeGw, st, env.rec, Options{
+		DataDir: dataDir,
+		// 环境无关性：CI runner 可能装有 nginx（/var/log/nginx/* 真实存在），
+		// 「回退链穷尽 → SITE_011」用例的默认回退路径指向必然不存在的测试路径。
+		DefaultAccessLog: filepath.Join(dataDir, "no-such-access.log"),
+		DefaultErrorLog:  filepath.Join(dataDir, "no-such-error.log"),
+	})
 	env.svc.clock = func() time.Time { return env.now }
 	return env
 }
