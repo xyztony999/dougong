@@ -1,0 +1,55 @@
+# 业务枚举池
+
+> /profile kb 于 2026-11-12 从 workspace/00-architecture/idea.md 蒸馏的**草稿**条目（status: draft）。
+> D1/D3 阶段视为候选：正式定稿后去除 draft 标记；未采用条目注明理由。
+
+## 枚举条目
+
+| 枚举 | 标识 | 取值 | 所属域 | 状态 | 来源 |
+|------|------|------|--------|------|------|
+| 站点类型 | site_type | static \| php_fpm \| reverse_proxy | 网站管理 | **定稿**（D2 2026-11-12） | 材料 §4.1 M4（新建站点三模板，材料明示）；D1 AA S-27 三子模块一一对应；prd-site-mgmt.md FR-14~16 |
+| 站点启停 | site_enabled | enabled \| disabled | 网站管理 | **定稿**（D2 2026-11-12） | kb 状态机表拍板（enabled ⇄ disabled，触发=面板启停走 R-06 安全写入→nginx reload）；prd-site-mgmt.md FR-17 |
+| 证书来源 | cert_source | acme \| imported | 网站管理 | **定稿**（D2 2026-11-12） | kb 对象表（来源 acme/imported）；imported=存量 ssl_cert 引用识别纳管（D1 C-10-01/⚠️A16 保留原路径）；prd-site-mgmt.md FR-20~22/25 |
+| ACME 验证方式 | acme_challenge | http_01 \| tls_alpn | 网站管理 | **定稿**（D2 2026-11-12） | 材料 §4.1 M4 明示两种挑战（DNS-01 二期 OUT）；续期按原挑战方式复用（ADR-024 调度）；prd-site-mgmt.md FR-20~21/23 |
+| 证书状态 | cert_status | pending \| valid \| expiring_soon \| expired \| renew_failed | 网站管理 | **定稿**（D2 2026-11-12，⚠️A2 关闭） | A2 随 D0 Q4 拍板关闭（ADR-024 六状态机，2026-11-12）；枚举命名 5 状态即 ADR-024 全部命名状态；ADR-024 文本「6 状态」与枚举命名计数的差异已在 prd-site-mgmt.md 第六部分登记（待 ADR-024 侧澄清，如补中间态需同步三文档+本池） |
+| 数据库类型 | db_type | mysql \| mariadb | 数据库管理 | **不采用**（D2 2026-11-12） | 被 db_engine 取代：实例档案需统一覆盖 MySQL/MariaDB/Redis 三类引擎的单一枚举（双引擎统一清单呈现与 dbmysql/dbredis 适配器路由），mysql/mariadb 细分并入 db_engine 取值域避免两枚举重叠；ADR-007 范围语义由 db_engine 承载 |
+| 容器状态 | container_status | running \| stopped \| paused | 容器管理 | **定稿**（D2 2026-11-14，⚠️A7 已随 ADR-025 关闭） | ADR-025（running/stopped/paused 为面板操作映射核心态）+ D1 BA 附录B.1 映射（created/exited/dead→stopped 归并；restarting/removing 过渡态透传原始值不入枚举，与 service_enabled_state 透传口径同构）；动作 × 状态可用性矩阵=BA 附录B.2 唯一口径；prd-docker-mgmt.md FR-03/FR-06~08 |
+| 备份目标类型 | backup_target_type | local \| rsync | 计划任务与备份 | **定稿**（D2 2026-11-14） | 材料 §4.1 M8 明示（MVP 本地 + 可选 rsync；S3/OSS 云目标二期 OUT）；D1 BA 2.2.1.2/S-52-02 目标配置与 backup_job 备份目标值对象判别字段；rsync 推送为用户主动配置传输（R-09 例外语义）；prd-cron-backup.md FR-08 |
+| 面板角色 | panel_role | admin \| readonly | 账户与安全 | **定稿**（D3 2026-11-12） | 材料 §4.1 M1（"两类角色即可起步"） |
+| 用户状态 | panel_user_status | active \| locked | 账户与安全 | **定稿**（D3 2026-11-12） | 材料 §4.1 M1（R-01 登录锁定） |
+| 会话状态 | session_status | active \| expired \| revoked | 账户与安全 | **定稿**（D3 2026-11-12 新增） | D3：expired 为计算态（api-account-auth.md D-03），revoked=落库吊销 |
+| 会话吊销原因 | session_end_reason | self_logout \| forced_logout \| cascade | 账户与安全 | **定稿**（D3 2026-11-12 修订） | 原草稿 expiry\|forced_logout ⚠️A9：expiry 属派生态非吊销动作，移出；cascade=用户删除/重置/改密级联（D0 Q3 假设关闭） |
+| 审计类别 | audit_action | change \| security | 账户与安全 | **定稿**（D3 2026-11-12 新增） | R-03（变更类）+ D1 安全事件审计（S-04-02） |
+| 审计来源 | audit_source | web \| cli \| system | 账户与安全 | **定稿**（D3 2026-11-12 新增） | 双入口（ADR-017）+ 后台任务溯源 |
+| 初始化状态 | init_status | uninitialized \| initialized | 账户与安全 | **定稿**（D3 2026-11-12 新增） | ADR-017 单向状态机 |
+| 压缩格式 | archive_format | tar \| tar.gz \| zip | 文件管理 | **定稿**（D2 2026-11-12） | 材料 §4.1 M3 明示三格式（D0 IN 沿用）；D1 BA 2.2.5 压缩/解压两动作共用（压缩打包格式三选一、解压支持三格式）；prd-file-manager.md FR-14/FR-15 |
+| 防火墙后端 | firewall_backend | ufw \| firewalld \| none | 防火墙 | **定稿**（D2 2026-11-14） | 材料 §4.1 M7（自动识别，均无则提示）；D1 BA 2.1.1.1 双后端自动识别（ufw 优先 → firewalld，R-15）；none=均未检测到时无后端引导提示的判定值（不呈现「无规则」空列表）；后端运行状态为伴随透传属性（字段集 D3 定，prd-firewall.md 待对齐-1）；prd-firewall.md FR-01/FR-02 |
+| Compose 操作 | compose_action | up \| down \| restart \| logs | 容器管理 | **定稿**（D2 2026-11-14；D3 2026-11-14 补承载形态） | 材料 §4.1 M9 + R-13/ADR-013（up/down/restart 经 `docker compose` CLI 参数数组、经 label 定位工作目录与配置文件，不走 SDK 编排；logs 为查看类动作同经 CLI）；Compose 操作集权威口径、非对象状态字段（domain-model.md compose_project 行）；D3 落定承载形态（api-docker-mgmt.md D-06）：up/down/restart 为 POST /docker/compose/{up,down,restart} 路径动作段、logs 为 GET /docker/compose/logs——枚举不作独立请求参数字段（审计 detail 与 D4 动作渲染引用）；prd-docker-mgmt.md FR-17/FR-18 |
+| daemon 接管结论 | docker_daemon_state | available \| unavailable | 容器管理 | **定稿**（D2 2026-11-14 新增） | daemon 接管判定值（本机 sock 探测，R-12/R-15 接管不重装；unavailable→未装引导降级，与 firewall_backend 的 none 同构语义）；探测态非状态机、整值刷新（与 instance_conn_state 同构）；伴随透传 daemon 版本（字段集 D3 定，prd-docker-mgmt.md 待对齐-8）；prd-docker-mgmt.md FR-01/FR-02 |
+| 审计结果 | audit_result | success \| failure | 账户与安全 | **定稿**（D3 2026-11-12，⚠️A9 关闭） | 材料要求记"结果"，取值枚举为生成 |
+| 备份执行状态 | backup_run_status | running \| success \| failure | 计划任务与备份 | **定稿**（D2 2026-11-14，ADR-016 拍板） | ADR-016（2026-11-12 Q2 澄清确认取值：running→success/failure 终态不可逆，重新执行=新 run）+ kb 状态机表 + D1 BA 2.3.1；超时按 failure 终态记（原因=timeout）不扩枚举（D2 落定）；驱动产物下载可用性（仅 success）与轮转触发；prd-cron-backup.md FR-10~15 |
+| HTTPS 模式 | https_mode | off \| self_signed \| imported | 面板基座 | **定稿**（D2 2026-11-12 新增） | R-10 三态（D1 AA 附录C / prd-panel-core.md FR-06）：建议但不强制，除关闭外即时生效 |
+| 监听范围 | listen_scope | all \| localhost \| custom | 面板基座 | **定稿**（D2 2026-11-12 新增） | R-10（默认 all=0.0.0.0 随机高位端口；仅 localhost/指定地址；custom 需另填地址值） |
+| 面板证书来源 | panel_cert_source | self_signed \| imported | 面板基座 | **定稿**（D2 2026-11-12 新增） | 面板自身 HTTPS 证书来源；区别于网站管理 cert_source{acme,imported}——面板监听随机高位端口不经 ACME，无 acme 取值 |
+| 配置生效方式 | config_effect_mode | immediate \| restart_required | 面板基座 | **定稿**（D2 2026-11-12 新增） | D1 生效方式判定（AA 附录C）：仅监听地址/端口 restart_required，其余即时生效 |
+| 趋势时间窗口 | metric_window | last_1h \| last_24h | 系统监控 | **定稿**（D2 2026-11-12 新增） | 材料 §4.1 M2「最近 1h/24h」两档；last_ 前缀表回看语义；上限受 ADR-014 缓冲 24h（⚠️A12 1440 条）约束；prd-monitoring.md FR-06 |
+| 趋势指标维度 | metric_dimension | cpu \| memory \| disk \| network \| load | 系统监控 | **定稿**（D2 2026-11-12 新增） | 材料 §4.1 M2 指标清单五维；disk 含容量（按挂载点分设备）与 IO（合计）、network 含上下行（合计）、cpu 含总/分核（⚠️A13 口径，prd-monitoring.md FR-07） |
+| CPU 统计口径 | metric_scope | total \| per_core | 系统监控 | **定稿**（D3 2026-11-12 新增） | 历史趋势 cpu 维度的子口径查询参数（默认 total）；实时快照为单响应两层（total+perCore）无需此参；关闭 prd-monitoring.md 待对齐-4 接口部分（api-monitoring.md D-04） |
+| 服务运行状态 | service_active_state | active \| inactive \| failed | systemd 服务管理 | **定稿**（D2 2026-11-12 新增） | kb 状态机表拍板（active ⇄ inactive / failed，触发=面板启停/重启操作 dbus）；运行维度状态机主轴；prd-service-mgmt.md FR-06~08 |
+| 服务自启状态 | service_enabled_state | enabled \| disabled | systemd 服务管理 | **定稿**（D2 2026-11-12 新增） | kb 状态机表拍板（enabled ⇄ disabled，独立于运行维度）；两态为面板可切换操作主轴，列表实际透传可含 static 等非两态值（⚠️A14，字段形态 prd-service-mgmt.md 待对齐-4） |
+| unit 类型 | unit_type | service \| socket \| timer \| mount \| path \| target \| automount \| slice \| swap \| scope \| device | systemd 服务管理 | **定稿**（D2 2026-11-12 新增） | systemd 官方 unit 类型稳定集合（man systemd.unit）；列表全类型展示、操作边界仅 service（D1 BA 2.3 落定）；R-14 服务端校验取值域 |
+| 回收站条目状态 | trash_entry_status | in_trash \| restored \| purged | 文件管理 | **定稿**（D2 2026-11-12 新增） | kb 状态机表拍板（在站 → 已还原 / 已清空，触发=还原/清空操作，ADR-021）；in_trash 为活动态（出现在回收站列表）；restored 为还原终态（记录保留供追溯）；purged 为清空终态语义值（记录物理删除、销毁事实由审计留痕，值仅存在于动作与审计语义）；prd-file-manager.md FR-17~19 |
+| 文件条目类型 | file_type | file \| directory \| symlink | 文件管理 | **定稿**（D2 2026-11-12 新增） | D1 BA 2.1.2.1 目录浏览三类条目（文件/目录/符号链接）；file_entry 关键枚举字段；R-14 服务端校验取值域与 D4 图标呈现口径；prd-file-manager.md FR-03 |
+| 站点日志类型 | site_log_type | access \| error | 网站管理 | **定稿**（D2 2026-11-12 新增） | 材料 §4.1 M4「查看访问/错误日志尾部」两类（D1 C-07-02/⚠️A15 路径发现规则共用）；D3 日志尾部接口查询参数取值域与 D4 Tab 呈现口径；prd-site-mgmt.md FR-18 |
+| 实例引擎类别 | db_engine | mysql \| mariadb \| redis | 数据库管理 | **定稿**（D2 2026-11-12 新增） | ADR-007 范围拍板（MVP 双引擎，PostgreSQL 二期）；D1 AA S-31 双引擎统一实例清单的引擎类别列与适配器路由（dbmysql/dbredis）；db_instance 取 mysql/mariadb、redis_instance 取 redis；取代原 draft db_type（见其行注明）；prd-database-mgmt.md FR-01/FR-03 |
+| 实例连接方式 | db_conn_mode | socket \| tcp | 数据库管理 | **定稿**（D2 2026-11-12 新增） | 材料 §4.1 M5「实例发现（socket/TCP/凭据配置）」明示两态；D1 AA S-31-02 连接方式配置；socket 接入时路径参与实例标识（D1 设计口径）；prd-database-mgmt.md FR-02/FR-03 |
+| 实例连接状态 | instance_conn_state | reachable \| unreachable | 数据库管理 | **定稿**（D2 2026-11-12 新增） | D0 拍板：socket/端口存活探测得出的状态值，非流转状态机（kb 状态机表无本模块对象）；D1 AA S-31-01/S-31-03 探测与清单呈现；prd-database-mgmt.md FR-01/FR-03 与第六部分辨析 |
+| 授权档位 | grant_level | readonly \| write \| all | 数据库管理 | **定稿**（D3 2026-11-12 新增） | api-database-mgmt.md D-10：库级授权 MVP 三档预设（readonly→SELECT / write→SELECT,INSERT,UPDATE,DELETE / all→ALL PRIVILEGES，库级 db.*），不做精细 GRANT 子集编辑；dbuser/grant 请求参数取值域与用户清单授权概况呈现口径；关闭 prd-database-mgmt.md 待对齐-3 |
+| 终端断开原因 | terminal_end_reason | self_close \| idle_timeout \| hard_limit \| panel_session_invalid \| network_error \| protocol_error | Web 终端 | **定稿**（D2 2026-11-14 新增；D3 2026-11-14 增补 protocol_error） | D0 状态机拍板（活跃→断开×5 触发）+ D1 BA 2.2.2/2.3.1 五类断开路径一一对应；断开通知与断开审计事件（security 类）的载荷枚举——内存态会话无持久状态字段（断开即销毁），本枚举承载终态事实（与 account-auth session_end_reason 同构）；**protocol_error 为 D3 增补**（api-terminal.md I-06/D-01：协议违规断开=未知帧类型或超限帧，接口层防御路径，非 PRD 第六部分 5 类业务触发）；prd-terminal.md FR-07~11/第六部分、api-terminal.md 3.4/4.1.2 |
+| 终端运行身份来源 | terminal_identity_source | panel_run_user \| specified_system_user | Web 终端 | **定稿**（D2 2026-11-14 新增） | R-18 明示两分支（默认面板运行用户（通常 root）/可选指定系统用户）；terminal_session 运行身份值对象的载体枚举，区分 su 语义代启通道与默认通道（指定身份审计留痕与新建会话对话框消费）；prd-terminal.md FR-03/FR-04 |
+| 规则动作 | firewall_rule_action | allow \| deny \| reject \| limit | 防火墙 | **定稿**（D2 2026-11-14 新增） | D1 口径-2（FL 附录B，D0 待细化项按建议方向落定）：ufw 全动作四值（deny 丢弃无回应 / reject 明确拒绝 / limit 限速放行防暴破）；firewalld MVP 仅 allow（deny/reject/limit 依赖富规则能力，OUT-1）；FR-05 添加入口取值域按当前后端约束（R-14 服务端校验）；firewall_rule 关键枚举字段 |
+| 规则协议 | firewall_rule_protocol | tcp \| udp | 防火墙 | **定稿**（D2 2026-11-14 新增） | kb 对象表 firewall_rule（协议 tcp/udp）+ D1 BA 2.2.1.1/2.3.1.1 端口级规则双协议；双协议同时绑定（ufw allow 53 无协议后缀语义）的表达归输入形态 D3 定（prd-firewall.md 待对齐-4），枚举取值域不扩；firewall_rule 关键枚举字段 |
+| 监听端口开放状态 | listen_port_state | allowed_by_rule \| no_allow_rule | 防火墙 | **定稿**（D2 2026-11-14 新增） | D1 BA 2.2.1.2 对照结论两态（已被规则放行 / 无放行规则，仅入站方向）；读取时派生值非状态机（prd-firewall.md 第六部分辨析，与 instance_conn_state 探测态同构——整值刷新、无流转语义）；no_allow_rule 且对外监听 = 风险敞口提示口径（FR-04）；不构成 firewall_rule 的状态字段（对照对象为监听端口） |
+| 备份触发方式 | backup_trigger | cron \| manual | 计划任务与备份 | **定稿**（D2 2026-11-14 新增） | kb 对象表 backup_run 触发方式字段（cron/手动）+ D1 BA 2.3.1.1/2.3.1.2 两触发路径一一对应（cron=面板内置调度器定时、manual=手动立即执行）；backup_run 记录字段与历史列表筛选维度；prd-cron-backup.md FR-10/FR-11 |
+| 备份源类型 | backup_source_type | site_dir \| database | 计划任务与备份 | **定稿**（D2 2026-11-14 新增） | kb 对象表 backup_job 备份源（站点目录/数据库）+ D1 BA 2.2.1.2 源两类；备份源清单值对象判别字段（site_dir=路径值快照、database=db_instance 关联引用+库名——全项目首个关联领域对象载体）；prd-cron-backup.md FR-08 |
+| 计划任务来源 | cron_source | panel \| existing | 计划任务与备份 | **定稿**（D2 2026-11-14 新增） | D0 业务数据 cron_job 来源标注 + D1 BA 2.1.1.1 来源标注（面板创建/系统既有）；以 crontab 面板标记注释存在与否判定（D2 口径-1 零任务台账注释行承载，标记缺失按 existing 呈现；注释行语法 D3 定 prd-cron-backup.md 待对齐-1）；cron_job 关键枚举字段；prd-cron-backup.md FR-01/FR-02 |

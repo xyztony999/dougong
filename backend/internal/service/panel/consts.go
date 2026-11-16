@@ -1,0 +1,51 @@
+package panel
+
+import "time"
+
+// 配置生效方式（config_effect_mode 枚举，D1 AA 附录C：仅 listen.* 为
+// restart_required，其余全部 immediate——api-panel-core.md §3.4）。
+const (
+	EffectImmediate       = "immediate"
+	EffectRestartRequired = "restart_required"
+)
+
+// 监听端口范围（I-P02；与 DDL CHECK 同值）。
+const (
+	ListenPortMin = 1024
+	ListenPortMax = 65535
+)
+
+// 界面语言（I-P08：MVP 仅 zh-CN；多语言二期再登记 panel_lang 枚举）。
+const (
+	LangZhCN = "zh-CN"
+)
+
+// SupportedLangs 是 lang.supported 响应值（detail 只读下发）。
+var SupportedLangs = []string{LangZhCN}
+
+// 安全入口路径（I-P03：生成器输出空间 ^[A-Za-z0-9_-]{8,32}$）。
+const (
+	entryPathLen = 16 // 字符集 64 项 → 96 bit 熵（模 256 无偏）
+)
+
+// 自签证书参数（D-P06：切换 self_signed 即时生成；825 天为自签证书常规
+// 有效期，非契约值——到期经「重新生成/重新导入」更换）。
+const selfSignedValidity = 825 * 24 * time.Hour
+
+// UpdateCheckTimeout 更新检查外呼超时上限（编译期常量，api §3.2 N1：
+// 待 B 阶段实测校准；单次触发单次请求，无自动重试——D-P09/R-09）。
+const UpdateCheckTimeout = 10 * time.Second
+
+// 审计细粒度动作码与对象类型（api-panel-core.md §3.4 业务常量，
+// category=audit_action.change）。
+const (
+	ActionPanelConfigChanged        = "panel_config_changed"
+	ActionPanelCertUpdated          = "panel_cert_updated"
+	ActionPanelEntryPathRegenerated = "panel_entry_path_regenerated"
+
+	ObjectTypePanelConfig = "panel_config"
+	ObjectTypePanelCert   = "panel_cert"
+
+	// SingletonObjectID 单行表对象标识（id=1）。
+	SingletonObjectID = "1"
+)

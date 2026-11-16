@@ -1,0 +1,29 @@
+# —— 引擎/工具机态（不入库）——
+.zcode/
+.mimosa/
+.claude/
+
+# —— 前端构建与依赖 ——
+frontend/node_modules/
+frontend/dist/
+backend/web/dist/*
+!backend/web/dist/.gitkeep
+
+# —— Go 构建产物 ——
+backend/dougong.exe
+backend/dougong
+release/
+
+# —— 运行期本地产态（防误提交）——
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+dougong.json
+db-cred.key
+conf.backup/
+backend/.secgate-probe.go
+
+# —— OS ——
+Thumbs.db
+.DS_Store

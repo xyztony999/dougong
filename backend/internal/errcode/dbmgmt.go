@@ -1,0 +1,49 @@
+package errcode
+
+// database-mgmt（数据库管理）模块错误码（api-database-mgmt.md §3.4，
+// DBM_001~020 共 20 个新增；鉴权/CSRF/越界/参数校验复用 AUTH 码族）。
+// symbol 即契约 code 列原值，经响应包络 code 字段上线符号串。
+var (
+	// ErrDBMInvalidInstanceID DBM_001 instanceId 非法（R-14）。
+	ErrDBMInvalidInstanceID = New("DBM_001", "instanceId 非法")
+	// ErrDBMInstanceNotFound DBM_002 实例档案不存在（已移除/从未纳管）。
+	ErrDBMInstanceNotFound = New("DBM_002", "实例不存在")
+	// ErrDBMInstanceUnreachable DBM_003 连接状态 unreachable（治理/观测前置拒绝；
+	// data.reason；启停实例归 service-mgmt）。
+	ErrDBMInstanceUnreachable = New("DBM_003", "实例连接不可达")
+	// ErrDBMCredentialsNotSet DBM_004 实例未配置凭据（data.hint=credentials）。
+	ErrDBMCredentialsNotSet = New("DBM_004", "实例未配置凭据")
+	// ErrDBMCredentialsInvalid DBM_005 凭据验证失败=认证被拒（data.reason；不落库，D-03）。
+	ErrDBMCredentialsInvalid = New("DBM_005", "凭据验证失败：认证被拒")
+	// ErrDBMConnTestFailed DBM_006 凭据验证失败=网络/socket 层（data.reason；不落库）。
+	ErrDBMConnTestFailed = New("DBM_006", "凭据验证失败：连接失败")
+	// ErrDBMDatabaseNotFound DBM_007 目标库不存在（实况校验）。
+	ErrDBMDatabaseNotFound = New("DBM_007", "目标数据库不存在")
+	// ErrDBMDatabaseExists DBM_008 同名库已存在（实况）。
+	ErrDBMDatabaseExists = New("DBM_008", "同名数据库已存在")
+	// ErrDBMDBUserNotFound DBM_009 目标用户不存在（实况）。
+	ErrDBMDBUserNotFound = New("DBM_009", "目标数据库用户不存在")
+	// ErrDBMDBUserExists DBM_010 同名同 host 用户已存在（实况）。
+	ErrDBMDBUserExists = New("DBM_010", "同名同 host 用户已存在")
+	// ErrDBMGrantNotFound DBM_011 revoke 目标授权关系不存在（实况，D-10）。
+	ErrDBMGrantNotFound = New("DBM_011", "授权关系不存在")
+	// ErrDBMDumpFailed DBM_012 mysqldump 执行失败（data.reason；不虚构成功）。
+	ErrDBMDumpFailed = New("DBM_012", "数据库导出失败")
+	// ErrDBMImportFailed DBM_013 导入执行失败（data.reason；不自动回滚）。
+	ErrDBMImportFailed = New("DBM_013", "数据库导入失败")
+	// ErrDBMDumpSizeExceeded DBM_014 导入文件超过 512MiB（D-06）。
+	ErrDBMDumpSizeExceeded = New("DBM_014", "导入文件超过大小上限（512MiB）")
+	// ErrDBMKeyNotFound DBM_015 TTL 查询的 key 不存在（实况；过期即消失）。
+	ErrDBMKeyNotFound = New("DBM_015", "key 不存在")
+	// ErrDBMInstanceBusy DBM_016 实例有导出/导入在途（D-12 内存任务表）。
+	ErrDBMInstanceBusy = New("DBM_016", "实例有导出/导入任务在途，请稍后重试")
+	// ErrDBMInvalidPattern DBM_017 key 匹配模式非法（R-14；禁 KEYS 全量语义）。
+	ErrDBMInvalidPattern = New("DBM_017", "key 匹配模式非法")
+	// ErrDBMEngineMismatch DBM_018 接口与实例引擎不符（I-05 前置链）。
+	ErrDBMEngineMismatch = New("DBM_018", "接口与实例引擎不符")
+	// ErrDBMCredSyncFailed DBM_019 引擎侧改密成功、面板密文同步失败（D-05；
+	// data.recoverHint=credentials；不回滚引擎侧）。
+	ErrDBMCredSyncFailed = New("DBM_019", "密码已修改，但面板凭据同步失败")
+	// ErrDBMIdentityConflict DBM_020 连接目标纠正后 identity_key 冲突（I-01/D-03）。
+	ErrDBMIdentityConflict = New("DBM_020", "连接目标与既有实例档案冲突")
+)

@@ -1,0 +1,639 @@
+{
+  "_generated": {
+    "note": "本文件由 engine-gui 文档中心根据项目架构自动生成，可手工编辑（编辑后原样生效）；删除本文件后下次访问将按最新架构重新生成。",
+    "generatedAt": "2026-11-14T05:24:23.867Z",
+    "generator": "engine-gui doc-center 生成器（/dc/api/domains · /api/projects/:id/funcview）"
+  },
+  "names-map": {},
+  "module-docs": {
+    "domains": {
+      "账户与安全基座（account-auth）": {
+        "name": "账户与安全基座（account-auth）",
+        "layer": "支撑域",
+        "related": "全部业务域（被依赖：审计接口/会话鉴权/权限基线）；panel-core（入口面归其）、terminal（限流归其）",
+        "fishbone": {
+          "spine": [
+            {
+              "code": "AGG-1",
+              "name": "panel_user",
+              "desc": "用户名、密码哈希、角色、状态、创建时间"
+            },
+            {
+              "code": "panel_session",
+              "name": "session",
+              "desc": "令牌、所属用户、创建时间、最后活跃时间、绝对过期时间、空闲截止时间、CSRF 令牌、吊销标记、来源"
+            },
+            {
+              "code": "audit_log",
+              "name": "audit_log",
+              "desc": "操作者、时间、动作、对象类型、对象标识、变更内容、结果、来源"
+            },
+            {
+              "code": "init_state",
+              "name": "初始化状态",
+              "desc": "初始化标记、初始化方式、初始化时间"
+            }
+          ],
+          "upperRibs": [],
+          "lowerRibs": []
+        }
+      },
+      "面板基座（panel-core）": {
+        "name": "面板基座（panel-core）",
+        "layer": "支撑域",
+        "related": "account-auth（遵奉会话鉴权/RBAC；消费审计写入与会话策略 OHS）；全部业务模块（被依赖：外壳挂载点/入口拦截）；更新检查版本源（待对齐，R-09 默认关闭）",
+        "fishbone": {
+          "spine": [
+            {
+              "code": "panel_config",
+              "name": "panel_config",
+              "desc": "监听地址、监听端口、安全入口开关、安全入口路径值、HTTPS 模式、更新检查开关、界面语言"
+            }
+          ],
+          "upperRibs": [],
+          "lowerRibs": []
+        }
+      },
+      "系统监控（monitoring）": {
+        "name": "系统监控（monitoring）",
+        "layer": "支撑域",
+        "related": "account-auth（遵奉会话鉴权 R-02）；panel-core（消费方：仪表盘页读取契约）；枚举共享 metric_window/metric_dimension（与 panel-core 共享口径）",
+        "fishbone": {
+          "spine": [
+            {
+              "code": "D3",
+              "name": "系统监控（monitoring）",
+              "desc": "实时指标周期采样与环形缓冲留存（ADR-014 不落库、重启清零）、实时快照/TOP 进程/1h-24h 趋势/系统信息只读视图（两角色同等，ADR-018）、监控数据读取契约（供 panel-core 仪表盘消费）"
+            }
+          ],
+          "upperRibs": [],
+          "lowerRibs": []
+        }
+      },
+      "systemd 服务管理（service-mgmt）": {
+        "name": "systemd 服务管理（service-mgmt）",
+        "layer": "支撑域",
+        "related": "account-auth（遵奉会话鉴权与只读边界 R-02/ADR-018；消费审计写入 OHS R-03）；枚举共享 audit_result（与 account-auth 共享口径）；systemd（本机 dbus 通道，非业务域）",
+        "fishbone": {
+          "spine": [
+            {
+              "code": "D4",
+              "name": "systemd 服务管理（service-mgmt）",
+              "desc": "system 级 unit 实时发现与自动纳管（R-15 发现即接管，零持久化无台账）、服务列表/过滤搜索/属性只读视图（两角色同等，ADR-018）、启停/重启/自启切换管控（admin 专属，dbus 通道 R-08，等待终态反馈）、变更操作经审计契约留痕（R-03）"
+            }
+          ],
+          "upperRibs": [],
+          "lowerRibs": []
+        }
+      },
+      "文件管理器（file-manager）": {
+        "name": "文件管理器（file-manager）",
+        "layer": "支撑域",
+        "related": "account-auth（遵奉会话鉴权与只读边界 R-02/ADR-018；消费审计写入 OHS R-03）；枚举共享 audit_result（与 account-auth 共享口径）；本机文件系统（files 适配器/安全路径层，非业务域）",
+        "fishbone": {
+          "spine": [
+            {
+              "code": "trash_entry",
+              "name": "trash_entry",
+              "desc": "原路径、删除时间、操作者、类型（文件/目录）、大小、trash 内标识"
+            }
+          ],
+          "upperRibs": [],
+          "lowerRibs": []
+        }
+      },
+      "网站管理（site-mgmt）": {
+        "name": "网站管理（site-mgmt）",
+        "layer": "核心域",
+        "related": "account-auth（遵奉会话鉴权与只读边界 R-02/ADR-018；消费审计写入 OHS R-03）；枚举共享 audit_result 与本域 6 枚举（入池共享口径）；ACME CA（外部系统，ACL 经 lego 封装，R-09 唯一外呼例外）；nginx/php-fpm（本机系统组件，nginxx 适配器 ADR-010，非业务域）",
+        "fishbone": {
+          "spine": [
+            {
+              "code": "certificate",
+              "name": "certificate",
+              "desc": "域名列表、issuer、有效期、来源、托管路径（acme）、续期挑战方式（acme）、失败原因（renew_failed…"
+            }
+          ],
+          "upperRibs": [],
+          "lowerRibs": []
+        }
+      },
+      "数据库管理（database-mgmt）": {
+        "name": "数据库管理（database-mgmt）",
+        "layer": "支撑域",
+        "related": "account-auth（遵奉会话鉴权与只读边界 R-02/ADR-018；消费审计写入 OHS R-03）；枚举共享 audit_result 与本域 3 枚举（入池共享口径）；cron-backup（被依赖预期：数据库备份源复用，待其 D2 定义）；MySQL/Redis 引擎（本机系统组件，dbmysql/dbredis 适配器，非业务域）",
+        "fishbone": {
+          "spine": [
+            {
+              "code": "AGG-1",
+              "name": "db_instance",
+              "desc": "引擎类别、标识（host:port / socket 路径）、连接方式、版本、连接状态（探测态）、凭据密文（内嵌值对象）"
+            },
+            {
+              "code": "AGG-2",
+              "name": "redis_instance",
+              "desc": "标识（host:port / socket 路径）、连接方式、版本、连接状态（探测态）、凭据密文（内嵌值对象）"
+            }
+          ],
+          "upperRibs": [],
+          "lowerRibs": []
+        }
+      },
+      "Web 终端（terminal）": {
+        "name": "Web 终端（terminal）",
+        "layer": "支撑域",
+        "related": "account-auth（遵奉会话握手与失效联动 R-18；消费审计写入 OHS R-03）；system_user（系统实况只读引用，非面板域对象）；docker-mgmt（被依赖预期：容器内终端二期，不预先建模）",
+        "fishbone": {
+          "spine": [
+            {
+              "code": "AGG-1",
+              "name": "terminal_session",
+              "desc": "运行身份（内嵌值对象）、建立时间、最后活跃时间、连接来源、鉴权会话引用、空闲截止/硬上限截止（限流策略推导的运行时字段）"
+            }
+          ],
+          "upperRibs": [],
+          "lowerRibs": []
+        }
+      },
+      "防火墙（firewall）": {
+        "name": "防火墙（firewall）",
+        "layer": "支撑域",
+        "related": "account-auth（遵奉会话鉴权与只读边界 R-02/ADR-018；消费审计写入 OHS R-03）；panel-core（消费：面板监听配置为标注与涉险判定基准）；枚举共享 audit_result 与本域 4 枚举（入池共享口径）；ufw/firewalld（本机系统组件，firewallx 适配器，非业务域）",
+        "fishbone": {
+          "spine": [
+            {
+              "code": "D9",
+              "name": "防火墙（firewall）",
+              "desc": "既有 ufw/firewalld 双后端自动识别接管（R-15 ufw 优先，均无引导提示、不呈现空列表）、端口规则列表/监听端口对照只读投影视图（两角色同等 ADR-018，零规则台账不落库）、规则增删即时生效管控（admin 专属，firewallx 通道 R-08，firewalld 永久+运行态双写）、面板端口保护硬项（直接命中面板端口的删放行/加阻断警示+二次确认，M7 明示）、变更操作经审计契约留痕（R-03）"
+            }
+          ],
+          "upperRibs": [],
+          "lowerRibs": []
+        }
+      },
+      "容器管理（docker-mgmt）": {
+        "name": "容器管理（docker-mgmt）",
+        "layer": "支撑域",
+        "related": "account-auth（遵奉会话鉴权与只读边界 R-02/ADR-018；消费审计写入 OHS R-03）；terminal（被依赖预期：容器内终端二期，不预先建模）；枚举共享 audit_result 与本域 3 枚举（入池共享口径）；Docker daemon（本机系统组件，dockerx 适配器=官方 Go SDK + compose CLI，非业务域）",
+        "fishbone": {
+          "spine": [
+            {
+              "code": "D10",
+              "name": "容器管理（docker-mgmt）",
+              "desc": "本机既有 Docker daemon 接管式连接（R-12/R-15 sock 探测，未装引导不呈现空列表）、容器/镜像/卷/网络/Compose 项目五类实况只读投影视图（两角色同等 ADR-018，零台账不落库）、容器生命周期六动作管控（admin 专属，状态映射与动作矩阵 ADR-025、MVP 无强制删除）、镜像拉取（daemon 侧外呼、用户主动）、资源删除以 daemon 拒绝为最终权威、Compose label 自动识别 + `docker compose` CLI 参数数组操作（R-13/ADR-013，定位失败容器级兜底）、变更操作经审计契约留痕（R-03）"
+            }
+          ],
+          "upperRibs": [],
+          "lowerRibs": []
+        }
+      },
+      "计划任务与备份（cron-backup）": {
+        "name": "计划任务与备份（cron-backup）",
+        "layer": "支撑域",
+        "related": "account-auth（遵奉会话鉴权与只读边界 R-02/ADR-018；消费审计写入 OHS R-03）；database-mgmt（消费：实例清单联动+执行凭据建连；**被引用：db_instance 为全项目首个关联领域对象，见第五部分**）；site-mgmt（消费：站点清单联动选取）；rsync 远程目标（用户基础设施，ACL 经 backupx 适配器，用户主动 R-09 例外语义）；cron（本机系统组件，cronx/backupx 适配器，非业务域）",
+        "fishbone": {
+          "spine": [
+            {
+              "code": "AGG-1",
+              "name": "backup_job",
+              "desc": "名称、备份源清单（内嵌值对象集合）、目标（内嵌值对象：类型+本地路径/rsync 地址）、保留份数、调度表达式（cron…"
+            },
+            {
+              "code": "AGG-2",
+              "name": "backup_run",
+              "desc": "任务引用、触发方式、状态、开始时间、结束时间、耗时（派生）、产物路径、产物大小、失败原因"
+            }
+          ],
+          "upperRibs": [],
+          "lowerRibs": []
+        }
+      }
+    },
+    "domainDetails": {
+      "账户与安全基座（account-auth）": {
+        "description": "初始化双入口仲裁、登录认证与锁定、会话全生命周期治理、RBAC 边界、审计记录与治理",
+        "tablePrefix": "",
+        "tableCount": 6,
+        "aggregateRoot": "panel_user",
+        "objects": [
+          {
+            "name": "panel_user",
+            "table": "",
+            "type": "aggregate",
+            "relation": "",
+            "parent": null,
+            "condition": ""
+          },
+          {
+            "name": "TOTP 凭证",
+            "table": "",
+            "type": "child",
+            "relation": "1:1 隶属 panel_user",
+            "parent": "panel_user",
+            "condition": ""
+          },
+          {
+            "name": "登录锁定状态",
+            "table": "",
+            "type": "child",
+            "relation": "1:1 隶属 panel_user",
+            "parent": "panel_user",
+            "condition": ""
+          },
+          {
+            "name": "session",
+            "table": "panel_session",
+            "type": "aggregate",
+            "relation": "",
+            "parent": null,
+            "condition": ""
+          },
+          {
+            "name": "会话有效期策略",
+            "table": "",
+            "type": "child",
+            "relation": "隶属 session（域级策略）",
+            "parent": "session",
+            "condition": ""
+          },
+          {
+            "name": "audit_log",
+            "table": "audit_log",
+            "type": "aggregate",
+            "relation": "",
+            "parent": null,
+            "condition": ""
+          },
+          {
+            "name": "变更内容快照",
+            "table": "",
+            "type": "entity",
+            "relation": "内嵌于 audit_log",
+            "parent": null,
+            "condition": ""
+          },
+          {
+            "name": "审计保留策略",
+            "table": "",
+            "type": "child",
+            "relation": "隶属 audit_log（域级策略）",
+            "parent": "audit_log",
+            "condition": ""
+          },
+          {
+            "name": "初始化状态",
+            "table": "init_state",
+            "type": "aggregate",
+            "relation": "",
+            "parent": null,
+            "condition": ""
+          }
+        ]
+      },
+      "面板基座（panel-core）": {
+        "description": "可审计安装交付（ADR-009/D9）、入口面治理（监听/安全入口/HTTPS，R-10）、全模块外壳挂载与菜单可见性、panel_config 配置单例治理与生效分类、版本可观测与更新检查克制治理（R-09）",
+        "tablePrefix": "",
+        "tableCount": 6,
+        "aggregateRoot": "panel_config",
+        "objects": [
+          {
+            "name": "panel_config",
+            "table": "panel_config",
+            "type": "aggregate",
+            "relation": "",
+            "parent": null,
+            "condition": ""
+          },
+          {
+            "name": "HTTPS 证书",
+            "table": "panel_cert",
+            "type": "child",
+            "relation": "1:1 隶属 panel_config",
+            "parent": "panel_config",
+            "condition": ""
+          },
+          {
+            "name": "配置生效分类",
+            "table": "",
+            "type": "child",
+            "relation": "隶属 panel_config（域级策略）",
+            "parent": "panel_config",
+            "condition": ""
+          }
+        ]
+      },
+      "系统监控（monitoring）": {
+        "description": "实时指标周期采样与环形缓冲留存（ADR-014 不落库、重启清零）、实时快照/TOP 进程/1h-24h 趋势/系统信息只读视图（两角色同等，ADR-018）、监控数据读取契约（供 panel-core 仪表盘消费）",
+        "tablePrefix": "",
+        "tableCount": 6,
+        "aggregateRoot": "",
+        "objects": [
+          {
+            "name": "metric",
+            "table": "",
+            "type": "entity",
+            "relation": "环形缓冲集合条目（1 缓冲:N 条目，滚动淘汰）",
+            "parent": null,
+            "condition": ""
+          },
+          {
+            "name": "system_info",
+            "table": "",
+            "type": "entity",
+            "relation": "独立只读投影（不经缓冲）",
+            "parent": null,
+            "condition": ""
+          }
+        ]
+      },
+      "systemd 服务管理（service-mgmt）": {
+        "description": "system 级 unit 实时发现与自动纳管（R-15 发现即接管，零持久化无台账）、服务列表/过滤搜索/属性只读视图（两角色同等，ADR-018）、启停/重启/自启切换管控（admin 专属，dbus 通道 R-08，等待终态反馈）、变更操作经审计契约留痕（R-03）",
+        "tablePrefix": "",
+        "tableCount": 6,
+        "aggregateRoot": "",
+        "objects": [
+          {
+            "name": "systemd_service",
+            "table": "",
+            "type": "entity",
+            "relation": "投影集合条目（经读取契约以 unit 名称直接寻址，无聚合根守门）",
+            "parent": null,
+            "condition": ""
+          }
+        ]
+      },
+      "文件管理器（file-manager）": {
+        "description": "全部路径操作白名单强制前置（R-04 EvalSymlinks+前缀校验，防逃逸为 M2 验收硬项）、目录浏览/导航实时投影视图（零文件台账，两角色同等 ADR-018）、上传（原子落盘/分块）/下载（数据取出口径）/在线编辑/整理/权限属主/压缩解压变更动作集（admin 专属，ADR-018 禁 readonly 上传下载）、删除入站回收站可逆闭环（R-17/ADR-021，还原冲突显式决策、默认仅手动清空）",
+        "tablePrefix": "",
+        "tableCount": 6,
+        "aggregateRoot": "trash_entry",
+        "objects": [
+          {
+            "name": "trash_entry",
+            "table": "trash_entry",
+            "type": "aggregate",
+            "relation": "",
+            "parent": null,
+            "condition": ""
+          },
+          {
+            "name": "file_entry",
+            "table": "",
+            "type": "entity",
+            "relation": "投影集合条目（经读取契约以受管根内绝对路径直接寻址，无聚合根守门）",
+            "parent": null,
+            "condition": ""
+          },
+          {
+            "name": "受管根配置",
+            "table": "fs_path_scope",
+            "type": "entity",
+            "relation": "域级单例（域配置，不经聚合根）",
+            "parent": null,
+            "condition": ""
+          }
+        ]
+      },
+      "网站管理（site-mgmt）": {
+        "description": "存量 nginx 站点接管（R-15 扫描→指令树解析→server 块提取→写回落点登记，零站点台账投影）、安全写入治理（R-06 四步+R-16 隔离，全部写回强制前置）、双模式站点编辑（结构化+Monaco 源码，R-07 Raw 保留）、三模板建站与站点启停/日志/重载、证书全生命周期治理（ACME HTTP-01/TLS-ALPN 经 ACL 申请、部署、自动续期六状态机 ADR-024、存量识别导入）",
+        "tablePrefix": "",
+        "tableCount": 6,
+        "aggregateRoot": "certificate",
+        "objects": [
+          {
+            "name": "certificate",
+            "table": "certificate",
+            "type": "aggregate",
+            "relation": "",
+            "parent": null,
+            "condition": ""
+          },
+          {
+            "name": "site",
+            "table": "",
+            "type": "entity",
+            "relation": "投影集合条目（经扫描读取契约以来源文件内 server 块定位寻址，无聚合根守门）",
+            "parent": null,
+            "condition": ""
+          },
+          {
+            "name": "反代上游（upstream）",
+            "table": "",
+            "type": "entity",
+            "relation": "内嵌于 site",
+            "parent": null,
+            "condition": ""
+          },
+          {
+            "name": "Raw 未识别指令块",
+            "table": "",
+            "type": "entity",
+            "relation": "内嵌于 site",
+            "parent": null,
+            "condition": ""
+          },
+          {
+            "name": "写回落点映射",
+            "table": "",
+            "type": "entity",
+            "relation": "随 site 派生（1:1）",
+            "parent": null,
+            "condition": ""
+          }
+        ]
+      },
+      "数据库管理（database-mgmt）": {
+        "description": "存量双引擎实例自动探测与纳管（R-15 发现即接管，⚠️A19 限定本机探测不扫网段）、凭据密文治理（⚠️A18 只进不出：不回显/审计脱敏/密文落库，验证失败不生效）、MySQL 库/用户/库级授权/root 密码治理（零库用户台账实时投影）、状态概览/进程列表/慢日志只读观测（两角色同等 ADR-018）、mysqldump 备份导出导入（R-08 参数数组，admin 专属）、Redis 密码设置与 key 只读浏览（MVP 严格只读）",
+        "tablePrefix": "",
+        "tableCount": 6,
+        "aggregateRoot": "db_instance",
+        "objects": [
+          {
+            "name": "db_instance",
+            "table": "",
+            "type": "aggregate",
+            "relation": "",
+            "parent": null,
+            "condition": ""
+          },
+          {
+            "name": "redis_instance",
+            "table": "",
+            "type": "aggregate",
+            "relation": "",
+            "parent": null,
+            "condition": ""
+          },
+          {
+            "name": "database",
+            "table": "",
+            "type": "child",
+            "relation": "1:N 隶属 db_instance（经实例连接寻址）",
+            "parent": "db_instance",
+            "condition": ""
+          },
+          {
+            "name": "db_user",
+            "table": "",
+            "type": "child",
+            "relation": "1:N 隶属 db_instance（经实例连接寻址）",
+            "parent": "db_instance",
+            "condition": ""
+          },
+          {
+            "name": "凭据",
+            "table": "",
+            "type": "entity",
+            "relation": "内嵌于 db_instance / redis_instance",
+            "parent": null,
+            "condition": ""
+          }
+        ]
+      },
+      "Web 终端（terminal）": {
+        "description": "浏览器 shell 交互通道（xterm.js↔WS↔PTY，admin 专属、readonly 整域禁用 ADR-018）、三重准入（WS 握手复用面板会话鉴权 R-18+角色判定+并发 5 ADR-023）、运行身份选择（默认面板运行用户（通常 root）/指定系统用户 su 语义不代输密码，R-18）、会话生命周期管控（空闲 30min 从严口径/硬上限 8h/面板会话失效联动断开）、统一断开清理（进程回收+记录销毁+配额释放，内存态不落库断开即无痕）",
+        "tablePrefix": "",
+        "tableCount": 6,
+        "aggregateRoot": "terminal_session",
+        "objects": [
+          {
+            "name": "terminal_session",
+            "table": "",
+            "type": "aggregate",
+            "relation": "",
+            "parent": null,
+            "condition": ""
+          },
+          {
+            "name": "运行身份",
+            "table": "",
+            "type": "entity",
+            "relation": "内嵌于 terminal_session",
+            "parent": null,
+            "condition": ""
+          },
+          {
+            "name": "限流策略",
+            "table": "",
+            "type": "child",
+            "relation": "隶属 terminal_session（域级固定策略）",
+            "parent": "terminal_session",
+            "condition": ""
+          }
+        ]
+      },
+      "防火墙（firewall）": {
+        "description": "既有 ufw/firewalld 双后端自动识别接管（R-15 ufw 优先，均无引导提示、不呈现空列表）、端口规则列表/监听端口对照只读投影视图（两角色同等 ADR-018，零规则台账不落库）、规则增删即时生效管控（admin 专属，firewallx 通道 R-08，firewalld 永久+运行态双写）、面板端口保护硬项（直接命中面板端口的删放行/加阻断警示+二次确认，M7 明示）、变更操作经审计契约留痕（R-03）",
+        "tablePrefix": "",
+        "tableCount": 6,
+        "aggregateRoot": "",
+        "objects": [
+          {
+            "name": "firewall_rule",
+            "table": "",
+            "type": "entity",
+            "relation": "投影集合条目（经读取契约以后端侧规则定位直接寻址，无聚合根守门）",
+            "parent": null,
+            "condition": ""
+          }
+        ]
+      },
+      "容器管理（docker-mgmt）": {
+        "description": "本机既有 Docker daemon 接管式连接（R-12/R-15 sock 探测，未装引导不呈现空列表）、容器/镜像/卷/网络/Compose 项目五类实况只读投影视图（两角色同等 ADR-018，零台账不落库）、容器生命周期六动作管控（admin 专属，状态映射与动作矩阵 ADR-025、MVP 无强制删除）、镜像拉取（daemon 侧外呼、用户主动）、资源删除以 daemon 拒绝为最终权威、Compose label 自动识别 + `docker compose` CLI 参数数组操作（R-13/ADR-013，定位失败容器级兜底）、变更操作经审计契约留痕（R-03）",
+        "tablePrefix": "",
+        "tableCount": 6,
+        "aggregateRoot": "",
+        "objects": [
+          {
+            "name": "container",
+            "table": "",
+            "type": "entity",
+            "relation": "投影集合条目（经读取契约以容器 ID/名称直接寻址，无聚合根守门）",
+            "parent": null,
+            "condition": ""
+          },
+          {
+            "name": "image",
+            "table": "",
+            "type": "entity",
+            "relation": "投影集合条目（经读取契约以镜像 ID 直接寻址，无聚合根守门）",
+            "parent": null,
+            "condition": ""
+          },
+          {
+            "name": "volume",
+            "table": "",
+            "type": "entity",
+            "relation": "投影集合条目（经读取契约以卷名直接寻址，无聚合根守门）",
+            "parent": null,
+            "condition": ""
+          },
+          {
+            "name": "network",
+            "table": "",
+            "type": "entity",
+            "relation": "投影集合条目（经读取契约以网络 ID/名称直接寻址，无聚合根守门）",
+            "parent": null,
+            "condition": ""
+          },
+          {
+            "name": "compose_project",
+            "table": "",
+            "type": "entity",
+            "relation": "label 聚合投影条目（经识别契约以项目名直接寻址，无聚合根守门；容器清单为对 container 的同域引用集合）",
+            "parent": null,
+            "condition": ""
+          }
+        ]
+      },
+      "计划任务与备份（cron-backup）": {
+        "description": "root crontab 接管式治理（读写唯一域+系统预置位只读 D1 口径-1；表达式校验预览/执行日志尾部/手动触发面板代执行+超时控制 R-08 边界口径；零任务台账、备注与来源标注注释行承载 D2 口径-1）、backup_job 定义治理（源=站点目录值快照+数据库实例引用、目标本地/rsync、保留份数、调度 cron 表达式 D2 口径-2）、面板内置调度器定时执行与立即执行（触发互斥 D2 口径-4、错过不补跑 D2 口径-3、与系统 cron 解耦不写 crontab D1 口径-2）、backup_run 执行历史与产物消费（running→success/failure ADR-016、产物下载 admin 专属 ADR-018）、按保留份数轮转清理（R-11，记录产物同删 D2 口径-5）",
+        "tablePrefix": "",
+        "tableCount": 6,
+        "aggregateRoot": "backup_job",
+        "objects": [
+          {
+            "name": "backup_job",
+            "table": "",
+            "type": "aggregate",
+            "relation": "",
+            "parent": null,
+            "condition": ""
+          },
+          {
+            "name": "backup_run",
+            "table": "",
+            "type": "aggregate",
+            "relation": "—（按 job 标识归组：同域聚合引用）",
+            "parent": null,
+            "condition": ""
+          },
+          {
+            "name": "备份源清单",
+            "table": "",
+            "type": "entity",
+            "relation": "内嵌于 backup_job（1:N 值集合）",
+            "parent": null,
+            "condition": ""
+          },
+          {
+            "name": "备份目标",
+            "table": "",
+            "type": "entity",
+            "relation": "内嵌于 backup_job（1:1）",
+            "parent": null,
+            "condition": ""
+          },
+          {
+            "name": "cron_job",
+            "table": "",
+            "type": "entity",
+            "relation": "投影集合条目（经读取契约以 crontab 内任务行定位直接寻址，无聚合根守门；系统预置位条目为只读投影分区）",
+            "parent": null,
+            "condition": ""
+          }
+        ]
+      }
+    }
+  }
+}
