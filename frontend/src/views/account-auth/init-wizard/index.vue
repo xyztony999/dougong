@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { useMessage } from 'naive-ui'
+import { useMessage, useThemeVars } from 'naive-ui'
 import type { FormInst, FormItemRule, FormRules } from 'naive-ui'
 import { initWizard } from '@/api/auth'
 import { ApiError } from '@/api/http'
@@ -12,6 +12,10 @@ import { buildOtpauthUri, generateTotpSecret } from '@/utils/totp'
 const router = useRouter()
 const message = useMessage()
 const authStore = useAuthStore()
+
+/** 说明文字颜色随主题（dark 适配修复轮）：textColor2 在暗色下为 0.82 白，保证小字号可读 */
+const themeVars = useThemeVars()
+const hintColor = computed(() => themeVars.value.textColor2)
 
 interface WizardForm {
   username: string
@@ -139,7 +143,7 @@ async function onSubmit(): Promise<void> {
           />
         </n-form-item>
         <n-form-item v-if="weakPassword" label=" " :show-feedback="false">
-          <span class="hint">密码强度偏弱，建议 12 位以上并混合字符（不阻断）</span>
+          <span class="hint">密码强度偏弱，建议使用 12 位以上并混合多种字符</span>
         </n-form-item>
         <n-form-item label="确认密码" path="confirmPassword">
           <n-input
@@ -181,7 +185,7 @@ async function onSubmit(): Promise<void> {
           创建管理员
         </n-button>
       </n-form>
-      <p class="hint">面板仅能初始化一次（单向）；也可经 CLI 初始化（ADR-017 双入口）。</p>
+      <p class="hint">面板仅可初始化一次，也可通过服务器命令行完成初始化。</p>
     </n-card>
   </div>
 </template>
@@ -198,7 +202,7 @@ async function onSubmit(): Promise<void> {
 }
 .hint {
   font-size: 12px;
-  opacity: 0.65;
+  color: v-bind(hintColor);
 }
 .totp-area {
   display: flex;

@@ -1,17 +1,43 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { darkTheme, dateZhCN, zhCN } from 'naive-ui'
-import type { GlobalTheme } from 'naive-ui'
+import { computed, ref } from 'vue'
+import { NGlobalStyle, darkTheme, dateZhCN, zhCN } from 'naive-ui'
+import type { GlobalTheme, GlobalThemeOverrides } from 'naive-ui'
 
-// 暗色为一等公民（frontend-03 §1）：默认跟随系统 prefers-color-scheme
-const prefersDark =
-  typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches
+// 暗色为一等公民（frontend-03 §1）：跟随系统 prefers-color-scheme，运行期系统切换即时生效
+// （首启 UI 缺陷修复轮：原一次性读取 .matches 不响应系统切换）
+const darkQuery =
+  typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+    ? window.matchMedia('(prefers-color-scheme: dark)')
+    : null
+const prefersDark = ref(darkQuery?.matches === true)
+darkQuery?.addEventListener('change', (event) => {
+  prefersDark.value = event.matches
+})
 
-const theme = computed<GlobalTheme | null>(() => (prefersDark ? darkTheme : null))
+const theme = computed<GlobalTheme | null>(() => (prefersDark.value ? darkTheme : null))
+
+// 暗色对比度微调（首启 UI 缺陷修复轮）：placeholder/输入框图标默认 overlay 白 0.38 偏暗
+const themeOverrides = computed<GlobalThemeOverrides>(() =>
+  prefersDark.value
+    ? {
+        common: {
+          placeholderColor: 'rgba(255, 255, 255, 0.55)',
+          iconColor: 'rgba(255, 255, 255, 0.6)'
+        }
+      }
+    : {}
+)
 </script>
 
 <template>
-  <n-config-provider :theme="theme" :locale="zhCN" :date-locale="dateZhCN">
+  <n-config-provider
+    :theme="theme"
+    :theme-overrides="themeOverrides"
+    :locale="zhCN"
+    :date-locale="dateZhCN"
+  >
+    <!-- 全局样式同步：body 背景/文字色随主题（否则独立页 body 保持浏览器白色，出现深色卡片嵌白页） -->
+    <NGlobalStyle />
     <n-message-provider>
       <n-dialog-provider>
         <router-view />

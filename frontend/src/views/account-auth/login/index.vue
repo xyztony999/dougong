@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { useMessage } from 'naive-ui'
+import { useMessage, useThemeVars } from 'naive-ui'
 import type { FormInst, FormRules } from 'naive-ui'
 import { login, totpVerify } from '@/api/auth'
 import { ApiError } from '@/api/http'
@@ -12,6 +12,10 @@ import { formatCountdown } from '@/utils/format'
 const router = useRouter()
 const message = useMessage()
 const authStore = useAuthStore()
+
+/** 说明文字颜色随主题（dark 适配修复轮）：textColor2 在暗色下为 0.82 白，保证小字号可读 */
+const themeVars = useThemeVars()
+const hintColor = computed(() => themeVars.value.textColor2)
 
 const formRef = ref<FormInst | null>(null)
 const username = ref('')
@@ -169,7 +173,7 @@ async function onSubmit(): Promise<void> {
           {{ submitText }}
         </n-button>
       </n-form>
-      <p class="hint">单机面板不提供注册与找回密码；重置请经 CLI 或其他管理员。</p>
+      <p class="hint">本面板不提供注册与找回密码；重置请使用命令行或联系其他管理员。</p>
     </n-card>
   </div>
 </template>
@@ -187,6 +191,6 @@ async function onSubmit(): Promise<void> {
 .hint {
   margin: 12px 0 0;
   font-size: 12px;
-  opacity: 0.65;
+  color: v-bind(hintColor);
 }
 </style>
