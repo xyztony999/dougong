@@ -33,11 +33,13 @@ else
   [ -n "$VER" ] || { echo "错误：未取到最新版本号"; exit 1; }
   echo ">> 最新版本：$VER"
   echo ">> 下载 dougong-linux-amd64.tar.gz 与 sha256sums.txt …"
-  curl -fsSL -o "$TMP/pkg.tar.gz"     "https://github.com/$REPO/releases/download/$VER/dougong-linux-amd64.tar.gz"
-  curl -fsSL -o "$TMP/sha256sums.txt" "https://github.com/$REPO/releases/download/$VER/sha256sums.txt"
+  curl -fsSL -o "$TMP/dougong-linux-amd64.tar.gz" "https://github.com/$REPO/releases/download/$VER/dougong-linux-amd64.tar.gz"
+  curl -fsSL -o "$TMP/sha256sums.txt"             "https://github.com/$REPO/releases/download/$VER/sha256sums.txt"
   echo ">> sha256 校验："
+  # 包名与 sha256sums.txt 完全一致才能命中；--ignore-missing 跳过未下载的
+  # arm64 条目（校验数必须 ≥1，否则说明文件名对不上——立即失败）。
   (cd "$TMP" && sha256sum -c sha256sums.txt --ignore-missing)
-  tar -xzf "$TMP/pkg.tar.gz" -C "$TMP"
+  tar -xzf "$TMP/dougong-linux-amd64.tar.gz" -C "$TMP"
   [ -f "$TMP/dougong-linux-amd64" ] || { echo "错误：包内无 dougong-linux-amd64"; exit 1; }
   mv "$TMP/dougong-linux-amd64" "$TMP/dougong"
 fi
