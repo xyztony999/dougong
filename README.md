@@ -29,15 +29,20 @@ A lightweight, open-source server panel built to **adopt your existing environme
 ## 快速开始 / Quick Start
 
 ```bash
-# 从源码构建（需要 Go 1.22+ 与 Node 18+）/ Build from source
-make build-linux          # 前端构建 + 内嵌 + linux/amd64 静态二进制 → release/dougong-linux-amd64
+# 一键安装（systemd 发行版: Debian 11+ / Ubuntu 20.04+ / RHEL 9；从 GitHub Releases 下载并校验）
+curl -fsSL https://raw.githubusercontent.com/xyztony999/dougong/main/install.sh | sudo bash
 
-# 服务器上 / On your server (systemd 发行版: Debian 11+ / Ubuntu 20.04+ / RHEL 9)
-chmod +x dougong-linux-amd64
-./dougong-linux-amd64     # 默认监听 0.0.0.0:<随机高位端口>（启动日志打印），首次访问进入初始化向导
+# 升级 = 重复执行同一命令（二进制替换 + 重启；配置与数据不动）
 ```
 
-CLI 初始化（无浏览器场景）：`./dougong init -username admin`（密码经 `DOUGONG_INIT_PASSWORD` 注入）。
+从源码构建（需要 Go 1.22+ 与 Node 18+）/ Build from source：
+
+```bash
+make build-linux          # 前端构建 + 内嵌 + linux/amd64 静态二进制 → release/dougong-linux-amd64
+sudo bash install.sh release/dougong-linux-amd64   # 本地二进制安装
+```
+
+安装后查看监听端口（默认随机高位端口，防扫描）：`journalctl -u dougong -n 5 | grep listening`，浏览器访问完成初始化向导。CLI 初始化（无浏览器场景）：`dougong init -username admin`（密码经 `DOUGONG_INIT_PASSWORD` 注入）。
 
 开发模式：后端 `cd backend && go run ./cmd/dougong`，前端 `make dev`（Vite 代理）。
 

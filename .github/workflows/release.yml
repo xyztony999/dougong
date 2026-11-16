@@ -1,0 +1,60 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - name: Build frontend & embed
+        run: |
+          cd frontend && npm ci && npm run build && cd ..
+          rm -rf backend/web/dist
+          cp -r frontend/dist backend/web/dist
+          touch backend/web/dist/.gitkeep
+
+      - name: Build binaries (version stamped)
+        run: |
+          VER="${GITHUB_REF_NAME#v}"
+          LDFLAGS="-s -w \
+            -X github.com/dougong/dougong/internal/service/panel.buildVersion=${VER} \
+            -X github.com/dougong/dougong/internal/service/panel.buildGitCommit=${GITHUB_SHA::7} \
+            -X github.com/dougong/dougong/internal/service/panel.buildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          mkdir -p out
+          cd backend
+          GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "$LDFLAGS" -o ../out/dougong-linux-amd64 ./cmd/dougong
+          GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "$LDFLAGS" -o ../out/dougong-linux-arm64 ./cmd/dougong
+
+      - name: Package & checksums
+        run: |
+          cd out
+          tar -czf dougong-linux-amd64.tar.gz dougong-linux-amd64
+          tar -czf dougong-linux-arm64.tar.gz dougong-linux-arm64
+          sha256sum *.tar.gz > sha256sums.txt
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            out/dougong-linux-amd64.tar.gz \
+            out/dougong-linux-arm64.tar.gz \
+            out/sha256sums.txt \
+            --title "Dougong $GITHUB_REF_NAME" \
+            --generate-notes
