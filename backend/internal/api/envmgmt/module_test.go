@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -57,7 +58,14 @@ func newTestApp(t *testing.T) *testApp {
 	}
 	authSvcObj := authsvc.New(repo, hasher, authsvc.NewTotpService(nil), authsvc.DefaultSessionPolicy())
 	auditSvc := auditsvc.New(repo.Audit(), time.Now)
-	envSvc := envsvc.New(envpack.NewGateway(), sysd.NewGateway(0), storeenv.New(db), envsvc.Options{})
+	// 通道探测注入恒失败：CI Linux runner 预装 apt，真实探测会击穿
+	// TestInstallChannelUnavailable 的「通道不可用」假设（Windows 开发机
+	// 恰好成立属环境巧合）；注入后断言环境无关，实联归 Linux 冒烟。
+	envSvc := envsvc.New(
+		envpack.NewGatewayWithProbe(func(string) (string, error) {
+			return "", errors.New("probe disabled in tests")
+		}),
+		sysd.NewGateway(0), storeenv.New(db), envsvc.Options{})
 	server := api.NewServer()
 	server.RegisterModules(
 		authapi.NewModule(authSvcObj, auditSvc, false),

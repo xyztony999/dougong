@@ -33,13 +33,26 @@ type RunResult struct {
 	Output string
 }
 
-// Gateway 是 EnvPackGateway 适配器（并发安全：无状态）。
-type Gateway struct{}
+// Gateway 是 EnvPackGateway 适配器（并发安全：lookPath 探测函数只读）。
+type Gateway struct {
+	// lookPath 二进制存在性探测注入点（生产 exec.LookPath；测试注入恒失败
+	// 探测使「通道不可用」断言环境无关——CI Linux runner 预装 apt 会击穿
+	// 「默认通道不存在」假设，沿 TestLogTail Options 注入先例）。
+	lookPath func(string) (string, error)
+}
 
-// NewGateway 构造适配器。
-func NewGateway() *Gateway { return &Gateway{} }
+// NewGateway 构造适配器（生产探测：exec.LookPath）。
+func NewGateway() *Gateway { return &Gateway{lookPath: exec.LookPath} }
 
-// DetectChannel 探测包管理器通道（D-03：apt → dnf → yum 择一；exec.LookPath
+// NewGatewayWithProbe 以自定义探测函数构造（测试用；probe 传 nil 回退生产探测）。
+func NewGatewayWithProbe(probe func(string) (string, error)) *Gateway {
+	if probe == nil {
+		probe = exec.LookPath
+	}
+	return &Gateway{lookPath: probe}
+}
+
+// DetectChannel 探测包管理器通道（D-03：apt → dnf → yum 择一；LookPath
 // 二进制存在性检查零副作用）。
 func (g *Gateway) DetectChannel() Channel {
 	if runtime.GOOS != "linux" {
@@ -51,7 +64,7 @@ func (g *Gateway) DetectChannel() Channel {
 	}{
 		{"apt", "apt"}, {"dnf", "dnf"}, {"yum", "yum"},
 	} {
-		if _, err := exec.LookPath(f.bin); err == nil {
+		if _, err := g.lookPath(f.bin); err == nil {
 			return Channel{Family: f.name, Available: true}
 		}
 	}
