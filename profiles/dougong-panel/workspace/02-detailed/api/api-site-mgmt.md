@@ -2,9 +2,9 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v1.0 |
+| 版本 | v1.1 |
 | 状态 | 稳定 |
-| 最后更新 | 2026-11-12 |
+| 最后更新 | 2026-11-16 |
 | 输入 | prd-site-mgmt.md v1.0（完备性检查通过：G 5/5、T 7/7、N 4/4）、domain-model.md v1.7（核心域判定 + certificate 聚合根 + site 投影实体）、d0-clarification-site-mgmt.md、D1 三文档（BA/AA/FL v1.0） |
 | 接口规约 | 无激活技术栈（ACTIVE_STACKS 为空）——按通用 REST/JSON 契约设计；认证=HttpOnly Cookie 会话 + CSRF token（R-02，复用 account-auth）；鉴权=RBAC 两角色边界矩阵（ADR-018）；安全写入=R-06 四步强制前置（本模块核心约束） |
 
@@ -59,6 +59,7 @@
 |--------|------|------|
 | account-auth | 遵奉者 + OHS 消费 | 全部接口位于 Cookie 会话后（R-02，AuthRequired）；站点列表/详情/证书清单/日志尾部两角色同等（D0 口径）、全部变更 admin 专属（ADR-018，RoleRequired + AUTH_008 边界拒绝）；写接口 CSRF（R-02，CsrfGuard）；审计写入 AuditService.Record（R-03，D-12 事务边界） |
 | panel-core | 消费其 HTTP 骨架 | `/sites` 路由组挂载；入口面/外壳归 panel-core（R-10） |
+| panel-core（面板证书 ACME，v1.1 增量） | **被依赖 + OHS 提供方** | 面板自身证书 ACME 签发/续期复用本模块 AcmeGateway（4.1.5 ACL，D-09）与 nginx 安全写回通道（WritePipeline/NginxGateway，4.2.5）：HTTP-01 挑战 location 的临时注入/撤除经 R-06 安全流程，不新增独立 80 端口监听；申请/续期编排与契约细节归 panel-core 设计文档（ADR-029；OHS 行见 5.1） |
 | ACME CA（Let's Encrypt 等） | 外部系统，**ACL（防腐层）** | 本项目首个真实外部系统 ACL：ACME 协议交互经 AcmeGateway（lego 封装）翻译为 certificate 对象，外部概念不渗透领域模型；R-09 除外条款的唯一外呼路径（用户主动申请/既有证书续期调度）；D-09 账户密钥与 CA 配置 |
 | nginx / php-fpm（本机系统组件） | 数据源与动作通道 | nginxx 适配器（ADR-010 自研核心资产）承载指令树解析/序列化与 `nginx -t`/reload 通道（NginxGateway，4.2.5）；php-fpm pool 实况读取（PhpFpmGateway，D-14）；本机资源非外部业务系统对接，无 ACL 必要 |
 | 前端网站管理页 | 唯一消费方 | 仅经 18 个 HTTP 接口消费（5.1）；cron-backup 等后续模块如引用站点对象另行在对应模块 D2 定义（PRD T1a） |
@@ -407,8 +408,9 @@ PhpFpmGateway { ListPools() ([]{name, socket}, error) }   // pool 实况读取�
 | 自动续期任务（后台，非 HTTP） | —（系统调度） | 4.1.3 契约；结果写审计 cert_renewed（source=system） |
 | 中间件 AuthRequired / CsrfGuard / RoleRequired | （复用） | account-auth 提供（3.1） |
 | AuditService.Record | （出站调用） | 操作审计写入（R-03，D-12；certificate 侧同事务例外） |
+| AcmeGateway + nginx 安全写回（进程内 OHS，非 HTTP，v1.1 增量） | panel-core（面板证书 ACME 签发/续期编排，ADR-029） | AcmeGateway Issue/Renew 通道复用（4.1.5，R-09 唯一外呼路径不旁路）；HTTP-01 挑战 location 临时注入/撤除经 WritePipeline 四步（R-06，4.2.5）；不新增独立 80 端口监听（存量服务器 80 已归 nginx） |
 
-本模块无对外 OHS 服务契约——消费终模块（1.5：cron-backup 等后续依赖另行定义）。
+本模块对外 OHS 服务契约仅上表末行一项（v1.1 新增，ADR-029）：AcmeGateway 与 nginx 安全写回通道向 panel-core 面板证书业务开放（进程内 OHS 非 HTTP，被依赖登记见 1.5）；其余潜在消费方（cron-backup 等）仍另行定义。
 
 ### 5.2 SQL 清单
 
@@ -453,6 +455,7 @@ CREATE INDEX IF NOT EXISTS idx_cert_source_status ON certificate(source, status)
 | 版本 | 日期 | 变更类型 | 变更摘要 | 目标节号 |
 |------|------|---------|---------|---------|
 | v1.0 | 2026-11-12 | initial | 首次生成：18 个 HTTP 接口（/sites/{site,proxy,log,nginx,cert,php-pools}/*，读=GET/写=POST；查看类 site/list·site/detail·cert/list·log/tail 两角色（D0 口径），全部写与编辑前置读取/建站候选 admin+CSRF）+ 1 表 DDL（certificate 本模块唯一持久化对象，deploy_prev_refs JSON 列承载部署原值快照）+ 4 个网关/服务契约（NginxGateway+WritePipeline 安全写入管线、AcmeGateway ACL（本项目首个外部系统防腐层，R-09 唯一外呼）、SiteScanner 实时扫描、PhpFpmGateway）+ 1 个后台子流程（自动续期任务，ADR-024 六状态机）+ 21 错误码（SITE_001~014 + CERT_001~007）+ 复用 account-auth 码族（AUTH_001/002/003/008）+ 8 枚举引用（本域 6 项 D2 已定稿 + panel_role/audit_action/audit_result 引用，无新增）+ 13 审计动作常量 + 16 项设计决策（D-01 实时扫描投影、D-02 siteId 路径#序号、D-03 消重/落点优先级、D-04 WritePipeline 强制管线+快照保留 20 份、D-05 reload 失败保留配置、D-06 baseMtime 乐观锁、D-07 日志尾部 100/1000、D-08 状态读时推算+imported 刷新、D-09 ACME 账户文件/CA 配置键/每日单次调度、D-10 同域名防重、D-11 引用实时推导+undeploy 恢复原值、D-12 审计事务边界、D-13 混合模式声明、D-14 pool 实时读、D-15 建站防重+nginx 空态、D-16 启停注释/还原实现）；关闭 prd-site-mgmt.md 待对齐-1~-10；无旧版对比 | — |
+| v1.1 | 2026-11-16 | rule_added | 登记被依赖（ADR-029，panel-core 增量 D1 消费契约）：1.5 上下文映射新增 panel-core 被依赖行（AcmeGateway 4.1.5 + nginx 安全写回 4.2.5 复用，挑战 location 注入/撤除走 R-06）；5.1 新增「AcmeGateway + nginx 安全写回」进程内 OHS 服务行并订正尾注「无对外 OHS」声明；本模块 HTTP 接口/表/枚举/网关契约本体零变更 | 1.5、5.1 |
 
 ### 6.2 变更类型词汇表
 

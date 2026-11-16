@@ -91,8 +91,10 @@ func newTestApp(t *testing.T) *testApp {
 		authapi.NewModule(authSvcObj, auditSvc, false),
 		NewModule(authSvcObj, panelSvc),
 	)
-	// D-P03：EntryPathHandler 包裹在 gin engine 之外（全局第一环）。
-	ts := httptest.NewServer(middleware.EntryPathHandler(panelSvc, server.Handler()))
+	// D-P03：EntryPathHandler 包裹在 gin engine 之外（全局第一环）；
+	// D-P16（v2.0）：HostGuard 紧随其后（Entry → Host → 引擎中间件链）。
+	ts := httptest.NewServer(middleware.EntryPathHandler(panelSvc,
+		middleware.HostGuard(panelSvc, server.Handler())))
 	t.Cleanup(ts.Close)
 	return &testApp{ts: ts, svc: panelSvc, auth: authSvcObj}
 }
@@ -489,4 +491,209 @@ func TestPanelValidationOverHTTP(t *testing.T) {
 		detail.HTTPS.Cert == nil || detail.HTTPS.Cert.Source != "self_signed" {
 		t.Fatalf("self-signed over http wrong: %s", env.Data)
 	}
+}
+
+// ---- v2.0 增量：域名绑定（ADR-028）与面板证书（ADR-029）----
+
+func TestCertEndpointsGuards(t *testing.T) {
+	app := newTestApp(t)
+	admin := initWizardAndLogin(t, app)
+
+	// 未登录 → AUTH_001（D-P11：cert/status 亦需会话）。
+	env, _ := do(t, app.ts, "GET", "/panel/cert/status", nil, nil, false)
+	wantCode(t, env, "AUTH_001")
+
+	// 建 readonly：cert/status 可看（ADR-018 全可看）；写接口越界 AUTH_008。
+	env, _ = do(t, app.ts, "POST", "/auth/user/create", map[string]any{
+		"username": "watcher", "password": testCred, "role": "readonly",
+	}, &admin, true)
+	wantCode(t, env, "0")
+	ro := login(t, app, "watcher")
+
+	env, _ = do(t, app.ts, "GET", "/panel/cert/status", nil, &ro, false)
+	wantCode(t, env, "0")
+	var status struct {
+		Cert *struct {
+			Source string `json:"source"`
+		} `json:"cert"`
+		Acme struct {
+			Domain    *string `json:"domain"`
+			Challenge string  `json:"challenge"`
+			AutoRenew bool    `json:"autoRenew"`
+		} `json:"acme"`
+	}
+	if err := json.Unmarshal(env.Data, &status); err != nil || status.Cert != nil {
+		t.Fatalf("fresh cert status wrong: %s", env.Data)
+	}
+	if status.Acme.Domain != nil || status.Acme.Challenge != "http_01" || !status.Acme.AutoRenew {
+		t.Fatalf("acme info wrong: %s", env.Data)
+	}
+
+	// readonly 越界两写接口 → AUTH_008。
+	env, _ = do(t, app.ts, "POST", "/panel/cert/request", nil, &ro, true)
+	wantCode(t, env, "AUTH_008")
+	env, _ = do(t, app.ts, "POST", "/panel/cert/retry-renewal", nil, &ro, true)
+	wantCode(t, env, "AUTH_008")
+
+	// admin 缺 CSRF → AUTH_003。
+	env, _ = do(t, app.ts, "POST", "/panel/cert/request", nil, &admin, false)
+	wantCode(t, env, "AUTH_003")
+
+	// admin 未绑定域名 → PANEL_007（校验链第一环，先于通道判定）。
+	env, _ = do(t, app.ts, "POST", "/panel/cert/request", nil, &admin, true)
+	wantCode(t, env, "PANEL_007")
+
+	// 绑定域名后：通道未装配（newTestApp 未注入 ACME 通道）→ PANEL_008 data.reason。
+	//（绑定即锁 Host——后续请求一律携带匹配 Host，同 D-P16 运行语义。）
+	env, _ = do(t, app.ts, "POST", "/panel/config/update",
+		map[string]any{"bindDomain": "panel.example.com"}, &admin, true)
+	wantCode(t, env, "0")
+	const boundHost = "panel.example.com"
+	env = doWithHost(t, app.ts, "POST", "/panel/cert/request", nil, &admin, true, boundHost)
+	wantCode(t, env, "PANEL_008")
+	// detail 透出 bindDomain（readonly 可见，I-P09/D-P12）。
+	env = doWithHost(t, app.ts, "GET", "/panel/config/detail", nil, &ro, false, boundHost)
+	wantCode(t, env, "0")
+	var detail struct {
+		BindDomain struct {
+			Value      *string `json:"value"`
+			EffectMode string  `json:"effectMode"`
+		} `json:"bindDomain"`
+	}
+	if err := json.Unmarshal(env.Data, &detail); err != nil ||
+		detail.BindDomain.Value == nil || *detail.BindDomain.Value != "panel.example.com" ||
+		detail.BindDomain.EffectMode != "immediate" {
+		t.Fatalf("bindDomain view wrong: %s", env.Data)
+	}
+	// cert/status acme.domain 随 bind_domain。
+	env = doWithHost(t, app.ts, "GET", "/panel/cert/status", nil, &admin, false, boundHost)
+	wantCode(t, env, "0")
+	if err := json.Unmarshal(env.Data, &status); err != nil ||
+		status.Acme.Domain == nil || *status.Acme.Domain != "panel.example.com" {
+		t.Fatalf("acme.domain wrong: %s", env.Data)
+	}
+
+	// 非法域名 → AUTH_012 fields.bindDomain（D-P12：RFC 1123/无端口路径）。
+	env = doWithHost(t, app.ts, "POST", "/panel/config/update",
+		map[string]any{"bindDomain": "bad:80"}, &admin, true, boundHost)
+	wantCode(t, env, "AUTH_012")
+
+	// retry-renewal 无证书行 → PANEL_010 data.currentSource=null。
+	env = doWithHost(t, app.ts, "POST", "/panel/cert/retry-renewal", nil, &admin, true, boundHost)
+	wantCode(t, env, "PANEL_010")
+	if !strings.Contains(string(env.Data), `"currentSource":null`) {
+		t.Fatalf("PANEL_010 data = %s", env.Data)
+	}
+
+	// 切 httpsMode=acme 无 acme 证书 → PANEL_003（I-P04 v2.0 扩展）。
+	env = doWithHost(t, app.ts, "POST", "/panel/config/update",
+		map[string]any{"httpsMode": "acme"}, &admin, true, boundHost)
+	wantCode(t, env, "PANEL_003")
+}
+
+// TestHostGuardOverHTTP HostGuard 全栈（D-P16/ADR-028）：绑定后不匹配 Host
+// （含 IP 直连）标准 404 无包络；匹配 Host 全通；解绑即时恢复直通。
+func TestHostGuardOverHTTP(t *testing.T) {
+	app := newTestApp(t)
+	admin := initWizardAndLogin(t, app)
+
+	// 未绑定：默认 Host（127.0.0.1:port）直通。
+	env, _ := do(t, app.ts, "GET", "/panel/config/detail", nil, &admin, false)
+	wantCode(t, env, "0")
+
+	// 绑定域名（D-P12：唯一写入口 config/update.bindDomain）。
+	env, _ = do(t, app.ts, "POST", "/panel/config/update",
+		map[string]any{"bindDomain": "Panel.Example.COM"}, &admin, true)
+	wantCode(t, env, "0")
+
+	// 默认 Host（IP 直连）→ 标准 404 明文（无业务码包裹，防探测 D-P03 同语义）。
+	resp, body := doRaw(t, app.ts, "GET", "/panel/config/detail")
+	if resp.StatusCode != 404 || body != "404 page not found\n" {
+		t.Fatalf("ip host: status=%d body=%q", resp.StatusCode, body)
+	}
+	// 未认证访问同样被拦（作用于全部路由，含 /auth/*）。
+	resp, body = doRaw(t, app.ts, "GET", "/auth/init/check")
+	if resp.StatusCode != 404 || body != "404 page not found\n" {
+		t.Fatalf("auth route: status=%d body=%q", resp.StatusCode, body)
+	}
+
+	// 匹配 Host（大小写不敏感）→ 认证与业务全通。
+	env = doWithHost(t, app.ts, "GET", "/panel/config/detail", nil, &admin, false, "panel.example.com")
+	wantCode(t, env, "0")
+	// 带端口的匹配 Host 同样放行（I-P09 去可选 :port）。
+	env = doWithHost(t, app.ts, "GET", "/panel/config/detail", nil, &admin, false, "panel.example.com:8443")
+	wantCode(t, env, "0")
+	// 其他域名 → 标准 404 明文（无包络）。
+	resp, body = doRawWithHost(t, app.ts, "GET", "/panel/config/detail", "other.example.com")
+	if resp.StatusCode != 404 || body != "404 page not found\n" {
+		t.Fatalf("other host: status=%d body=%q", resp.StatusCode, body)
+	}
+
+	// 解绑（bindDomain=null，D-P12 置空语义）→ 下一请求直通恢复（即时生效）。
+	env = doWithHost(t, app.ts, "POST", "/panel/config/update",
+		map[string]any{"bindDomain": nil}, &admin, true, "panel.example.com")
+	wantCode(t, env, "0")
+	// 默认 Host（IP 直连）不再 404——未认证直达 AuthRequired（包络 AUTH_001）。
+	env, _ = do(t, app.ts, "GET", "/panel/config/detail", nil, nil, false)
+	wantCode(t, env, "AUTH_001")
+	env, _ = do(t, app.ts, "GET", "/panel/config/detail", nil, &admin, false)
+	wantCode(t, env, "0")
+}
+
+// doRawWithHost 同 doRaw 但显式指定 Host 头（404 明文断言用）。
+func doRawWithHost(t *testing.T, ts *httptest.Server, method, path, host string) (*http.Response, string) {
+	t.Helper()
+	req, err := http.NewRequest(method, ts.URL+path, nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Host = host
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("do raw %s %s: %v", method, path, err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	return resp, string(raw)
+}
+
+// doWithHost 同 do 但显式指定 Host 头（HostGuard 用例）。
+func doWithHost(t *testing.T, ts *httptest.Server, method, path string, body any,
+	sess *session, withCSRF bool, host string) envelope {
+	t.Helper()
+	var rd io.Reader
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			t.Fatalf("marshal body: %v", err)
+		}
+		rd = bytes.NewReader(b)
+	}
+	req, err := http.NewRequest(method, ts.URL+path, rd)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Host = host
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if sess != nil {
+		req.Header.Set("Cookie", authsvc.SessionCookieName+"="+sess.cookie)
+		if withCSRF {
+			req.Header.Set(authsvc.CSRFHeader, sess.csrf)
+			// Origin 须与请求 Host 同源（CsrfGuard sameOrigin 语义）。
+			req.Header.Set("Origin", "http://"+host)
+		}
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("do %s %s: %v", method, path, err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	var env envelope
+	if err := json.Unmarshal(raw, &env); err != nil {
+		t.Fatalf("decode envelope %s %s: %v (body=%s)", method, path, err, raw)
+	}
+	return env
 }

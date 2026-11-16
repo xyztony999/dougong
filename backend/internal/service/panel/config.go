@@ -3,6 +3,7 @@ package panel
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -98,10 +99,37 @@ func (s *Service) UpdateConfig(ctx context.Context, actor *authsvc.Identity, req
 			merged.EntryPathEnabled = v
 		}
 	}
+	// bindDomain（D-P12）：携带 null/空串=解绑、非空合法域名=绑定、未携带=不变；
+	// null 与缺省语义不同，经 RawMessage 区分（AUTH_012 fields 校验，不设专用码）。
+	if req.BindDomain != nil {
+		v, ferr := parseBindDomain(req.BindDomain)
+		if ferr != nil {
+			return nil, invalid(*ferr)
+		}
+		if v == "" { // 解绑（置空语义）
+			if cur.BindDomain != nil && *cur.BindDomain != "" {
+				empty := ""
+				changes.BindDomain = &empty
+				deltas = append(deltas, fieldDelta{Field: "bindDomain", Before: *cur.BindDomain, After: nil})
+			}
+			merged.BindDomain = nil
+		} else {
+			if cur.BindDomain == nil || *cur.BindDomain != v {
+				changes.BindDomain = &v
+				var before any
+				if cur.BindDomain != nil {
+					before = *cur.BindDomain // 公开访问名明文（A-P10/D-P12），不脱敏
+				}
+				deltas = append(deltas, fieldDelta{Field: "bindDomain", Before: before, After: v})
+			}
+			merged.BindDomain = &v
+		}
+	}
 	var modeTransition string
 	if req.HTTPSMode != nil {
 		switch v := strings.TrimSpace(*req.HTTPSMode); v {
-		case storepanel.HTTPSModeOff, storepanel.HTTPSModeSelfSigned, storepanel.HTTPSModeImported:
+		case storepanel.HTTPSModeOff, storepanel.HTTPSModeSelfSigned,
+			storepanel.HTTPSModeImported, storepanel.HTTPSModeAcme:
 			if v != cur.HTTPSMode {
 				changes.HTTPSMode = &v
 				deltas = append(deltas, fieldDelta{Field: "httpsMode", Before: cur.HTTPSMode, After: v})
@@ -109,7 +137,7 @@ func (s *Service) UpdateConfig(ctx context.Context, actor *authsvc.Identity, req
 				modeTransition = v
 			}
 		default:
-			return nil, invalid(errcode.FieldError{Field: "httpsMode", Message: "取值须为 off / self_signed / imported"})
+			return nil, invalid(errcode.FieldError{Field: "httpsMode", Message: "取值须为 off / self_signed / imported / acme"})
 		}
 	}
 	if req.UpdateCheck != nil {
@@ -182,6 +210,21 @@ func (s *Service) UpdateConfig(ctx context.Context, actor *authsvc.Identity, req
 			return nil, fmt.Errorf("panel: update get cert: %w", err)
 		}
 	}
+	// to acme（I-P04 v2.0 扩展，D-P14）：前置 panel_cert.source=acme 且推算
+	// 未过期（valid/expiring_soon）；否则 PANEL_003。
+	if modeTransition == storepanel.HTTPSModeAcme {
+		cert, err := s.st.Cert().Get(ctx)
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			return nil, errcode.ErrCertRequired // PANEL_003
+		case err != nil:
+			return nil, fmt.Errorf("panel: update get cert: %w", err)
+		case cert.Source != storepanel.CertSourceAcme:
+			return nil, errcode.ErrCertRequired
+		case !acmeCertUsable(CalcCertStatus(cert, now)):
+			return nil, errcode.ErrCertRequired // 已过期 acme 证书不可承载模式
+		}
+	}
 	// to off：直接生效（不触碰 panel_cert，api 4.1.4）。
 
 	// ---- 5) entryPathEnabled 0→1 且无路径值时自动生成（等价 regenerate 语义）----
@@ -240,6 +283,57 @@ func (s *Service) UpdateConfig(ctx context.Context, actor *authsvc.Identity, req
 		return nil, err
 	}
 	return s.Detail(ctx)
+}
+
+// parseBindDomain 解析 bindDomain 字段载荷（D-P12）：JSON null 或空串 → ""
+// （解绑）；非空字符串 → 原值待校验；其他 JSON 类型 → AUTH_012 字段错误。
+func parseBindDomain(raw json.RawMessage) (string, *errcode.FieldError) {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" || trimmed == "null" {
+		return "", nil
+	}
+	var v string
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return "", &errcode.FieldError{Field: "bindDomain", Message: "bindDomain 须为字符串或 null"}
+	}
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return "", nil // 空串=解绑（与 null 同义，D-P12 置空语义）
+	}
+	if !validDomain(v) {
+		return "", &errcode.FieldError{Field: "bindDomain",
+			Message: "绑定域名须为 RFC 1123 主机名（≤253 字符，不含协议/路径/端口）"}
+	}
+	return v, nil
+}
+
+// validDomain 域名格式校验（D-P12/I-P09 输入约束）：RFC 1123 主机名标签规则、
+// 总长 ≤253、不含 scheme/path/port（出现 : / ? # @ 即拒——IPv6 字面量因含
+// 冒号被拒，与「不含端口」共用一条判定）。
+func validDomain(domain string) bool {
+	if len(domain) == 0 || len(domain) > 253 {
+		return false
+	}
+	if strings.ContainsAny(domain, ":/?#@") {
+		return false
+	}
+	for _, label := range strings.Split(domain, ".") {
+		if len(label) == 0 || len(label) > 63 {
+			return false
+		}
+		for i, ch := range label {
+			switch {
+			case ch >= 'a' && ch <= 'z', ch >= 'A' && ch <= 'Z', ch >= '0' && ch <= '9':
+			case ch == '-':
+				if i == 0 || i == len(label)-1 {
+					return false // 标签首尾不得为连字符（RFC 1123）
+				}
+			default:
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // RegenerateEntryPath POST /panel/config/regenerate-entry-path（admin）：

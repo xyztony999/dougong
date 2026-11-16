@@ -1,21 +1,25 @@
 /**
  * panelStore 回归测试（Gate 2 W4——panelStore 此前 0 用例）：
- * 覆盖 loadConfig/loadMenu 成败流、pendingRestart 派生（D-P02 横幅源）与
+ * 覆盖 loadConfig/loadMenu/loadCertStatus 成败流、pendingRestart 派生（D-P02 横幅源）与
  * loadMenu 重挂载先清残留语义（D-P07：服务端按角色过滤、前端不残留上一角色菜单）；
  * fixture session 为 number 秒——Gate 2 W1 契约 §4.1.4 钉死 int64 秒的类型锁定
  * （若 types/panel.ts 残留 string，本文件 typecheck 即 FAIL）。
+ * v2.0 增量（2026-11-16）：+bindDomain 分组 fixture（D-P12）与 loadCertStatus 流
+ * （面板证书 Card 数据源，certStatus 两角色可见）。
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { configDetail, menuList } from '@/api/panel'
+import { certStatus, configDetail, menuList } from '@/api/panel'
 import { usePanelStore } from '@/stores/panel'
-import type { PanelConfigDetail, PanelMenuItem } from '@/types/panel'
+import type { PanelCertStatusData, PanelConfigDetail, PanelMenuItem } from '@/types/panel'
 
 vi.mock('@/api/panel', () => ({
+  certStatus: vi.fn(),
   configDetail: vi.fn(),
   menuList: vi.fn()
 }))
 
+const mockCertStatus = vi.mocked(certStatus)
 const mockConfigDetail = vi.mocked(configDetail)
 const mockMenuList = vi.mocked(menuList)
 
@@ -23,11 +27,18 @@ const mockMenuList = vi.mocked(menuList)
 const DETAIL: PanelConfigDetail = {
   listen: { scope: 'all', address: null, port: 44300, effectMode: 'restart_required' },
   entryPath: { enabled: false, path: null, effectMode: 'immediate' },
+  bindDomain: { value: null, effectMode: 'immediate' },
   https: { mode: 'off', cert: null, effectMode: 'immediate' },
   updateCheck: { enabled: false, effectMode: 'immediate' },
   lang: { value: 'zh-CN', supported: ['zh-CN'], effectMode: 'immediate' },
   session: { absoluteTimeout: 43200, idleTimeout: 7200 },
   pendingRestart: false
+}
+
+/** certStatus fixture（api 4.1.4 v2.0：未绑定域名 + 未配置证书 + ACME 概要） */
+const CERT_STATUS_EMPTY: PanelCertStatusData = {
+  cert: null,
+  acme: { domain: null, challenge: 'http_01', autoRenew: true }
 }
 
 const MENU: PanelMenuItem[] = [
@@ -71,6 +82,54 @@ describe('panelStore · loadConfig 加载流', () => {
     mockConfigDetail.mockResolvedValueOnce({ ...DETAIL, pendingRestart: true })
     await store.loadConfig()
     expect(store.pendingRestart).toBe(true)
+  })
+})
+
+describe('panelStore · loadCertStatus 面板证书流（v2.0，PageSpec 5.1 Card 5 数据源）', () => {
+  const CERT_STATUS_ACME: PanelCertStatusData = {
+    cert: {
+      source: 'acme',
+      status: 'valid',
+      issuer: "Let's Encrypt R11",
+      notBefore: '2026-11-01T00:00:00Z',
+      notAfter: '2027-01-30T00:00:00Z',
+      lastError: null
+    },
+    acme: { domain: 'panel.example.com', challenge: 'http_01', autoRenew: true }
+  }
+
+  it('成功：certStatusData 落位、loading 复位、无错误态', async () => {
+    mockCertStatus.mockResolvedValueOnce(CERT_STATUS_ACME)
+    const store = usePanelStore()
+    await store.loadCertStatus()
+
+    expect(store.certStatusData).toEqual(CERT_STATUS_ACME)
+    expect(store.certStatusLoading).toBe(false)
+    expect(store.certStatusError).toBe(false)
+  })
+
+  it('失败：certStatusError 置位且既有数据保留（同 loadConfig 语义；错误已由拦截器统一提示）', async () => {
+    mockCertStatus.mockResolvedValueOnce(CERT_STATUS_EMPTY)
+    mockCertStatus.mockRejectedValueOnce(new Error('PANEL_008'))
+    const store = usePanelStore()
+    await store.loadCertStatus()
+    expect(store.certStatusData).toEqual(CERT_STATUS_EMPTY)
+
+    await store.loadCertStatus()
+    expect(store.certStatusError).toBe(true)
+    expect(store.certStatusLoading).toBe(false)
+    // 失败不清空既有数据（面板证书 Card 摘要仍可见）
+    expect(store.certStatusData).toEqual(CERT_STATUS_EMPTY)
+  })
+
+  it('cert=null 未配置证书 + acme.domain=bind_domain 当前值透传（fixture 锁定 v2.0 契约形态）', async () => {
+    mockCertStatus.mockResolvedValueOnce(CERT_STATUS_EMPTY)
+    const store = usePanelStore()
+    await store.loadCertStatus()
+
+    expect(store.certStatusData?.cert).toBeNull()
+    expect(store.certStatusData?.acme.challenge).toBe('http_01')
+    expect(store.certStatusData?.acme.autoRenew).toBe(true)
   })
 })
 

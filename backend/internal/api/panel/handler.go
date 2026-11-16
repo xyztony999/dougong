@@ -1,5 +1,5 @@
-// Package panel 是面板基座（panel-core）模块 HTTP 传输层（7 接口，薄壳：
-// 绑定 → service → 包络响应；业务逻辑一律在 service，api-panel-core.md §4.1.4）。
+// Package panel 是面板基座（panel-core）模块 HTTP 传输层（10 接口，薄壳：
+// 绑定 → service → 包络响应；业务逻辑一律在 service，api-panel-core.md v2.0 §4.1.4）。
 package panel
 
 import (
@@ -81,6 +81,51 @@ func (h *Handler) UploadCertificate(c *gin.Context) {
 		return
 	}
 	res, err := h.svc.UploadCertificate(c.Request.Context(), id, req)
+	if err != nil {
+		response.Fail(c, err)
+		return
+	}
+	response.OK(c, res)
+}
+
+// ---- 面板证书（3，v2.0 ADR-029） ----
+
+// CertStatus GET /panel/cert/status（admin+readonly）：面板证书状态视图
+// （来源/推算状态/失败原因/ACME 概要，D-P13）。
+func (h *Handler) CertStatus(c *gin.Context) {
+	res, err := h.svc.CertStatus(c.Request.Context())
+	if err != nil {
+		response.Fail(c, err)
+		return
+	}
+	response.OK(c, res)
+}
+
+// CertRequest POST /panel/cert/request（admin）：面板证书 ACME 申请（HTTP-01
+// 经已有 nginx，同步终态 ≤120s，D-P13/D-P15）。
+func (h *Handler) CertRequest(c *gin.Context) {
+	id, ok := middleware.Identity(c)
+	if !ok {
+		response.FailWith(c, errcodeUnauthenticated())
+		return
+	}
+	res, err := h.svc.RequestCert(c.Request.Context(), id)
+	if err != nil {
+		response.Fail(c, err)
+		return
+	}
+	response.OK(c, res)
+}
+
+// RetryRenewal POST /panel/cert/retry-renewal（admin）：renew_failed 手动重试
+// （4.1.3 同一通道，同步终态）。
+func (h *Handler) RetryRenewal(c *gin.Context) {
+	id, ok := middleware.Identity(c)
+	if !ok {
+		response.FailWith(c, errcodeUnauthenticated())
+		return
+	}
+	res, err := h.svc.RetryRenewal(c.Request.Context(), id)
 	if err != nil {
 		response.Fail(c, err)
 		return

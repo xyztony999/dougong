@@ -72,12 +72,13 @@ export const INIT_STATUS: Record<InitStatus, DictItem> = {
   initialized: { label: '已初始化', tag: 'success' }
 }
 
-/** https_mode：off / self_signed / imported（panel-core，R-10 三态） */
-export type HttpsMode = 'off' | 'self_signed' | 'imported'
+/** https_mode：off / self_signed / imported / acme（panel-core，R-10 三态 + v2.0 扩展 acme——D-P14，ADR-029） */
+export type HttpsMode = 'off' | 'self_signed' | 'imported' | 'acme'
 export const HTTPS_MODE: Record<HttpsMode, DictItem> = {
   off: { label: '关闭（HTTP 明文）', tag: 'default' },
   self_signed: { label: '自签证书', tag: 'info' },
-  imported: { label: '导入证书', tag: 'success' }
+  imported: { label: '导入证书', tag: 'success' },
+  acme: { label: 'ACME 证书', tag: 'info' }
 }
 
 /** listen_scope：all / localhost / custom（默认 all=0.0.0.0） */
@@ -88,11 +89,26 @@ export const LISTEN_SCOPE: Record<ListenScope, DictItem> = {
   custom: { label: '自定义地址', tag: 'default' }
 }
 
-/** panel_cert_source：self_signed / imported（证书摘要来源 tag） */
-export type PanelCertSource = 'self_signed' | 'imported'
+/** panel_cert_source：self_signed / imported / acme（证书摘要来源 tag；v2.0 扩展 acme，ADR-029） */
+export type PanelCertSource = 'self_signed' | 'imported' | 'acme'
 export const PANEL_CERT_SOURCE: Record<PanelCertSource, DictItem> = {
   self_signed: { label: '自签', tag: 'info' },
-  imported: { label: '导入', tag: 'success' }
+  imported: { label: '导入', tag: 'success' },
+  acme: { label: 'ACME', tag: 'info' }
+}
+
+/**
+ * 面板证书状态呈现子集（cert_status 池引用——site-mgmt D2 定稿 / ADR-024 六状态语义，类型见下方 CertStatus）：
+ * 本模块呈现 4 值子集（同步终态无 pending 停留，api-panel-core.md v2.0 D-P13）；
+ * 颜色/文案 = PageSpec panel-core v1.1 第 3 节颜色方案（expired=gray、expiring_soon=「30 天内到期」，
+ * 与 site-mgmt 侧 CERT_STATUS 呈现（expired=red）按模块颜色表各自映射，池值集同源）。
+ */
+export type PanelCertStatus = Exclude<CertStatus, 'pending'>
+export const PANEL_CERT_STATUS: Record<PanelCertStatus, DictItem> = {
+  valid: { label: '有效', tag: 'success' },
+  expiring_soon: { label: '30 天内到期', tag: 'warning' },
+  renew_failed: { label: '续期失败', tag: 'error' },
+  expired: { label: '已过期', tag: 'default' }
 }
 
 /** config_effect_mode：immediate / restart_required（Card 角标，仅 listen.* 为 restart_required） */

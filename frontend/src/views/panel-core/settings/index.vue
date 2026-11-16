@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted } from 'vue'
 import { usePanelStore } from '@/stores/panel'
+import BindDomainCard from './components/BindDomainCard.vue'
 import EntryPathCard from './components/EntryPathCard.vue'
 import HttpsCard from './components/HttpsCard.vue'
 import LangCard from './components/LangCard.vue'
 import ListenCard from './components/ListenCard.vue'
+import PanelCertCard from './components/PanelCertCard.vue'
 import SessionCard from './components/SessionCard.vue'
 import UpdateCheckCard from './components/UpdateCheckCard.vue'
 
@@ -21,10 +23,13 @@ const showHttpHint = computed(
 
 function retry(): void {
   void panelStore.loadConfig()
+  void panelStore.loadCertStatus()
 }
 
 onMounted(() => {
+  // configDetail 与 certStatus 并行拉取（PageSpec 5.1 Card 5 数据源；两角色均可见）
   void panelStore.loadConfig()
+  void panelStore.loadCertStatus()
 })
 </script>
 
@@ -56,11 +61,13 @@ onMounted(() => {
       </template>
     </n-result>
 
-    <!-- 6 Card 各自独立提交（PageSpec 5.1 提交粒度决策：无跨 Card 草稿态） -->
+    <!-- 8 Card 各自独立提交（PageSpec 5.1 v1.1 提交粒度决策：无跨 Card 草稿态；顺序=Card 1~8） -->
     <template v-else-if="panelStore.configDetail !== null">
       <listen-card :detail="panelStore.configDetail" />
       <entry-path-card :detail="panelStore.configDetail" />
+      <bind-domain-card :detail="panelStore.configDetail" />
       <https-card :detail="panelStore.configDetail" />
+      <panel-cert-card :detail="panelStore.configDetail" />
       <lang-card :detail="panelStore.configDetail" />
       <session-card :detail="panelStore.configDetail" />
       <update-check-card :detail="panelStore.configDetail" />

@@ -1,7 +1,8 @@
 {
   "_generated": {
+    "version": 3,
     "note": "本文件由 engine-gui 文档中心根据项目架构自动生成，可手工编辑（编辑后原样生效）；删除本文件后下次访问将按最新架构重新生成。",
-    "generatedAt": "2026-11-14T05:24:23.867Z",
+    "generatedAt": "2026-11-16T11:00:52.118Z",
     "generator": "engine-gui doc-center 生成器（/dc/api/domains · /api/projects/:id/funcview）"
   },
   "names-map": {},
@@ -41,13 +42,13 @@
       "面板基座（panel-core）": {
         "name": "面板基座（panel-core）",
         "layer": "支撑域",
-        "related": "account-auth（遵奉会话鉴权/RBAC；消费审计写入与会话策略 OHS）；全部业务模块（被依赖：外壳挂载点/入口拦截）；更新检查版本源（待对齐，R-09 默认关闭）",
+        "related": "account-auth（遵奉会话鉴权/RBAC；消费审计写入与会话策略 OHS）；site-mgmt（消费：AcmeGateway 签发通道与 nginx 安全写回 OHS，ADR-029，被依赖登记见 api-site-mgmt.md 1.5/5.1）；全部业务模块（被依赖：外壳挂载点/入口拦截）；更新检查版本源（待对齐，R-09 默认关闭）",
         "fishbone": {
           "spine": [
             {
               "code": "panel_config",
               "name": "panel_config",
-              "desc": "监听地址、监听端口、安全入口开关、安全入口路径值、HTTPS 模式、更新检查开关、界面语言"
+              "desc": "监听地址、监听端口、安全入口开关、安全入口路径值、绑定域名（bind_domain，可空=未绑定，v1.16 增量 AD…"
             }
           ],
           "upperRibs": [],
@@ -291,7 +292,7 @@
         ]
       },
       "面板基座（panel-core）": {
-        "description": "可审计安装交付（ADR-009/D9）、入口面治理（监听/安全入口/HTTPS，R-10）、全模块外壳挂载与菜单可见性、panel_config 配置单例治理与生效分类、版本可观测与更新检查克制治理（R-09）",
+        "description": "可审计安装交付（ADR-009/D9）、入口面治理（监听/安全入口/域名绑定 Host 强校验 ADR-028/HTTPS，R-10）、面板证书 ACME 签发与续期（HTTP-01 经已有 nginx，ADR-029）、全模块外壳挂载与菜单可见性、panel_config 配置单例治理与生效分类、版本可观测与更新检查克制治理（R-09）",
         "tablePrefix": "",
         "tableCount": 6,
         "aggregateRoot": "panel_config",

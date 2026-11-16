@@ -20,26 +20,26 @@ func (r *ConfigRepo) EnsureSingleton(ctx context.Context, listenPort int, at tim
 	_, err := r.x.ExecContext(ctx,
 		`INSERT OR IGNORE INTO panel_config
 		   (id, listen_scope, listen_address, listen_port, entry_path_enabled,
-		    entry_path, https_mode, update_check, lang, updated_at)
-		 VALUES (1, 'all', NULL, ?, 0, NULL, 'off', 0, 'zh-CN', ?)`,
+		    entry_path, bind_domain, https_mode, update_check, lang, updated_at)
+		 VALUES (1, 'all', NULL, ?, 0, NULL, NULL, 'off', 0, 'zh-CN', ?)`,
 		listenPort, formatTime(at))
 	return wrapErr("config ensure singleton", err)
 }
 
 const configCols = `id, listen_scope, listen_address, listen_port, entry_path_enabled,
-	entry_path, https_mode, update_check, lang, updated_at`
+	entry_path, bind_domain, https_mode, update_check, lang, updated_at`
 
 // Get 读取配置单例（SQL 清单 #2：启动绑定读取 + GET detail 数据源）。
 // 行不存在（迁移后未自检）返回包装后的 sql.ErrNoRows。
 func (r *ConfigRepo) Get(ctx context.Context) (Config, error) {
 	var c Config
-	var listenAddress, entryPath sql.NullString
+	var listenAddress, entryPath, bindDomain sql.NullString
 	var entryPathEnabled, updateCheck int
 	var updatedAt any
 	err := r.x.QueryRowContext(ctx,
 		`SELECT `+configCols+` FROM panel_config WHERE id = 1`).
 		Scan(&c.ID, &c.ListenScope, &listenAddress, &c.ListenPort,
-			&entryPathEnabled, &entryPath, &c.HTTPSMode, &updateCheck,
+			&entryPathEnabled, &entryPath, &bindDomain, &c.HTTPSMode, &updateCheck,
 			&c.Lang, &updatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Config{}, wrapErr("config get", err)
@@ -50,6 +50,7 @@ func (r *ConfigRepo) Get(ctx context.Context) (Config, error) {
 	c.ListenAddress = scanStringPtr(listenAddress)
 	c.EntryPathEnabled = entryPathEnabled == 1
 	c.EntryPath = scanStringPtr(entryPath)
+	c.BindDomain = scanStringPtr(bindDomain)
 	c.UpdateCheck = updateCheck == 1
 	t, err := scanTime(updatedAt)
 	if err != nil {
@@ -91,6 +92,14 @@ func (r *ConfigRepo) Update(ctx context.Context, ch ConfigChanges, at time.Time)
 	if ch.EntryPath != nil {
 		sets = append(sets, "entry_path = ?")
 		args = append(args, *ch.EntryPath)
+	}
+	if ch.BindDomain != nil {
+		sets = append(sets, "bind_domain = ?")
+		if *ch.BindDomain == "" { // 空串 = 解绑（置 NULL，D-P12 置空语义）
+			args = append(args, nil)
+		} else {
+			args = append(args, *ch.BindDomain)
+		}
 	}
 	if ch.HTTPSMode != nil {
 		sets = append(sets, "https_mode = ?")

@@ -6,8 +6,12 @@
  */
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
-import { configDetail as fetchConfigDetail, menuList as fetchMenuList } from '@/api/panel'
-import type { PanelConfigDetail, PanelMenuItem } from '@/types/panel'
+import {
+  certStatus as fetchCertStatus,
+  configDetail as fetchConfigDetail,
+  menuList as fetchMenuList
+} from '@/api/panel'
+import type { PanelCertStatusData, PanelConfigDetail, PanelMenuItem } from '@/types/panel'
 
 export const usePanelStore = defineStore('panel', () => {
   /** 面板配置单例（null=未加载；settings 各 Card 数据源） */
@@ -15,6 +19,12 @@ export const usePanelStore = defineStore('panel', () => {
   const configLoading = ref(false)
   /** loadConfig 失败标记（settings 页错误态 + 重试） */
   const configError = ref(false)
+
+  /** 面板证书状态视图（v2.0 增量：null=未加载；面板证书 Card 数据源，两角色可见） */
+  const certStatusData = ref<PanelCertStatusData | null>(null)
+  const certStatusLoading = ref(false)
+  /** loadCertStatus 失败标记（失败保留既有值，同 loadConfig 语义） */
+  const certStatusError = ref(false)
 
   /** 框架侧边菜单（服务端按角色过滤后的可见集） */
   const menuItems = ref<PanelMenuItem[]>([])
@@ -38,6 +48,20 @@ export const usePanelStore = defineStore('panel', () => {
     }
   }
 
+  /** 拉取面板证书状态（进入 settings 与 loadConfig 并行；申请/重试成功后 re-fetch，PageSpec 5.1 Card 5） */
+  async function loadCertStatus(): Promise<void> {
+    certStatusLoading.value = true
+    certStatusError.value = false
+    try {
+      certStatusData.value = await fetchCertStatus()
+    } catch {
+      certStatusError.value = true
+      // 错误已由拦截器统一提示
+    } finally {
+      certStatusLoading.value = false
+    }
+  }
+
   /** 框架侧边菜单（进入框架后调用一次，D-P07） */
   async function loadMenu(): Promise<void> {
     menuLoading.value = true
@@ -58,11 +82,15 @@ export const usePanelStore = defineStore('panel', () => {
     configDetail,
     configLoading,
     configError,
+    certStatusData,
+    certStatusLoading,
+    certStatusError,
     menuItems,
     menuLoading,
     menuError,
     pendingRestart,
     loadConfig,
+    loadCertStatus,
     loadMenu
   }
 })

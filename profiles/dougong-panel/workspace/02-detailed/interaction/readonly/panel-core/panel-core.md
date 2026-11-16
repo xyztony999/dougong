@@ -2,11 +2,11 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v1.0 |
+| 版本 | v1.1 |
 | 状态 | 稳定 |
-| 最后更新 | 2026-11-12 |
+| 最后更新 | 2026-11-16 |
 | 用户类型 | readonly |
-| 唯一数据源 | 02-detailed/api/api-panel-core.md v1.0 |
+| 唯一数据源 | 02-detailed/api/api-panel-core.md v2.0 |
 | 公共页定义 | 复用 admin 文档（../admin/panel-core/panel-core.md 第 7 节）：框架级行为（菜单渲染/首访 HTTPS 提示/入口前缀透明） |
 | 边界依据 | ADR-018：全可看（设置项当前值全部可见，含安全入口路径值——FL 附录B 决策）+ 禁一切变更 + 禁 Web 终端 + 禁上传下载 |
 | 组件体系 | Vue 3 + Naive UI（同 admin 文档） |
@@ -25,11 +25,12 @@
 
 | Action | 方法 | 路径 | 页面 | 说明 |
 |--------|------|------|------|------|
-| configDetail | GET | /panel/config/detail | settings | 只读渲染数据源（含安全入口路径值，ADR-018 全可看） |
+| configDetail | GET | /panel/config/detail | settings | 只读渲染数据源（含安全入口路径值与绑定域名，ADR-018 全可看） |
+| certStatus | GET | /panel/cert/status | settings·面板证书 Card | 面板证书状态只读查看（v1.1 新增；来源/状态/有效期/失败原因可见，ADR-018 全可看） |
 | menuList | GET | /panel/menu/list | 框架侧边菜单 | 服务端已按角色过滤（api D-P07），前端直接渲染 |
 | versionGet | GET | /panel/system/version | about | 与 admin 一致 |
 
-**负空间（readonly 不可见 Action，对应 api 3.3 权限矩阵 ✗ 项 + ADR-018）**：configUpdate / entryPathRegenerate / certUpload / updateCheckRun——前端按 role===admin 隐藏入口 + 后端 AUTH_008 双保险；越界直达请求返回 403 语义页提示边界原因。特别地：更新检查「手动触发」对 readonly 不可见（产生外呼的动作从变更边界从紧把握，FL 附录B 解释性决策）；「检查更新」按钮在开关 Card 中按角色禁用而非隐藏开关查看态（开关状态本身可见）。
+**负空间（readonly 不可见 Action，对应 api 3.3 权限矩阵 ✗ 项 + ADR-018）**：configUpdate（含域名绑定/解绑字段）/ entryPathRegenerate / certUpload / certRequest / certRetryRenewal / updateCheckRun——前端按 role===admin 隐藏入口 + 后端 AUTH_008 双保险；越界直达请求返回 403 语义页提示边界原因。特别地：更新检查「手动触发」、面板证书「申请」与「手动重试续期」对 readonly 不可见（产生外呼/变更的动作从变更边界从紧把握，FL 附录B 解释性决策 + api 权限矩阵从紧注）；各开关与状态查看态本身可见（控件禁用而非隐藏）。
 
 ## 第 3 节 字典 Key 清单
 
@@ -45,13 +46,15 @@
 
 页面级横幅（pendingRestart 警示 / HTTP 明文建议）与 admin 一致——两者均为全局状态展示，非变更操作。
 
-与 admin 版 5.1 的差异（6 Card 逐项）：
+与 admin 版 5.1 的差异（8 Card 逐项）：
 
 | Card | 与 admin 差异 |
 |------|--------------|
 | 监听设置 | 全部控件 disabled；无「保存」按钮；「需重启」角标与 pendingRestart 横幅保留（状态可见） |
 | 安全入口 | 开关 disabled（查看开关状态）；路径值完整可见（ADR-018 全可看，FL 附录B 决策：收紧属 ADR-018 修订事项）；无「重新生成路径」按钮 |
-| HTTPS 设置 | 模式下拉 disabled；证书导入区不渲染（无 PEM 输入框）；证书摘要（来源/颁发者/有效期）可见；无「导入证书」「保存」按钮 |
+| 域名绑定（v1.1） | 当前绑定状态可见（detail.bindDomain.value，null=NTag「未绑定」）；输入框 disabled；无「绑定」「解绑」按钮（负空间：configUpdate） |
+| HTTPS 设置 | 模式下拉 disabled（四态含 acme 可见）；证书导入区不渲染（无 PEM 输入框）；证书摘要（来源/颁发者/有效期）可见；无「导入证书」「保存」按钮 |
+| 面板证书（v1.1） | certStatus 只读渲染：ACME 域名/挑战方式/自动续期说明/证书摘要（来源+状态 tag/颁发者/有效期）/lastError 可见；无「申请证书」「手动重试续期」按钮（负空间：外呼触发从紧，见第 2 节） |
 | 面板参数 | 语言下拉 disabled（当前值 zh-CN 可见）；无「保存」按钮 |
 | 会话参数 | 与 admin 完全一致（本就只读透传，无差异） |
 | 更新检查 | 开关状态可见（disabled NSwitch）；无「检查更新」按钮（负空间：外呼触发从紧，见第 2 节） |
@@ -75,18 +78,19 @@
 
 | # | 检查 | 结果 |
 |---|------|------|
-| 1 | Action 与 admin 文档/API 文档一致，无 readonly 专属虚构接口 | ✅ 3 个只读 Action（configDetail/menuList/versionGet）均为 admin 文档子集 |
-| 2 | 负空间 4 个 Action 与 api 3.3 权限矩阵 ✗ 项逐项对应 | ✅ 第 2 节 |
-| 3 | 只读视图与 admin 视图共用 Card/字段定义（无字段差异、仅控件禁用与按钮差异） | ✅ 第 5 节 |
+| 1 | Action 与 admin 文档/API 文档一致，无 readonly 专属虚构接口 | ✅ 4 个只读 Action（configDetail/certStatus/menuList/versionGet）均为 admin 文档子集 |
+| 2 | 负空间 6 个 Action 与 api 3.3 权限矩阵 ✗ 项逐项对应 | ✅ 第 2 节 |
+| 3 | 只读视图与 admin 视图共用 Card/字段定义（无字段差异、仅控件禁用与按钮差异） | ✅ 第 5 节（8 Card） |
 | 4 | 安全入口路径值可见性已标注依据（ADR-018 全可看 + FL 附录B） | ✅ 第 5.1 节 |
-| 5 | 更新检查触发负空间已标注依据（FL 附录B 解释性决策） | ✅ 第 2/5.1 节 |
+| 5 | 更新检查/面板证书申请/手动重试触发负空间已标注依据（FL 附录B 解释性决策 + 外呼从紧） | ✅ 第 2/5.1 节 |
 | 6 | CSRF/敏感信息纪律同 admin（第 8 节 3/4 项）；证书导入区在只读视图不渲染 | ✅ |
-| 7 | 字典同源 enums.ts | ✅ |
+| 7 | 字典同源 enums.ts（v1.1 含 cert_status 引用与 https_mode/panel_cert_source 扩展 acme） | ✅ |
 
 ## 第 9 节 文档版本与变更记录
 
 | 版本 | 日期 | 变更类型 | 说明 |
 |------|------|---------|------|
 | v1.0 | 2026-11-12 | initial | 首次生成：只读视角 settings（6 Card 全可见、控件禁用、4 Action 负空间）+ about（无差异）；公共框架行为引用 admin 文档第 7 节 |
+| v1.1 | 2026-11-16 | interface_added / field_added | 增量 D4（ADR-028/029，数据源 api-panel-core.md v2.0，同步 admin 文档 v1.1）：只读 Action 3→4（+certStatus 面板证书状态查看）；负空间 4→6（+certRequest/certRetryRenewal，configUpdate 含域名绑定/解绑字段已在负空间内）；差异表 6→8 Card（+域名绑定只读行、+面板证书只读行）；字典同源扩展（cert_status 引用、https_mode/panel_cert_source +acme） |
 
 > FX 清单执行方式同 admin 文档第 9 节注记（清单文件未随 payload 发布，按 9 节结构落实 + 第 8 节自查；全量留待 Gate 1）。

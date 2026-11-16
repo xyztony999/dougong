@@ -47,6 +47,8 @@ const modeHint = computed(() => {
       return '保存后系统自动生成自签证书'
     case 'imported':
       return '需先导入证书与私钥，再保存切换为导入模式'
+    case 'acme':
+      return 'ACME 证书在下方「面板证书」Card 申请，申请成功后自动启用（勿在此手选）'
     default:
       return '关闭 HTTPS 后，面板以 HTTP 明文方式提供服务'
   }
@@ -73,11 +75,23 @@ const expiringSoon = computed(() => {
 
 const savingMode = ref(false)
 
-/** 保存模式（PANEL_003 前置：切 imported 需已有证书；服务端双保险） */
+/** to acme 前置：需 panel_cert.source=acme 且推算未过期（I-P04 v2.0 扩展/D-P14；服务端 PANEL_003 双保险） */
+function hasUsableAcmeCert(): boolean {
+  const c = cert.value
+  if (c === null || c.source !== 'acme' || c.notAfter === null) return false
+  const t = new Date(c.notAfter).getTime()
+  return !Number.isNaN(t) && t > Date.now()
+}
+
+/** 保存模式（PANEL_003 前置分支文案：to imported→需先导入；to acme→引导面板证书 Card，PageSpec Card 4） */
 async function onSaveMode(): Promise<void> {
   const target = mode.value ?? 'off'
   if (target === 'imported' && cert.value === null) {
     message.error(PANEL_ERROR_TEXT['PANEL_003'] ?? '请先导入证书与私钥')
+    return
+  }
+  if (target === 'acme' && !hasUsableAcmeCert()) {
+    message.error('请先在下方「面板证书」Card 申请 ACME 证书')
     return
   }
   savingMode.value = true

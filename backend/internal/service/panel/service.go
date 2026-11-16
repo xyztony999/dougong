@@ -14,6 +14,7 @@ import (
 	"io"
 	"math/big"
 	"net"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -47,6 +48,12 @@ type Service struct {
 	startup  ListenBinding
 	menus    *MenuRegistry
 	source   VersionSource
+	// v2.0 面板证书 ACME 通道（ADR-029）：未装配时 cert/request·retry-renewal
+	// 触发即 PANEL_008（通道不可用 fail-closed，与版本源 A-P8 同法）。
+	acme       AcmeIssuer
+	nginx      NginxChannel
+	webrootDir string // 面板 http-01 挑战目录基点（{dataDir}/acme-webroot，与 site-mgmt 同源）
+	backupRoot string // 挑战注入写前备份目录（{dataDir}/conf.backup/panel-acme/，R-06）
 }
 
 // Option 是 Service 可选注入（测试时钟/随机源；main 注入会话策略与版本源）。
@@ -83,6 +90,20 @@ func WithSessionPolicy(p SessionPolicy) Option {
 func WithVersionSource(src VersionSource) Option {
 	return func(s *Service) {
 		s.source = src
+	}
+}
+
+// WithAcmeChannel 注入面板证书 ACME 通道（v2.0，ADR-029/D-P13：AcmeIssuer=
+// site-mgmt 同一 adapter/acme.Gateway；nginx=同一 adapter/nginxx.Gateway；
+// dataDir 为面板数据目录——挑战目录与写前备份由此派生，与 site-mgmt 同源）。
+func WithAcmeChannel(acmeGw AcmeIssuer, nginxGw NginxChannel, dataDir string) Option {
+	return func(s *Service) {
+		if acmeGw != nil && nginxGw != nil && dataDir != "" {
+			s.acme = acmeGw
+			s.nginx = nginxGw
+			s.webrootDir = filepath.Join(dataDir, "acme-webroot")
+			s.backupRoot = filepath.Join(dataDir, "conf.backup", "panel-acme")
+		}
 	}
 }
 
@@ -181,6 +202,10 @@ func (s *Service) buildDetail(ctx context.Context, cfg storepanel.Config) (*Deta
 			Path:       cfg.EntryPath,
 			EffectMode: EffectImmediate,
 		},
+		BindDomain: BindDomainView{
+			Value:      cfg.BindDomain,
+			EffectMode: EffectImmediate, // HostGuard 下一请求即用（D-P12/D-P16）
+		},
 		HTTPS: HTTPSView{
 			Mode:       cfg.HTTPSMode,
 			Cert:       certSummary,
@@ -211,6 +236,17 @@ func (s *Service) EntryPathState(ctx context.Context) (bool, string, error) {
 		return false, "", fmt.Errorf("panel: entry path state: %w", err)
 	}
 	return cfg.EntryPathEnabled, derefString(cfg.EntryPath), nil
+}
+
+// BindDomainState 供 HostGuard 每请求读取当前绑定域名（v2.0 api §5.1 被依赖
+// 契约，D-P16/ADR-028；绑定/解绑即时生效——下一请求即用新值；读态失败由
+// HostGuard fail-closed 拦截）。
+func (s *Service) BindDomainState(ctx context.Context) (string, error) {
+	cfg, err := s.st.Config().Get(ctx)
+	if err != nil {
+		return "", fmt.Errorf("panel: bind domain state: %w", err)
+	}
+	return derefString(cfg.BindDomain), nil
 }
 
 // CertMaterial 供 TLS GetCertificate 回调按连接热读取证书材料（D-P06；
@@ -244,6 +280,21 @@ func auditEntry(actor *authsvc.Identity, action, objectType string, detail any) 
 // invalid 构造 AUTH_012 逐字段校验错误。
 func invalid(fields ...errcode.FieldError) *errcode.Error {
 	return errcode.ErrValidation.WithFields(fields...)
+}
+
+// auditSystemEntry 构造 source=system 的审计基底（4.1.3 自动续期后台动作，
+// D-P13/R-03；actor 缺省面板自身）。
+func auditSystemEntry(action, objectType string, detail any) audit.Entry {
+	return audit.Entry{
+		ActorName:  "system",
+		Category:   audit.CategoryChange,
+		Action:     action,
+		ObjectType: objectType,
+		ObjectID:   SingletonObjectID,
+		Detail:     detail,
+		Result:     audit.ResultSuccess,
+		Source:     audit.SourceSystem,
+	}
 }
 
 // fieldDelta 是 panel_config_changed 审计 detail 的单项（api §3.4：

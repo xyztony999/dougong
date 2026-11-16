@@ -142,11 +142,18 @@ func run(args []string) error {
 
 	// panel-core 启动自检（I-P01）：panel_config 单例落库（缺失时随机高位
 	// 端口——安装期语义兜底）+ 进程启动监听基线（D-P02 pendingRestart 判定）。
+	// v2.0（ADR-029）：面板证书 ACME 通道注入——与 site-mgmt 共用同一
+	// acme.Gateway（账户密钥/CA 目录/webroot 同源，D-P13）与 nginxx.Gateway
+	//（挑战 location 安全写回通道，D-P15），故网关在此提前构造。
+	panelDataDir := filepath.Dir(cfg.DBPath)
+	acmeGw := acmegw.NewGateway(cfg.ACME.DirectoryURL, panelDataDir)
+	nginxxGw := nginxx.NewGateway(cfg.Sites.NginxBin, cfg.Sites.ConfRoot, sitesvc.ScanDirNames)
 	panelStore := storepanel.New(db)
 	panelSvc := panelsvc.New(panelStore,
 		panelsvc.WithSessionPolicy(panelsvc.SessionPolicy{
 			AbsoluteTimeout: absTimeout, IdleTimeout: idleTimeout,
-		}))
+		}),
+		panelsvc.WithAcmeChannel(acmeGw, nginxxGw, panelDataDir))
 	bootCfg, err := panelSvc.Bootstrap(ctx)
 	if err != nil {
 		closeErr := db.Close()
@@ -214,9 +221,6 @@ func run(args []string) error {
 	// 菜单对齐 PageSpec 第 7 节（/sites、/certificates 两角色可见——查看类
 	// 全可看 D0 口径 + ADR-018）。
 	siteStore := storesitemgmt.New(db)
-	panelDataDir := filepath.Dir(cfg.DBPath)
-	acmeGw := acmegw.NewGateway(cfg.ACME.DirectoryURL, panelDataDir)
-	nginxxGw := nginxx.NewGateway(cfg.Sites.NginxBin, cfg.Sites.ConfRoot, sitesvc.ScanDirNames)
 	phpfpmGw := phpfpm.NewGateway()
 	siteSvc := sitesvc.New(nginxxGw, phpfpmGw, acmeGw, siteStore, auditSvc,
 		sitesvc.Options{DataDir: panelDataDir})
@@ -350,7 +354,10 @@ func run(args []string) error {
 	// D-P03：EntryPathGuard 为全局第一环，以 net/http 包装器包裹整个 gin
 	// engine（gin 路由解析先于其任何中间件，前缀改写必须在 gin 之前发生），
 	// 位于 account-auth InitGuard 等之前、作用于全部路由（含 /auth/* 与未认证访问）。
-	handler := middleware.EntryPathHandler(panelSvc, server.Handler())
+	// D-P16（v2.0，ADR-028）：HostGuard 域名绑定强校验紧随其后（Entry → Host →
+	// 引擎中间件链）——bind_domain 非空时 Host 不匹配（含 IP 直连）一律标准 404。
+	handler := middleware.EntryPathHandler(panelSvc,
+		middleware.HostGuard(panelSvc, server.Handler()))
 
 	httpSrv := &http.Server{
 		Addr:              addr,
@@ -416,6 +423,23 @@ func run(args []string) error {
 		}()
 		if err := siteSvc.RunRenewalScheduler(ctx); err != nil {
 			slog.ErrorContext(ctx, "cert renewal scheduler exited", "err", err)
+		}
+	}()
+
+	// panel-core 面板证书自动续期后台任务（v2.0 4.1.3，ADR-029：启动 1 分钟后
+	// 首轮 + 24h ticker；panel_cert.source=acme 且推算 expiring_soon 时单次尝试；
+	// goroutine 由 main 编排，ctx 取消退出——G-06；单轮 panic 隔离在
+	// runPanelRenewalPass 之内，本层 recover 再兜底）。
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		defer func() {
+			if r := recover(); r != nil { // 任务 panic 隔离（backend-03 §5）
+				slog.Error("panel cert renewal scheduler panic", "panic", r)
+			}
+		}()
+		if err := panelSvc.RunPanelRenewalScheduler(ctx); err != nil {
+			slog.ErrorContext(ctx, "panel cert renewal scheduler exited", "err", err)
 		}
 	}()
 

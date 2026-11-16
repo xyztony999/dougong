@@ -1,11 +1,17 @@
 /**
- * panel-core 业务类型 —— 与 api-panel-core.md v1.0 请求/响应字段逐字对齐（F02）。
- * detail 六分组结构 = api 4.1.4 GET /panel/config/detail data；
+ * panel-core 业务类型 —— 与 api-panel-core.md v2.0 请求/响应字段逐字对齐（F02）。
+ * detail 七分组结构 = api 4.1.4 GET /panel/config/detail data（v2.0 +bindDomain 组）；
  * update 为部分字段集语义（api 4.1.4：仅提交本 Card 字段）。
  */
-import type { ConfigEffectMode, HttpsMode, ListenScope, PanelCertSource } from './enums'
+import type {
+  ConfigEffectMode,
+  HttpsMode,
+  ListenScope,
+  PanelCertSource,
+  PanelCertStatus
+} from './enums'
 
-/** 错误码标识（api 3.4；PANEL_001~PANEL_006，AUTH_* 复用 account-auth 码族） */
+/** 错误码标识（api 3.4；PANEL_001~PANEL_011，AUTH_* 复用 account-auth 码族；v2.0 +PANEL_007~011） */
 export type PanelErrorCode =
   | 'PANEL_001'
   | 'PANEL_002'
@@ -13,15 +19,26 @@ export type PanelErrorCode =
   | 'PANEL_004'
   | 'PANEL_005'
   | 'PANEL_006'
+  | 'PANEL_007'
+  | 'PANEL_008'
+  | 'PANEL_009'
+  | 'PANEL_010'
+  | 'PANEL_011'
 
-/** 拦截器统一提示文案（PageSpec 第 1 节错误处理行 + 5.1 Card 3/6 文案逐字） */
+/**
+ * 拦截器统一提示文案（PageSpec 第 1 节错误处理行文案逐字）。
+ * PANEL_009/010/011 不在此列——需 data.reason/notAfter/currentStatus 联动文案，
+ * 由面板证书 Card 页面级处理（PageSpec 5.1 Card 5），避免拦截器无数据双提示。
+ */
 export const PANEL_ERROR_TEXT: Readonly<Record<string, string>> = {
   PANEL_001: '监听范围为自定义时必须填写合法的监听地址',
   PANEL_002: '证书解析失败或与私钥不配对，请检查 PEM 内容',
   PANEL_003: '请先导入证书与私钥',
   PANEL_004: '更新检查未开启',
   PANEL_005: '版本源不可达，可稍后手动重试',
-  PANEL_006: '所选语言暂不支持'
+  PANEL_006: '所选语言暂不支持',
+  PANEL_007: '请先绑定域名再申请证书',
+  PANEL_008: 'nginx 不可用或 80 端口未监听（HTTP-01 挑战通道不可用）'
 }
 
 /** ---- GET /panel/config/detail（api 4.1.4） ---- */
@@ -44,6 +61,12 @@ export interface PanelListenConfig {
 export interface PanelEntryPathConfig {
   enabled: boolean
   path: string | null
+  effectMode: ConfigEffectMode
+}
+
+/** 域名绑定（v2.0 新增，ADR-028/D-P12）：value=bind_domain 当前值（null=未绑定，readonly 可见——ADR-018 全可看）；即时生效（HostGuard 下一请求即用，D-P16） */
+export interface PanelBindDomainConfig {
+  value: string | null
   effectMode: ConfigEffectMode
 }
 
@@ -75,6 +98,8 @@ export interface PanelSessionTransit {
 export interface PanelConfigDetail {
   listen: PanelListenConfig
   entryPath: PanelEntryPathConfig
+  /** v2.0 新增分组（api 4.1.4 detail 结构逐字对齐） */
+  bindDomain: PanelBindDomainConfig
   https: PanelHttpsConfig
   updateCheck: PanelUpdateCheckConfig
   lang: PanelLangConfig
@@ -91,6 +116,8 @@ export interface PanelConfigUpdateReq {
   listenAddress?: string | null
   listenPort?: number
   entryPathEnabled?: boolean
+  /** 域名绑定/解绑唯一写入口（D-P12）：携带 null/空串=解绑、非空合法域名=绑定、未携带=不变 */
+  bindDomain?: string | null
   httpsMode?: HttpsMode
   updateCheck?: boolean
   lang?: string
@@ -111,6 +138,44 @@ export interface CertUploadReq {
 
 export interface CertUploadData {
   cert: PanelCertSummary
+}
+
+/** ---- GET /panel/cert/status（v2.0 新增，两角色——面板证书状态视图，D-P13） ---- */
+
+/** 证书行（cert=null 即未配置证书）；status 读时惰性推算——source≠acme 时为 null（自签/导入无续期语义）；lastError=renew_failed 落库态（首次申请失败无行不落库，D-P13） */
+export interface PanelCertStatusItem {
+  source: PanelCertSource
+  status: PanelCertStatus | null
+  issuer: string | null
+  notBefore: string | null
+  notAfter: string | null
+  lastError: string | null
+}
+
+/** ACME 概要：domain=bind_domain 当前值（未绑定为 null）；挑战固定 http_01；autoRenew 固定 true（每日后台调度内置，4.1.3） */
+export interface PanelCertAcmeSummary {
+  domain: string | null
+  challenge: 'http_01'
+  autoRenew: boolean
+}
+
+export interface PanelCertStatusData {
+  cert: PanelCertStatusItem | null
+  acme: PanelCertAcmeSummary
+}
+
+/** ---- POST /panel/cert/request · /panel/cert/retry-renewal（v2.0 新增，admin；响应 data 同形态，api 4.1.4） ---- */
+
+/** 成功后 https_mode 联动切换 acme（D-P14 唯一自动切换路径） */
+export interface PanelCertActionResultData {
+  cert: {
+    source: 'acme'
+    status: PanelCertStatus
+    issuer: string | null
+    notBefore: string | null
+    notAfter: string | null
+  }
+  httpsMode: 'acme'
 }
 
 /** ---- GET /panel/menu/list（D-P07：构建期登记 + 服务端按角色过滤） ---- */

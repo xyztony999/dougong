@@ -36,12 +36,27 @@ const selfSignedValidity = 825 * 24 * time.Hour
 // 待 B 阶段实测校准；单次触发单次请求，无自动重试——D-P09/R-09）。
 const UpdateCheckTimeout = 10 * time.Second
 
-// 审计细粒度动作码与对象类型（api-panel-core.md §3.4 业务常量，
+// 面板证书 ACME 常量（v2.0，api §3.4 业务常量表，ADR-029）。
+const (
+	// AcmeTimeout ACME 签发/续期同步等待上限，超时即失败（D-P13；
+	// 值沿 site-mgmt D-09 同值先例）。
+	AcmeTimeout = 120 * time.Second
+	// CertExpiringDays expiring_soon 推算阈值（D-P13；ADR-024 阈值同值，不可配）。
+	CertExpiringDays = 30
+	// ChallengePanelCert 面板证书挑战方式固定 HTTP-01（ACME_CHALLENGE 面板侧，
+	// ADR-029；非请求参数）。
+	ChallengePanelCert = "http_01"
+)
+
+// 审计细粒度动作码与对象类型（api-panel-core.md v2.0 §3.4 业务常量，
 // category=audit_action.change）。
 const (
 	ActionPanelConfigChanged        = "panel_config_changed"
 	ActionPanelCertUpdated          = "panel_cert_updated"
 	ActionPanelEntryPathRegenerated = "panel_entry_path_regenerated"
+	ActionPanelCertRequested        = "panel_cert_requested"       // v2.0（D-P13）
+	ActionPanelCertRenewed          = "panel_cert_renewed"         // v2.0（source=system 后台动作）
+	ActionPanelCertRenewalRetried   = "panel_cert_renewal_retried" // v2.0（手动重试）
 
 	ObjectTypePanelConfig = "panel_config"
 	ObjectTypePanelCert   = "panel_cert"

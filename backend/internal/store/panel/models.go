@@ -3,7 +3,8 @@
 // api → service → store，本包不感知 HTTP 与业务编排）。
 //
 // 两表均为单行表（id=1 CHECK，D-P01/D-P04）：panel_config 配置单例 +
-// panel_cert 证书单行（自签/导入共用一行，替换式更新）。
+// panel_cert 证书单行（自签/导入/acme 共用一行，替换式更新；v2.0 增量
+// bind_domain/https_mode+acme/source+acme/last_error，迁移 007）。
 package panel
 
 import (
@@ -28,9 +29,20 @@ const (
 	HTTPSModeOff        = "off"
 	HTTPSModeSelfSigned = "self_signed"
 	HTTPSModeImported   = "imported"
+	HTTPSModeAcme       = "acme" // v2.0 扩展（D-P14，迁移 007）
 
 	CertSourceSelfSigned = "self_signed"
 	CertSourceImported   = "imported"
+	CertSourceAcme       = "acme" // v2.0 扩展（ADR-029，迁移 007）
+)
+
+// 面板证书状态（cert_status 引用的 4 值子集，D-P13 读时推算，不落库；
+// pending 不呈现——同步终态无停留）。
+const (
+	CertStatusValid        = "valid"
+	CertStatusExpiringSoon = "expiring_soon"
+	CertStatusExpired      = "expired"
+	CertStatusRenewFailed  = "renew_failed" // 落库态：last_error 非空即呈现
 )
 
 // Config 对应 panel_config 单行（id=1，I-P01 单例保证）。
@@ -41,6 +53,7 @@ type Config struct {
 	ListenPort       int     // 1024..65535；修改重启生效（D-P02）
 	EntryPathEnabled bool
 	EntryPath        *string // ^[A-Za-z0-9_-]{8,32}$（I-P03）
+	BindDomain       *string // 绑定域名（v2.0/ADR-028）：NULL=未绑定放行全部 Host；唯一写入口=config/update.bindDomain（D-P12）
 	HTTPSMode        string
 	UpdateCheck      bool
 	Lang             string
@@ -57,6 +70,7 @@ type Cert struct {
 	Issuer    *string
 	NotBefore *time.Time
 	NotAfter  *time.Time
+	LastError *string // ACME 签发/续期失败原因（v2.0；非空即 renew_failed 呈现，D-P13）
 	UpdatedAt time.Time
 }
 
@@ -70,6 +84,7 @@ type ConfigChanges struct {
 	ListenPort       *int
 	EntryPathEnabled *bool
 	EntryPath        *string
+	BindDomain       *string // v2.0：空串=解绑（置 NULL），非空=绑定（D-P12）
 	HTTPSMode        *string
 	UpdateCheck      *bool
 	Lang             *string
@@ -78,8 +93,8 @@ type ConfigChanges struct {
 // Empty 报告是否不含任何列变更。
 func (c ConfigChanges) Empty() bool {
 	return c.ListenScope == nil && c.ListenAddress == nil && c.ListenPort == nil &&
-		c.EntryPathEnabled == nil && c.EntryPath == nil && c.HTTPSMode == nil &&
-		c.UpdateCheck == nil && c.Lang == nil
+		c.EntryPathEnabled == nil && c.EntryPath == nil && c.BindDomain == nil &&
+		c.HTTPSMode == nil && c.UpdateCheck == nil && c.Lang == nil
 }
 
 // ---- 时间映射：与 001_account_auth 同法，DATETIME 列以 TEXT(RFC3339, UTC)

@@ -13,6 +13,7 @@ import (
 type DetailView struct {
 	Listen         ListenView      `json:"listen"`
 	EntryPath      EntryPathView   `json:"entryPath"`
+	BindDomain     BindDomainView  `json:"bindDomain"`
 	HTTPS          HTTPSView       `json:"https"`
 	UpdateCheck    UpdateCheckView `json:"updateCheck"`
 	Lang           LangView        `json:"lang"`
@@ -32,6 +33,14 @@ type ListenView struct {
 type EntryPathView struct {
 	Enabled    bool    `json:"enabled"`
 	Path       *string `json:"path"`
+	EffectMode string  `json:"effectMode"`
+}
+
+// BindDomainView 域名绑定组（v2.0，D-P12/ADR-028）：value=null=未绑定；
+// 绑定/解绑即时生效（HostGuard 下一请求即用，D-P16）；值对 readonly 可见
+// （ADR-018 全可看，与 entryPath 同口径）。
+type BindDomainView struct {
+	Value      *string `json:"value"`
 	EffectMode string  `json:"effectMode"`
 }
 
@@ -72,7 +81,8 @@ type SessionView struct {
 
 // UpdateConfigRequest POST /panel/config/update 入参：部分字段集（nil/缺省
 // = 不更新）；entry_path 值不可经此接口设置（仅 regenerate，api 4.1.4）；
-// 携带 session 字段即拒（D-P08）。
+// bindDomain 携带 null/空串=解绑、非空合法域名=绑定、未携带=不变（D-P12——
+// null 与缺省语义不同，经 RawMessage 区分）；携带 session 字段即拒（D-P08）。
 type UpdateConfigRequest struct {
 	ListenScope      *string `json:"listenScope"`
 	ListenAddress    *string `json:"listenAddress"`
@@ -81,6 +91,10 @@ type UpdateConfigRequest struct {
 	HTTPSMode        *string `json:"httpsMode"`
 	UpdateCheck      *bool   `json:"updateCheck"`
 	Lang             *string `json:"lang"`
+	// BindDomain 捕获请求中是否出现 bindDomain 字段（null/空串=解绑，未携带=
+	// 不变——非指针 RawMessage：JSON null 落为字面 "null" 字节而非 nil，方可与
+	// 缺省区分，D-P12）。
+	BindDomain json.RawMessage `json:"bindDomain"`
 	// Session 捕获请求中是否出现 session 字段（出现即 AUTH_012，不解析内容）。
 	Session *json.RawMessage `json:"session"`
 }
@@ -89,7 +103,7 @@ type UpdateConfigRequest struct {
 func (r *UpdateConfigRequest) AnySet() bool {
 	return r.ListenScope != nil || r.ListenAddress != nil || r.ListenPort != nil ||
 		r.EntryPathEnabled != nil || r.HTTPSMode != nil || r.UpdateCheck != nil ||
-		r.Lang != nil
+		r.Lang != nil || r.BindDomain != nil
 }
 
 // RegenerateEntryPathResult POST /panel/config/regenerate-entry-path 响应。
@@ -115,4 +129,67 @@ type UpdateCheckResult struct {
 	LatestVersion   *string   `json:"latestVersion"`
 	UpdateAvailable bool      `json:"updateAvailable"`
 	CheckedAt       time.Time `json:"checkedAt"`
+}
+
+// ---- v2.0 面板证书（ADR-029）----
+
+// CertStatusResult GET /panel/cert/status 响应：cert=null 即未配置证书；
+// status 由读时推算（D-P13：source≠acme 时 null——自签/导入无续期语义）。
+type CertStatusResult struct {
+	Cert *CertStatusCert `json:"cert"`
+	Acme CertAcmeInfo    `json:"acme"`
+}
+
+// CertStatusCert 面板证书状态视图（I-P06：仅摘要与失败原因，无 PEM 材料）。
+type CertStatusCert struct {
+	Source    string     `json:"source"`
+	Status    *string    `json:"status"`
+	Issuer    *string    `json:"issuer"`
+	NotBefore *time.Time `json:"notBefore"`
+	NotAfter  *time.Time `json:"notAfter"`
+	LastError *string    `json:"lastError"`
+}
+
+// CertAcmeInfo ACME 概要（domain=bind_domain 当前值，null=未绑定；
+// autoRenew=内置每日调度固定开启，4.1.3）。
+type CertAcmeInfo struct {
+	Domain    *string `json:"domain"`
+	Challenge string  `json:"challenge"`
+	AutoRenew bool    `json:"autoRenew"`
+}
+
+// CertAcmeResult POST /panel/cert/{request,retry-renewal} 响应（形态相同，
+// api 4.1.4）：成功后 status=valid（推算）、httpsMode=acme（联动，D-P14）。
+type CertAcmeResult struct {
+	Cert      CertAcmeResultCert `json:"cert"`
+	HTTPSMode string             `json:"httpsMode"`
+}
+
+// CertAcmeResultCert 签发/续期成功后的证书摘要。
+type CertAcmeResultCert struct {
+	Source    string     `json:"source"`
+	Status    string     `json:"status"`
+	Issuer    *string    `json:"issuer"`
+	NotBefore *time.Time `json:"notBefore"`
+	NotAfter  *time.Time `json:"notAfter"`
+}
+
+// ReasonData PANEL_008/009 的 data.reason 载荷（沿 site-mgmt 同形先例）。
+type ReasonData struct {
+	Reason string `json:"reason"`
+}
+
+// CurrentSourceData PANEL_010 data.currentSource 载荷（无行时 null）。
+type CurrentSourceData struct {
+	CurrentSource *string `json:"currentSource"`
+}
+
+// CurrentStatusData PANEL_010 data.currentStatus 载荷。
+type CurrentStatusData struct {
+	CurrentStatus string `json:"currentStatus"`
+}
+
+// NotAfterData PANEL_011 data.notAfter 载荷（既有 acme 证书有效期至）。
+type NotAfterData struct {
+	NotAfter time.Time `json:"notAfter"`
 }

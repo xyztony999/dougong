@@ -28,9 +28,9 @@
 | daemon 接管结论 | docker_daemon_state | available \| unavailable | 容器管理 | **定稿**（D2 2026-11-14 新增） | daemon 接管判定值（本机 sock 探测，R-12/R-15 接管不重装；unavailable→未装引导降级，与 firewall_backend 的 none 同构语义）；探测态非状态机、整值刷新（与 instance_conn_state 同构）；伴随透传 daemon 版本（字段集 D3 定，prd-docker-mgmt.md 待对齐-8）；prd-docker-mgmt.md FR-01/FR-02 |
 | 审计结果 | audit_result | success \| failure | 账户与安全 | **定稿**（D3 2026-11-12，⚠️A9 关闭） | 材料要求记"结果"，取值枚举为生成 |
 | 备份执行状态 | backup_run_status | running \| success \| failure | 计划任务与备份 | **定稿**（D2 2026-11-14，ADR-016 拍板） | ADR-016（2026-11-12 Q2 澄清确认取值：running→success/failure 终态不可逆，重新执行=新 run）+ kb 状态机表 + D1 BA 2.3.1；超时按 failure 终态记（原因=timeout）不扩枚举（D2 落定）；驱动产物下载可用性（仅 success）与轮转触发；prd-cron-backup.md FR-10~15 |
-| HTTPS 模式 | https_mode | off \| self_signed \| imported | 面板基座 | **定稿**（D2 2026-11-12 新增） | R-10 三态（D1 AA 附录C / prd-panel-core.md FR-06）：建议但不强制，除关闭外即时生效 |
+| HTTPS 模式 | https_mode | off \| self_signed \| imported \| acme | 面板基座 | **定稿**（D2 2026-11-12 新增；增量 D3 2026-11-16 取值扩展 acme） | R-10 三态基础上扩展 acme（ADR-029「https_mode 联动」D3 定稿，关闭 prd 待对齐-6）：ACME 申请成功联动切 acme 态（唯一自动切换路径，api-panel-core.md D-P14）；除关闭外即时生效 |
 | 监听范围 | listen_scope | all \| localhost \| custom | 面板基座 | **定稿**（D2 2026-11-12 新增） | R-10（默认 all=0.0.0.0 随机高位端口；仅 localhost/指定地址；custom 需另填地址值） |
-| 面板证书来源 | panel_cert_source | self_signed \| imported | 面板基座 | **定稿**（D2 2026-11-12 新增） | 面板自身 HTTPS 证书来源；区别于网站管理 cert_source{acme,imported}——面板监听随机高位端口不经 ACME，无 acme 取值 |
+| 面板证书来源 | panel_cert_source | self_signed \| imported \| acme | 面板基座 | **定稿**（D2 2026-11-12 新增；增量 D2 2026-11-16 取值扩展 acme） | ADR-029（2026-11-16 拍板）：acme=面板自身证书经已有 nginx HTTP-01 签发/续期（复用 site-mgmt AcmeGateway 与 nginx 安全写回，不新增独立 80 端口监听；DNS-01 二期）；原「面板监听随机高位端口不经 ACME，无 acme 取值」口径经 ADR-029 废止（挑战经 nginx 80 端口完成，面板自身监听面不变）；prd-panel-core.md FR-18、domain-model.md v1.16 |
 | 配置生效方式 | config_effect_mode | immediate \| restart_required | 面板基座 | **定稿**（D2 2026-11-12 新增） | D1 生效方式判定（AA 附录C）：仅监听地址/端口 restart_required，其余即时生效 |
 | 趋势时间窗口 | metric_window | last_1h \| last_24h | 系统监控 | **定稿**（D2 2026-11-12 新增） | 材料 §4.1 M2「最近 1h/24h」两档；last_ 前缀表回看语义；上限受 ADR-014 缓冲 24h（⚠️A12 1440 条）约束；prd-monitoring.md FR-06 |
 | 趋势指标维度 | metric_dimension | cpu \| memory \| disk \| network \| load | 系统监控 | **定稿**（D2 2026-11-12 新增） | 材料 §4.1 M2 指标清单五维；disk 含容量（按挂载点分设备）与 IO（合计）、network 含上下行（合计）、cpu 含总/分核（⚠️A13 口径，prd-monitoring.md FR-07） |

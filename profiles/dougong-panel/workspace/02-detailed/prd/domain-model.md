@@ -7,9 +7,9 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v1.15 |
+| 版本 | v1.16 |
 | 状态 | 稳定 |
-| 最后更新 | 2026-11-14 |
+| 最后更新 | 2026-11-16 |
 
 ## 第一部分：战略设计（本域判定）
 
@@ -172,7 +172,7 @@ PRD 范围判定：PRD 标注模块名 cron-backup → 范围明确（跳过 Ste
 | 上下文名 | 领域分层 | 聚合根 | 核心职责 | 关联上下文 |
 |---------|---------|--------|---------|-----------|
 | 账户与安全基座（account-auth） | 支撑域 | panel_user、session、audit_log、初始化状态 | 初始化双入口仲裁、登录认证与锁定、会话全生命周期治理、RBAC 边界、审计记录与治理 | 全部业务域（被依赖：审计接口/会话鉴权/权限基线）；panel-core（入口面归其）、terminal（限流归其） |
-| 面板基座（panel-core） | 支撑域 | panel_config | 可审计安装交付（ADR-009/D9）、入口面治理（监听/安全入口/HTTPS，R-10）、全模块外壳挂载与菜单可见性、panel_config 配置单例治理与生效分类、版本可观测与更新检查克制治理（R-09） | account-auth（遵奉会话鉴权/RBAC；消费审计写入与会话策略 OHS）；全部业务模块（被依赖：外壳挂载点/入口拦截）；更新检查版本源（待对齐，R-09 默认关闭） |
+| 面板基座（panel-core） | 支撑域 | panel_config | 可审计安装交付（ADR-009/D9）、入口面治理（监听/安全入口/域名绑定 Host 强校验 ADR-028/HTTPS，R-10）、面板证书 ACME 签发与续期（HTTP-01 经已有 nginx，ADR-029）、全模块外壳挂载与菜单可见性、panel_config 配置单例治理与生效分类、版本可观测与更新检查克制治理（R-09） | account-auth（遵奉会话鉴权/RBAC；消费审计写入与会话策略 OHS）；site-mgmt（消费：AcmeGateway 签发通道与 nginx 安全写回 OHS，ADR-029，被依赖登记见 api-site-mgmt.md 1.5/5.1）；全部业务模块（被依赖：外壳挂载点/入口拦截）；更新检查版本源（待对齐，R-09 默认关闭） |
 | 系统监控（monitoring） | 支撑域 | —（无聚合根，只读观测流） | 实时指标周期采样与环形缓冲留存（ADR-014 不落库、重启清零）、实时快照/TOP 进程/1h-24h 趋势/系统信息只读视图（两角色同等，ADR-018）、监控数据读取契约（供 panel-core 仪表盘消费） | account-auth（遵奉会话鉴权 R-02）；panel-core（消费方：仪表盘页读取契约）；枚举共享 metric_window/metric_dimension（与 panel-core 共享口径） |
 | systemd 服务管理（service-mgmt） | 支撑域 | —（无聚合根，dbus 实时投影流） | system 级 unit 实时发现与自动纳管（R-15 发现即接管，零持久化无台账）、服务列表/过滤搜索/属性只读视图（两角色同等，ADR-018）、启停/重启/自启切换管控（admin 专属，dbus 通道 R-08，等待终态反馈）、变更操作经审计契约留痕（R-03） | account-auth（遵奉会话鉴权与只读边界 R-02/ADR-018；消费审计写入 OHS R-03）；枚举共享 audit_result（与 account-auth 共享口径）；systemd（本机 dbus 通道，非业务域） |
 | 文件管理器（file-manager） | 支撑域 | trash_entry | 全部路径操作白名单强制前置（R-04 EvalSymlinks+前缀校验，防逃逸为 M2 验收硬项）、目录浏览/导航实时投影视图（零文件台账，两角色同等 ADR-018）、上传（原子落盘/分块）/下载（数据取出口径）/在线编辑/整理/权限属主/压缩解压变更动作集（admin 专属，ADR-018 禁 readonly 上传下载）、删除入站回收站可逆闭环（R-17/ADR-021，还原冲突显式决策、默认仅手动清空） | account-auth（遵奉会话鉴权与只读边界 R-02/ADR-018；消费审计写入 OHS R-03）；枚举共享 audit_result（与 account-auth 共享口径）；本机文件系统（files 适配器/安全路径层，非业务域） |
@@ -198,8 +198,8 @@ PRD 范围判定：PRD 标注模块名 cron-backup → 范围明确（跳过 Ste
 | 变更内容快照 | 值对象 | 账户与安全基座（account-auth） | 内嵌于 audit_log | 变更前后值、字段清单 | — | 不可变，随记录写入 |
 | 审计保留策略 | 值对象 | 账户与安全基座（account-auth） | 隶属 audit_log（域级策略） | 保留天数（固定 90）、清理周期（每日） | — | ADR-020 固定策略，清理动作本身记审计 |
 | 初始化状态 | 聚合根 | 账户与安全基座（account-auth） | — | 初始化标记、初始化方式、初始化时间 | init_status{uninitialized,initialized} | 单行记录；双入口先落库者胜出仲裁（ADR-017）；单向不可逆 |
-| panel_config | 聚合根 | 面板基座（panel-core） | — | 监听地址、监听端口、安全入口开关、安全入口路径值、HTTPS 模式、更新检查开关、界面语言 | https_mode{off,self_signed,imported}；listen_scope{all,localhost,custom}；entry_path_enabled{off,on}；update_check{off,on} | 单例聚合根（A1-A4：全局引用/唯一入口/单例一致）；无状态机（D0 拍板，变更即生效/提示重启）；默认值与生效分类见 prd-panel-core.md 引 D1 AA 附录C |
-| HTTPS 证书 | 域内对象-实体 | 面板基座（panel-core） | 1:1 隶属 panel_config | 证书内容、私钥、有效期、颁发者 | panel_cert_source{self_signed,imported} | 自签态系统生成；导入态随配置上传（配对性服务端校验，R-14）；物理存储（独立表/内嵌列）D3 复核 |
+| panel_config | 聚合根 | 面板基座（panel-core） | — | 监听地址、监听端口、安全入口开关、安全入口路径值、绑定域名（bind_domain，可空=未绑定，v1.16 增量 ADR-028）、HTTPS 模式、更新检查开关、界面语言 | https_mode{off,self_signed,imported}；listen_scope{all,localhost,custom}；entry_path_enabled{off,on}；update_check{off,on} | 单例聚合根（A1-A4：全局引用/唯一入口/单例一致）；无状态机（D0 拍板，变更即生效/提示重启）；绑定域名为 Host 级强校验门槛字段（绑定后仅该 Host 可达、IP/其他 Host 标准 404、读态失败 fail-closed，ADR-028，即时生效）；默认值与生效分类见 prd-panel-core.md 引 D1 AA 附录C |
+| HTTPS 证书 | 域内对象-实体 | 面板基座（panel-core） | 1:1 隶属 panel_config | 证书内容、私钥、有效期、颁发者、签发状态（acme 来源）、上次失败原因（acme 续期失败排障） | panel_cert_source{self_signed,imported,acme}（acme 为 v1.16 扩展，ADR-029） | 自签态系统生成；导入态随配置上传（配对性服务端校验，R-14）；acme 态经已有 nginx HTTP-01 签发/续期（ADR-029，复用 site-mgmt AcmeGateway 与 nginx 安全写回 OHS，不新增独立 80 端口监听；DNS-01 二期）；签发状态沿用 ADR-024 六状态语义按需简化引用（单例对象非多实例生命周期状态机，valid/expiring_soon/renew_failed/expired 主路径，字段形态 D3 定稿 prd 待对齐-6）；物理存储已定稿 panel_cert 单行表（api-panel-core.md D-P04，key_pem 零下发） |
 | 配置生效分类 | 值对象 | 面板基座（panel-core） | 隶属 panel_config（域级策略） | 需重启生效项清单（监听地址/端口）、即时生效项清单 | config_effect_mode{immediate,restart_required} | D1 判定的域级规则（AA 附录C），驱动保存后的生效提示（FR-13） |
 | metric | 值对象 | 系统监控（monitoring） | 环形缓冲集合条目（1 缓冲:N 条目，滚动淘汰） | 时间戳、CPU 总/分核使用率、内存占用、磁盘容量（按挂载点）、磁盘 IO、网络上下行速率、负载（1/5/15min）、TOP 进程清单（前 10 含内存占用） | —（对象自身无枚举字段；查询参数枚举 metric_window/metric_dimension/metric_scope 入池共享） | 内存态不落库（ADR-014）；不可变，随采样产生、随缓冲滚动淘汰；3s 采样/1min 聚合 ×1440 条 ≈24h（⚠️A12）；多设备聚合口径 ⚠️A13；读取契约见 api-monitoring.md（D-03 series 统一形状） |
 | system_info | 值对象 | 系统监控（monitoring） | 独立只读投影（不经缓冲） | 发行版、内核版本、主机名、运行时长 | — | 实时获取不持久化（kb 对象表）；部分获取失败时失败字段置空并标注原因，不虚构默认值 |
@@ -233,7 +233,7 @@ PRD 范围判定：PRD 标注模块名 cron-backup → 范围明确（跳过 Ste
 | cron_job | 域内对象-实体 | 计划任务与备份（cron-backup） | 投影集合条目（经读取契约以 crontab 内任务行定位直接寻址，无聚合根守门；系统预置位条目为只读投影分区） | cron 表达式、命令、备注（面板侧，注释行承载）、来源标注 | cron_source{panel,existing} | crontab 实况投影不落库（D2 口径-1 零任务台账：crontab 文件是唯一事实源，面板外编辑如实反映——与 site 零站点台账/firewall 零规则台账/database-mgmt 零库用户台账同哲学）；备注与来源标注以 crontab 注释行承载（面板写回附加标记注释，缺失按 existing 呈现；语法 D3 定 prd-cron-backup.md 待对齐-1）；标识=crontab 内任务行定位（跨读取可寻址，稳定形态 D3 定）故实体而非值对象——与 systemd_service/firewall_rule 同构；无状态机（任务存在即状态） |
 
 > role 为固定枚举非实体（MVP 不做角色 CRUD）；「关联领域对象」在本域不存在（见第五部分）。
-> 面板基座（panel-core）：版本标识/模块挂载点清单/更新检查比对结果均为过程数据（prd-panel-core.md 过程数据分类表），不入本清单；无关联领域对象（见第五部分）。
+> 面板基座（panel-core）：版本标识/模块挂载点清单/更新检查比对结果均为过程数据（prd-panel-core.md 过程数据分类表），不入本清单；面板证书 ACME 申请/续期在途与挑战 location 临时注入/撤除过程为机制链路过程数据（ADR-029，v1.16 增量），不入本清单；无关联领域对象（见第五部分）。
 > 系统监控（monitoring）：环形缓冲为 metric 值对象的进程内集合载体（基础设施承载），不单独建模为领域对象；无实体与聚合根——只读观测流无可变个体对象（metric 条目按「属性+时间戳等价、不可变、无跨聚合引用」判值对象，判定见 prd-monitoring.md 第六部分辨析与第一部分聚合根判定）；时间窗口/维度选择参数、快照与序列响应、趋势图呈现状态均为过程数据（prd-monitoring.md 过程数据分类表），不入本清单；无关联领域对象（见第五部分）。
 > systemd 服务管理（service-mgmt）：投影集合为 systemd_service 实体的内存态集合载体（dbus 读取时整集合刷新，基础设施承载），不单独建模为领域对象；无聚合根（第一部分判定）——投影流无守门需求，与 monitoring 同构、差异在对象有稳定标识且状态可变（实体而非值对象，判定见 prd-service-mgmt.md 第六部分辨析）；状态过滤/名称搜索参数、unit 属性视图响应、操作在途状态、操作任务（Job）等待中间态均为过程数据（prd-service-mgmt.md 过程数据分类表），不入本清单；无关联领域对象（见第五部分）。
 > 文件管理器（file-manager）：投影集合为 file_entry 实体的实时投影载体（目录读取即呈现，基础设施承载），不单独建模；`.dougong-trash/` 物理目录与 trash 内唯一标识子目录为 trash_entry 聚合的存储载体，不单独建模为领域对象；属主候选清单（system_user/system_group 本机系统读取）、分块上传任务状态、编辑器内容缓冲、面包屑/浏览位置、冲突决策交互、trash 内标识生成规则均为过程数据（prd-file-manager.md 过程数据分类表），不入本清单；无关联领域对象（见第五部分）。
@@ -250,9 +250,10 @@ PRD 范围判定：PRD 标注模块名 cron-backup → 范围明确（跳过 Ste
 |--------|---------|------------------|------------------|---------------|
 | 审计过期清理任务 | 后台每日调度 | 当前时间 + 审计保留策略（90 天） | 过期审计批次删除结果（批次条数） | audit_log（清理动作审计记录） |
 | 自动续期任务（site-mgmt） | 证书转 expiring_soon（到期前 30 天，ADR-024）后台调度；renew_failed 手动重试进入同一通道 | certificate（域名列表、挑战方式 acme_challenge、托管路径、ACME 账户引用） | 续期结果：成功=托管证书文件原路径替换（⚠️A16）+状态回 valid+触发重部署引用站点；失败=转 renew_failed+失败原因 | certificate 聚合根（cert_status 字段与托管文件） |
+| 面板证书自动续期任务（panel-core，v1.16 增量） | 面板证书（acme 来源）转 expiring_soon（到期前 30 天，沿 ADR-024 阈值）后台调度；renew_failed 手动重试进入同一通道 | panel_cert（绑定域名、挑战方式固定 http_01、ACME 账户引用） | 续期结果：成功=证书替换+状态回 valid+HTTPS 模式联动确认；失败=转 renew_failed+失败原因落库 | panel_cert（panel_config 聚合内 HTTPS 证书实体的状态与证书材料，ADR-029） |
 
 > 登录尝试计数、会话滑动续期为聚合内即时行为，不构成独立聚合子流程。
-> 面板基座（panel-core）：无子流程——配置保存即生效/重启提示为聚合内即时行为；安装脚本为部署期服务器侧一次性流程（非面板页面）；更新检查为单动作调用，均不构成独立聚合子流程。
+> 面板基座（panel-core）：1 个子流程——面板证书自动续期任务（v1.16 增量，ADR-029，与 site-mgmt 自动续期任务同构、经跨模块通道执行，见第四部分表行）；配置保存即生效/重启提示为聚合内即时行为；安装脚本为部署期服务器侧一次性流程（非面板页面）；更新检查为单动作调用，均不构成独立聚合子流程。
 > 系统监控（monitoring）：无子流程——周期采样与分钟聚合为后台机制链路（非业务聚合，无独立生命周期状态）；历史趋势查询为只读读取；均不构成独立聚合子流程。
 > systemd 服务管理（service-mgmt）：无子流程——启停/重启为「提交→等待终态→反馈」的单动作过程（FR-08 机制，无独立生命周期状态，非多轮/审批形态）；自启切换为单配置动作；服务发现纳管为后台机制链路；均不构成独立聚合子流程。
 > 文件管理器（file-manager）：无子流程——分块上传为「分块依次上传→合并原子落盘」的单任务过程（一次性执行状态不持久化，断点续传二期 OUT-4）；压缩/解压为单动作执行；回收站入站登记为删除动作的同步机制链路（FR-16，无独立生命周期状态）；均不构成独立聚合子流程。
@@ -271,7 +272,7 @@ PRD 范围判定：PRD 标注模块名 cron-backup → 范围明确（跳过 Ste
 | db_instance（数据库备份源引用） | 数据库管理（database-mgmt） | backup_job 源清单 database 项：实例引用 + 库名 | 实例/库清单（任务创建/编辑联动选取）；实例连接（执行时经 database-mgmt 契约用其已存凭据建连，凭据值不进入本域） | 创建/编辑时选取联动；执行时建连取数；实例移除纳管后引用悬空→执行失败如实记录（不级联删任务，不管理对方生命周期） | OHS（消费）+ ID 引用（不复制对方模型） |
 
 > 待跨域对齐：若 panel-core 将全局配置统一收编 panel_config，会话有效期策略可转为对其的关联引用（prd-account-auth.md 第九部分已标注）。
-> 面板基座（panel-core）：无关联领域对象——配置变更经 account-auth OHS 写审计（R-03）、会话参数经其 OHS 只读透传展示（ADR-019），均不持有对方聚合根 ID；上条 account-auth 待跨域对齐经本域 D2 关闭：会话有效期策略仍归 account-auth 自持，panel-core 仅透传展示、不收编。
+> 面板基座（panel-core）：无关联领域对象——配置变更经 account-auth OHS 写审计（R-03）、会话参数经其 OHS 只读透传展示（ADR-019），均不持有对方聚合根 ID；面板证书 ACME 签发/续期对 site-mgmt AcmeGateway 与 nginx 安全写回为 OHS 服务消费（ADR-029，第六部分），不持有 certificate 聚合根 ID，仍不构成关联领域对象；上条 account-auth 待跨域对齐经本域 D2 关闭：会话有效期策略仍归 account-auth 自持，panel-core 仅透传展示、不收编。
 > 系统监控（monitoring）：无关联领域对象——不持久化任何外部域 ID（ADR-014 不落库），跨域方向为「被依赖」（监控读取契约被 panel-core 仪表盘消费，见第六部分）。
 > systemd 服务管理（service-mgmt）：无关联领域对象——零持久化不持有任何域聚合根 ID（投影对象标识为 systemd 侧 unit 名称，非面板域对象）；跨域方向为「消费方」（遵奉会话鉴权、消费审计写入 OHS，见第六部分）。
 > 文件管理器（file-manager）：无关联领域对象——trash_entry 操作者字段为会话上下文的审计留痕快照（字符串），非 panel_user 聚合根引用（与 audit_log 操作者字段同口径）；属主修改候选 system_user/system_group 为本机系统实况实时读取（下拉选项过程数据，kb 对象），非面板域对象；跨域方向为「消费方」（遵奉会话鉴权、消费审计写入 OHS，见第六部分）。
@@ -294,7 +295,8 @@ PRD 范围判定：PRD 标注模块名 cron-backup → 范围明确（跳过 Ste
 | 遵奉者（消费，panel-core） | 会话鉴权与 RBAC 协议 | panel-core 全部接口遵奉 Cookie+CSRF（R-02）；菜单可见性遵奉 admin/readonly 角色判定（ADR-018） |
 | OHS（消费，panel-core） | 审计写入接口 | 配置/证书变更写审计（R-03，经 account-auth OHS，同事务）；会话参数透传展示读取 internal/config 会话键（account-auth D-10 载体=配置文件，非 OHS 调用；ADR-019，只读） |
 | 共享内核（消费，panel-core） | panel_role 枚举 | 菜单可见性按 admin/readonly 过滤（枚举池已定稿） |
-| ACL（防腐层，panel-core） | 不适用（暂） | 无外部系统对接（R-09）；更新检查显式开启后的版本源拉取若 D3 落地需以 ACL 包装（prd-panel-core.md 待对齐-1） |
+| OHS（消费，panel-core） | ACME 签发通道与 nginx 安全写回（site-mgmt 提供） | 面板自身证书 ACME HTTP-01 签发/续期复用 site-mgmt AcmeGateway（lego ACL）与 WritePipeline/NginxGateway（挑战 location 临时注入/撤除走 R-06 四步；ADR-029，v1.16 增量；被依赖登记见 api-site-mgmt.md 1.5/5.1）；R-09 例外语义与 site-mgmt ACME 申请同判（用户主动申请/续期调度），面板经跨模块通道外呼、不自建 ACL |
+| ACL（防腐层，panel-core） | 不适用（经 site-mgmt ACL 通道复用，不自建） | 面板证书 ACME 对外部 CA 的协议交互经 site-mgmt AcmeGateway ACL 复用（ADR-029，见上 OHS 行），本域不直连 CA；更新检查显式开启后的版本源拉取若 D3 落地需以 ACL 包装（prd-panel-core.md 待对齐-1） |
 | OHS（开放主机服务，monitoring 提供） | 监控数据读取契约 | 实时快照/趋势序列/TOP 进程/系统信息的标准读取语义；消费方=panel-core 仪表盘页（D0）；REST 拉取与 WS 推送取舍 D3 定（prd-monitoring.md 待对齐-1） |
 | 遵奉者（monitoring） | 会话鉴权协议 | 监控接口全部位于登录会话后（R-02）；readonly 全可看（ADR-018）；本模块无变更接口，无只读越权拒绝面 |
 | 共享内核（monitoring） | metric_window / metric_dimension 枚举 | 查询参数枚举 D2 定稿入池（04-business-enum.md），与 panel-core 仪表盘共享口径 |
@@ -338,7 +340,7 @@ PRD 范围判定：PRD 标注模块名 cron-backup → 范围明确（跳过 Ste
 
 **存储映射**：panel_user→panel_user/panel_user_totp；session→panel_session；audit_log→audit_log；初始化状态→init_state；panel_config→panel_config；HTTPS 证书→panel_cert；配置生效分类→无表；trash_entry→trash_entry；file_entry→无表；受管根配置→fs_path_scope；certificate→certificate；site/upstream/Raw 块/写回落点映射→无表；db_instance/redis_instance→db_instance（合一档案表，engine 列区分，D3 定稿 D-01）；database/db_user→无表；凭据→实例档案内嵌密文列（AES-256-GCM，无独立表）；terminal_session→无表（内存态不落库）；运行身份/限流策略→无表（内嵌值对象/域级固定策略）；firewall_rule→无表（后端实况投影零规则台账）；container/image/volume/network/compose_project→无表（daemon 实况投影零台账）；backup_job→backup_job、backup_run→backup_run（SQLite 两表，D0 拍板，DDL 归 D3）；备份源清单/备份目标→无表（backup_job 内嵌值对象）；cron_job→无表（crontab 实况投影零任务台账）
 
-> 存储映射说明（panel-core，D3 定稿）：panel_config 为结构化单例表（api-panel-core.md D-P01）；HTTPS 证书为 1:1 独立单行表 panel_cert（D-P04，key_pem 零下发）；配置生效分类为域级规则值对象无表。
+> 存储映射说明（panel-core，D3 定稿）：panel_config 为结构化单例表（api-panel-core.md D-P01）；HTTPS 证书为 1:1 独立单行表 panel_cert（D-P04，key_pem 零下发）；配置生效分类为域级规则值对象无表；v1.16 增量（ADR-028/029）：panel_config 增 bind_domain 列、panel_cert.source 扩展 acme 取值（签发状态/失败原因字段形态与 https_mode 取值联动归 D3 DDL 修订，prd 待对齐-6/-7）。
 > 存储映射说明（monitoring，D2 定稿）：metric→无表（进程内环形缓冲，ADR-014 拍板不落库）；system_info→无表（实时投影不持久化）——本模块零持久化，无 DDL。
 > 存储映射说明（service-mgmt，D2 定稿）：systemd_service→无表（dbus 实时投影，kb 拍板不落库）——本模块零持久化，无 DDL、无数据侧设计。
 > 存储映射说明（file-manager，D3 定稿回填）：trash_entry→SQLite 表 trash_entry（ADR-021 拍板，本模块唯一持久化业务对象，DDL 见 api-file-manager.md 5.3）；file_entry→无表（文件系统实时投影，kb 拍板不落库）；受管根配置→fs_path_scope 单行表（api-file-manager.md D-02 拍板：修改与审计同事务、提交后刷新进程内副本即予生效——区别于 account-auth D-10 配置文件载体，关闭 prd-file-manager.md 待对齐-1）。
@@ -369,3 +371,4 @@ PRD 范围判定：PRD 标注模块名 cron-backup → 范围明确（跳过 Ste
 | v1.13 | 2026-11-14 | 追加 docker-mgmt 域（1 业务域 / 无聚合根——daemon 实况投影流经 A1-A4 判定，与 monitoring/service-mgmt/firewall 同构（AA 层 C-12 核心业务域为战术判定不改战略分层，与 service-mgmt C-04/C-05 先例一致）/ 5 域内对象-实体 container+image+volume+network+compose_project（daemon/label 实况投影零台账不落库；container 状态映射与动作矩阵唯一口径=BA 附录B/ADR-025；compose_project 为 label 聚合派生投影、容器清单为同域引用集合）/ 无子流程 / 无关联领域对象（terminal 容器内终端为二期被依赖预期不预先建模）；集成=遵奉会话鉴权 + 消费审计 OHS + 共享内核 audit_result 与 3 枚举（container_status/compose_action 既有 draft 定稿 + docker_daemon_state 新增）+ ACL 不适用（dockerx 本机适配器，拉取外呼在 daemon 侧 R-09 口径不破））；零持久化无 DDL；权威说明见 prd-docker-mgmt.md（完备性检查通过：G 5/5、T 适用 6/6、N 4/4） |
 | v1.14 | 2026-11-14 | 追加 cron-backup 域（1 业务域 / 2 聚合根 backup_run〔A1-A4 全过：记录↔产物↔轮转水位一致性；ADR-016 状态机；落 SQLite〕+ backup_job〔A1/A2/A3 通过：定义单据整体一致性、无状态机；落 SQLite；与 run 为两个独立聚合，run 按 job 归组同域引用〕/ 1 域内对象-实体 cron_job（crontab 投影零任务台账，备注与来源标注注释行承载 D2 口径-1）/ 2 内嵌值对象 备份源清单+备份目标 / 无子流程（执行状态机为 run 聚合内、调度与轮转为机制链路）/ **全项目首个关联领域对象 db_instance 引用**〔源清单 database 项 ID 引用+执行建连；站点目录项为路径值快照不构成引用；database-mgmt「被依赖预期」就此兑现〕；集成=遵奉会话鉴权 + 消费审计 OHS + 消费 database-mgmt 实例清单与凭据建连 OHS + 消费 site-mgmt 站点清单 OHS + 共享内核 audit_result 与 5 枚举（backup_target_type/backup_run_status 既有 draft 定稿 + backup_trigger/backup_source_type/cron_source 新增）+ ACL rsync 远程目标〔用户主动，R-09 例外语义，与 ACME 同判〕）；持久化=backup_job/backup_run 两表（DDL 归 D3）；业务域清单占位行关闭（11 域全部完成 D2 累积）；权威说明见 prd-cron-backup.md（完备性检查通过：G 5/5、T 适用 6/6、N 4/4） |
 | v1.15 | 2026-11-14 | D3 定稿回填（cron-backup 本模块行）：存储载体落定——backup_job/backup_run 两表 DDL 见 api-cron-backup.md 5.3（source_items/target_config JSON 值列内嵌、job_id 弱引用+job_name 快照、idx_run_running 部分唯一索引承载 I-01 执行互斥）；DbGateway.DumpDatabase 消费契约正式登记（database-mgmt 5.1 预告兑现）；关闭 prd-cron-backup.md 待对齐-1~-9（api D-01~D-14）；不改对象分类/枚举/业务字段 |
+| v1.16 | 2026-11-16 | panel-core 增量 D2（ADR-028/029，权威说明 prd-panel-core.md v1.1）：panel_config 聚合根核心业务字段 +绑定域名（bind_domain，Host 强校验门槛）；HTTPS 证书实体 source 扩展 acme 取值 +签发状态/上次失败原因字段（状态沿用 ADR-024 六状态语义按需简化引用，单例对象非多实例状态机，对象分类不变）并订正其备注滞后的「物理存储 D3 复核」为已定稿 D-P04；新增子流程「面板证书自动续期任务」（第四部分表行，与 site-mgmt 自动续期任务同构）；业务域清单 panel-core 行职责/关联上下文同步；第六部分新增「OHS（消费，panel-core）ACME 签发通道与 nginx 安全写回」行并将 ACL 行订正为「经 site-mgmt ACL 通道复用」；第五/三部分 panel-core 注脚补 ACME 过程数据与无关联领域对象口径；存储映射说明补增量注 |
