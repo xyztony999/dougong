@@ -127,7 +127,13 @@ onMounted(() => {
           新增用户
         </n-button>
       </template>
+      <!-- v1.3 加载失败态（loadError NAlert+重试，不呈现裸空表格——v0.1.2 反馈第 5 项「正文空白」修复） -->
+      <n-alert v-if="!loading && loadError" type="error" title="用户列表加载失败">
+        请求未成功，可重试。
+        <n-button size="small" @click="load">重试</n-button>
+      </n-alert>
       <n-data-table
+        v-else
         :columns="columns"
         :data="records"
         :loading="loading"

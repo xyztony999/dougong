@@ -22,7 +22,7 @@ func NewCertRepo(x Executor) *CertRepo { return &CertRepo{x: x} }
 
 const certCols = `id, primary_domain, domains, issuer, source, status, challenge,
 	storage_path, origin_path, not_before, not_after, deploy_prev_refs, last_error,
-	acme_account_ref, created_at, updated_at`
+	acme_account_ref, dns_credential_id, created_at, updated_at`
 
 // Create 插入一行证书（SQL #1；pending 签发落库/导入纳管共用），返回自增 id。
 func (r *CertRepo) Create(ctx context.Context, c Certificate) (int64, error) {
@@ -38,11 +38,11 @@ func (r *CertRepo) Create(ctx context.Context, c Certificate) (int64, error) {
 	res, err := r.x.ExecContext(ctx,
 		`INSERT INTO certificate (primary_domain, domains, issuer, source, status, challenge,
 			storage_path, origin_path, not_before, not_after, deploy_prev_refs, last_error,
-			acme_account_ref, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			acme_account_ref, dns_credential_id, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		c.PrimaryDomain, domains, c.Issuer, c.Source, c.Status, strPtrArg(c.Challenge),
 		strPtrArg(c.StoragePath), strPtrArg(c.OriginPath), timePtrArg(c.NotBefore), timePtrArg(c.NotAfter),
-		refs, strPtrArg(c.LastError), strPtrArg(c.AcmeAccountRef), now, now)
+		refs, strPtrArg(c.LastError), strPtrArg(c.AcmeAccountRef), int64PtrArg(c.DnsCredentialID), now, now)
 	if err != nil {
 		return 0, wrapErr("cert create", err)
 	}
@@ -187,11 +187,16 @@ func scanCert(row interface{ Scan(...any) error }) (Certificate, error) {
 	var c Certificate
 	var domains, refs sql.NullString
 	var challenge, storagePath, originPath, lastError, accountRef sql.NullString
+	var dnsCredID sql.NullInt64
 	var notBefore, notAfter, createdAt, updatedAt any
 	if err := row.Scan(&c.ID, &c.PrimaryDomain, &domains, &c.Issuer, &c.Source, &c.Status,
 		&challenge, &storagePath, &originPath, &notBefore, &notAfter, &refs, &lastError,
-		&accountRef, &createdAt, &updatedAt); err != nil {
+		&accountRef, &dnsCredID, &createdAt, &updatedAt); err != nil {
 		return Certificate{}, err
+	}
+	if dnsCredID.Valid {
+		v := dnsCredID.Int64
+		c.DnsCredentialID = &v
 	}
 	if domains.Valid {
 		if err := json.Unmarshal([]byte(domains.String), &c.Domains); err != nil {
@@ -240,6 +245,13 @@ func strPtrArg(s *string) any {
 }
 
 func timePtrArg(t *time.Time) any { return formatTimePtr(t) }
+
+func int64PtrArg(v *int64) any {
+	if v == nil {
+		return nil
+	}
+	return *v
+}
 
 func marshalDomains(domains []string) (any, error) {
 	if domains == nil {

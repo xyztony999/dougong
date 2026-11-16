@@ -52,7 +52,8 @@ const drawerSiteId = ref<string | null>(null)
 const drawerInitialLog = ref(false)
 
 function openDetail(row: SiteListItem, atLog = false): void {
-  drawerSiteId.value = row.siteId
+  /** v1.2 聚合条目（D-17）：Drawer 定位组内首块（详情内可切换块） */
+  drawerSiteId.value = row.blocks[0]?.siteId ?? null
   drawerInitialLog.value = atLog
   drawerShow.value = true
 }
@@ -94,14 +95,21 @@ function handleWriteError(e: unknown): void {
 }
 
 async function onToggle(row: SiteListItem, target: boolean): Promise<void> {
+  /** v1.2 组级启停（D-17）：对 blocks 顺序逐块调用（单块条目=原语义）；
+   * 任一失败如实提示并停止后续（前端在途防重入，幂等语义由服务端保证）。 */
   try {
-    const data = target ? await siteEnable(row.siteId) : await siteDisable(row.siteId)
+    for (const b of row.blocks) {
+      if (b.enabled === (target ? 'enabled' : 'disabled')) continue // 已处目标态跳过
+      if (target) await siteEnable(b.siteId)
+      else await siteDisable(b.siteId)
+    }
     message.success(
-      data.enabled === 'enabled' ? '站点已启用并生效' : '站点已停用（配置与证书引用已保留，停用≠删除）'
+      target ? '站点已启用并生效' : '站点已停用（配置与证书引用已保留，停用≠删除）'
     )
     void store.loadList() // 投影实况对齐（D-01）
   } catch (e) {
     handleWriteError(e)
+    void store.loadList() // 部分块已生效——如实刷新呈现
   }
 }
 
@@ -157,6 +165,24 @@ function certCell(row: SiteListItem): VNode {
 
 const columns = computed<DataTableColumns<SiteListItem>>(() => {
   const base: DataTableColumns<SiteListItem> = [
+    /** v1.2 聚合条目行展开（D-17）：多块条目展开呈现块级清单（siteId/listen/enabled/
+     * 证书引用）；单块条目展开图标同样可用（结构统一）。 */
+    {
+      type: 'expand',
+      renderExpand: (row) =>
+        h(
+          'div',
+          { class: 'block-list' },
+          row.blocks.map((b) =>
+            h('div', { class: 'block-row' }, [
+              h('span', { class: 'block-mono' }, b.siteId),
+              h('span', null, `监听 ${b.listen.join(' / ')}`),
+              h('span', null, b.enabled === 'enabled' ? '启用' : '停用'),
+              h('span', null, b.certRef ?? '无证书引用')
+            ])
+          )
+        )
+    },
     { title: '序号', key: 'index', width: 60, render: (_row, index) => index + 1 },
     {
       title: '主域名',
@@ -167,7 +193,7 @@ const columns = computed<DataTableColumns<SiteListItem>>(() => {
         h(
           NButton,
           { text: true, type: 'primary', onClick: () => openDetail(row) },
-          { default: () => row.serverNames[0] ?? row.siteId }
+          { default: () => row.serverNames[0] ?? row.sourceFile }
         )
     },
     {
@@ -183,8 +209,9 @@ const columns = computed<DataTableColumns<SiteListItem>>(() => {
     {
       title: '监听',
       key: 'listen',
-      width: 120,
-      render: (row) => row.listen.join(', ')
+      width: 140,
+      /** v1.2 聚合合并呈现（D-17：如「80 / 443 ssl」；块级明细经行展开） */
+      render: (row) => row.listen.join(' / ')
     },
     {
       title: '根目录',
@@ -259,7 +286,7 @@ const columns = computed<DataTableColumns<SiteListItem>>(() => {
             NButton,
             {
               size: 'small',
-              onClick: () => void router.push(`/sites/${encodeURIComponent(row.siteId)}/source`)
+              onClick: () => void router.push(`/sites/${encodeURIComponent(row.blocks[0]?.siteId ?? '')}/source`)
             },
             { default: () => '源码编辑' }
           )
@@ -278,7 +305,8 @@ const columns = computed<DataTableColumns<SiteListItem>>(() => {
 const scrollX = computed(() => (authStore.isAdmin ? 1550 : 1350))
 
 function rowKey(row: SiteListItem): string {
-  return row.siteId
+  /** v1.2 聚合键（D-17）：sourceFile+serverNames 全集稳定 */
+  return `${row.sourceFile}#${row.serverNames.join(',')}`
 }
 
 const createShow = ref(false)
@@ -382,6 +410,22 @@ onMounted(() => {
 </template>
 
 <style scoped>
+.block-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 12px;
+  font-size: 12px;
+}
+.block-row {
+  display: flex;
+  gap: 16px;
+  align-items: baseline;
+}
+.block-mono {
+  font-family: monospace;
+  opacity: 0.75;
+}
 .page {
   display: flex;
   flex-direction: column;

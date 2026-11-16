@@ -236,10 +236,11 @@ export const CERT_SOURCE: Record<CertSource, DictItem> = {
 }
 
 /** acme_challenge：http_01 / tls_alpn（ACME 挑战方式；无语义色） */
-export type AcmeChallenge = 'http_01' | 'tls_alpn'
+export type AcmeChallenge = 'http_01' | 'tls_alpn' | 'dns_01'
 export const ACME_CHALLENGE: Record<AcmeChallenge, DictItem> = {
   http_01: { label: 'HTTP-01', tag: 'default' },
-  tls_alpn: { label: 'TLS-ALPN', tag: 'default' }
+  tls_alpn: { label: 'TLS-ALPN', tag: 'default' },
+  dns_01: { label: 'DNS-01', tag: 'default' }
 }
 
 /** cert_status：pending/valid/expiring_soon/expired/renew_failed（pending=blue、valid=green、expiring_soon=orange、expired/renew_failed=red） */
@@ -568,3 +569,48 @@ export function boolTag(value: boolean, trueLabel: string, falseLabel: string): 
 
 /** 图标类型别名（菜单/按钮用） */
 export type IconComponent = Component
+
+
+/** dns_provider（v2.0 ⚠️A20/Gate 1 改判）：Cloudflare/阿里云 DNS/腾讯云 DNSPod */
+export type DnsProvider = 'cloudflare' | 'aliyun' | 'dnspod'
+export const DNS_PROVIDER: Record<DnsProvider, DictItem> = {
+  cloudflare: { label: 'Cloudflare', tag: 'info' },
+  aliyun: { label: '阿里云 DNS', tag: 'info' },
+  dnspod: { label: '腾讯云 DNSPod', tag: 'info' }
+}
+
+/** env_type（env-mgmt v1.0 ⚠️A1）：六环境目录 */
+export type EnvType = 'nginx' | 'apache' | 'docker' | 'mysql' | 'redis' | 'php_fpm'
+export const ENV_TYPE: Record<EnvType, DictItem> = {
+  nginx: { label: 'nginx', tag: 'default' },
+  apache: { label: 'Apache', tag: 'default' },
+  docker: { label: 'Docker', tag: 'default' },
+  mysql: { label: 'MySQL', tag: 'default' },
+  redis: { label: 'Redis', tag: 'default' },
+  php_fpm: { label: 'PHP-FPM', tag: 'default' }
+}
+
+/** env_task_action（⚠️A3/A5）：install=首装、upgrade=已装再装（升级幂等）、uninstall */
+export type EnvTaskAction = 'install' | 'upgrade' | 'uninstall'
+export const ENV_TASK_ACTION: Record<EnvTaskAction, DictItem> = {
+  install: { label: '安装', tag: 'info' },
+  upgrade: { label: '升级', tag: 'info' },
+  uninstall: { label: '卸载', tag: 'warning' }
+}
+
+/** env_task_status（⚠️A3 四态机）：pending gray/running blue/succeeded green/failed red */
+export type EnvTaskStatus = 'pending' | 'running' | 'succeeded' | 'failed'
+export const ENV_TASK_STATUS: Record<EnvTaskStatus, DictItem> = {
+  pending: { label: '等待中', tag: 'default' },
+  running: { label: '执行中', tag: 'info' },
+  succeeded: { label: '成功', tag: 'success' },
+  failed: { label: '失败', tag: 'error' }
+}
+
+/** package_manager_family（⚠️A2 探测结论）：通道不可用=null 呈现 */
+export type PackageManagerFamily = 'apt' | 'dnf' | 'yum'
+export const PACKAGE_MANAGER_FAMILY: Record<PackageManagerFamily, DictItem> = {
+  apt: { label: 'apt', tag: 'success' },
+  dnf: { label: 'dnf', tag: 'success' },
+  yum: { label: 'yum', tag: 'success' }
+}

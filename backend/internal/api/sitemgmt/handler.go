@@ -226,6 +226,56 @@ func (h *Handler) CertRetryRenewal(c *gin.Context) {
 	h.respond(c, data, err)
 }
 
+// CertRenew POST /sites/cert/renew（v1.2 D-18 手动立即续期）。
+func (h *Handler) CertRenew(c *gin.Context) {
+	var req sitesvc.CertIDRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, bindError(err))
+		return
+	}
+	data, err := h.svc.CertRenew(c.Request.Context(), identity(c), req.CertID)
+	h.respond(c, data, err)
+}
+
+// CertReplace POST /sites/cert/replace（v1.2 D-18 imported 文件替换）。
+func (h *Handler) CertReplace(c *gin.Context) {
+	var req sitesvc.CertReplaceRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, bindError(err))
+		return
+	}
+	data, err := h.svc.CertReplace(c.Request.Context(), identity(c), req)
+	h.respond(c, data, err)
+}
+
+// DnsCredentialList GET /sites/dns-credential/list（v2.0 D-20）。
+func (h *Handler) DnsCredentialList(c *gin.Context) {
+	data, err := h.svc.DnsCredentialList(c.Request.Context())
+	h.respond(c, data, err)
+}
+
+// DnsCredentialCreate POST /sites/dns-credential/create（v2.0 D-20）。
+func (h *Handler) DnsCredentialCreate(c *gin.Context) {
+	var req sitesvc.DnsCredentialCreateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, bindError(err))
+		return
+	}
+	data, err := h.svc.DnsCredentialCreate(c.Request.Context(), identity(c), req)
+	h.respond(c, data, err)
+}
+
+// DnsCredentialDelete POST /sites/dns-credential/delete（v2.0 D-20）。
+func (h *Handler) DnsCredentialDelete(c *gin.Context) {
+	var req sitesvc.CertIDRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, bindError(err))
+		return
+	}
+	data, err := h.svc.DnsCredentialDelete(c.Request.Context(), identity(c), req.CertID)
+	h.respond(c, data, err)
+}
+
 // CertDelete POST /sites/cert/delete。
 func (h *Handler) CertDelete(c *gin.Context) {
 	var req sitesvc.CertIDRequest

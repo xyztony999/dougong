@@ -3,6 +3,7 @@ package sitemgmt
 import (
 	"context"
 	"sort"
+	"strings"
 
 	"github.com/dougong/dougong/internal/errcode"
 	storesitemgmt "github.com/dougong/dougong/internal/store/sitemgmt"
@@ -72,35 +73,152 @@ func (idx *certPathIndex) matchCert(certRef string) (storesitemgmt.Certificate, 
 	return r, ok
 }
 
-// projectItem 组装 list 项（§4.2.1 投影条目）。
-func (s *Service) projectItem(e *SiteEntry, idx *certPathIndex) SiteItem {
-	item := SiteItem{
-		SiteID:      e.SiteID,
-		ServerNames: nonEmpty(e.Block.ServerNames),
-		Listen:      nonEmpty(e.Block.Listen),
-		Root:        e.Block.Root,
-		Enabled:     e.Enabled(),
-		SourceFile:  e.File,
+// projectBlock 组装聚合条目的块级子项（v2.0 D-17：寻址键 siteId 保留在块级）。
+func (s *Service) projectBlock(e *SiteEntry, idx *certPathIndex) SiteBlock {
+	b := SiteBlock{
+		SiteID:  e.SiteID,
+		Listen:  nonEmpty(e.Block.Listen),
+		Enabled: e.Enabled(),
 	}
 	if e.Block.SSLCert != "" {
 		ref := e.Block.SSLCert
-		item.CertRef = &ref
+		b.CertRef = &ref
 	}
 	if row, ok := idx.matchCert(e.Block.SSLCert); ok {
 		id := row.ID
 		status := s.computeStatus(row, s.clock())
-		item.CertID = &id
-		item.CertStatus = &status
+		b.CertID = &id
+		b.CertStatus = &status
 	}
-	if p := e.Block.Proxy(); p != nil {
-		item.Proxy = &ProxyDTO{Upstream: p.Upstream, HostHeader: p.HostHeader, Websocket: p.Websocket}
+	return b
+}
+
+// certStatusRank 组内最优排序权重（valid > expiring_soon > renew_failed >
+// expired > 无；D-17——风险态语义顺序，数值小者优先）。
+func certStatusRank(status string, has bool) int {
+	if !has {
+		return 5
 	}
+	switch status {
+	case storesitemgmt.StatusValid:
+		return 0
+	case storesitemgmt.StatusExpiringSoon:
+		return 1
+	case storesitemgmt.StatusRenewFailed:
+		return 2
+	case storesitemgmt.StatusExpired:
+		return 3
+	}
+	return 4 // pending 等其余
+}
+
+// isSSLBlock 块是否携带 ssl 声明（443/ssl 块在证书列推导中优先，D-17）。
+func isSSLBlock(e *SiteEntry) bool {
+	for _, l := range e.Block.Listen {
+		if strings.Contains(l, "ssl") {
+			return true
+		}
+	}
+	return false
+}
+
+// aggregateGroup v2.0 D-17 聚合投影：同 sourceFile 且 server_name 全集相同
+// （排序比较）的块合并为一个 SiteItem（单块条目 blocks 为 1 元素数组）。
+func (s *Service) aggregateGroup(entries []*SiteEntry, idx *certPathIndex) SiteItem {
+	item := SiteItem{
+		ServerNames: nonEmpty(entries[0].Block.ServerNames),
+		SourceFile:  entries[0].File,
+		Blocks:      make([]SiteBlock, 0, len(entries)),
+		Listen:      []string{},
+	}
+	seenListen := map[string]bool{}
+	certRank := certStatusRank("", false)
+	var certRef *string
+	var certID *int64
+	var certStatus *string
+	var sslPreferred bool
+	for _, e := range entries {
+		b := s.projectBlock(e, idx)
+		item.Blocks = append(item.Blocks, b)
+		for _, l := range b.Listen {
+			if !seenListen[l] {
+				seenListen[l] = true
+				item.Listen = append(item.Listen, l)
+			}
+		}
+		if e.Enabled() == SiteEnabled {
+			item.Enabled = SiteEnabled
+		} else if item.Enabled == "" {
+			item.Enabled = SiteDisabled
+		}
+		if item.Root == "" {
+			item.Root = e.Block.Root
+		}
+		if item.Proxy == nil {
+			if p := e.Block.Proxy(); p != nil {
+				item.Proxy = &ProxyDTO{Upstream: p.Upstream, HostHeader: p.HostHeader, Websocket: p.Websocket}
+			}
+		}
+		// 证书列=组内最优：同 rank 时 ssl 块优先。
+		ssl := isSSLBlock(e)
+		if b.CertStatus != nil {
+			r := certStatusRank(*b.CertStatus, true)
+			if r < certRank || (r == certRank && ssl && !sslPreferred) {
+				certRank = r
+				certRef, certID, certStatus = b.CertRef, b.CertID, b.CertStatus
+				sslPreferred = ssl
+			}
+		} else if b.CertRef != nil && certRef == nil {
+			certRef = b.CertRef // 未纳管引用兜底呈现（无状态）
+		}
+	}
+	if item.Enabled == "" {
+		item.Enabled = SiteDisabled
+	}
+	item.CertRef, item.CertID, item.CertStatus = certRef, certID, certStatus
 	return item
 }
 
-// projectDetail 组装 detail 项（list 项全字段 + locations/rawBlocks）。
+// groupEntries 按聚合键分组（保持扫描顺序稳定：组间按首块出现序）。
+func groupEntries(entries []SiteEntry) [][]*SiteEntry {
+	type key struct {
+		file  string
+		names string
+	}
+	order := []key{}
+	groups := map[key][]*SiteEntry{}
+	for i := range entries {
+		names := append([]string(nil), entries[i].Block.ServerNames...)
+		sort.Strings(names)
+		k := key{file: entries[i].File, names: strings.Join(names, "\x00")}
+		if _, ok := groups[k]; !ok {
+			order = append(order, k)
+		}
+		groups[k] = append(groups[k], &entries[i])
+	}
+	out := make([][]*SiteEntry, 0, len(order))
+	for _, k := range order {
+		out = append(out, groups[k])
+	}
+	return out
+}
+
+// projectDetail 组装 detail 项（单块寻址：块级字段直装 + locations/rawBlocks；
+// v2.0 SiteItem 聚合语义下 detail 保持单块粒度——组级上下文由 list 呈现）。
 func (s *Service) projectDetail(e *SiteEntry, idx *certPathIndex) SiteDetailData {
-	d := SiteDetailData{SiteItem: s.projectItem(e, idx)}
+	b := s.projectBlock(e, idx)
+	d := SiteDetailData{SiteItem: SiteItem{
+		ServerNames: nonEmpty(e.Block.ServerNames),
+		Listen:      nonEmpty(e.Block.Listen),
+		Root:        e.Block.Root,
+		Enabled:     e.Enabled(),
+		CertRef:     b.CertRef, CertID: b.CertID, CertStatus: b.CertStatus,
+		SourceFile: e.File,
+		Blocks:     []SiteBlock{b},
+	}}
+	if p := e.Block.Proxy(); p != nil {
+		d.Proxy = &ProxyDTO{Upstream: p.Upstream, HostHeader: p.HostHeader, Websocket: p.Websocket}
+	}
 	for _, loc := range e.Block.Locations {
 		d.Locations = append(d.Locations, LocationDTO{
 			Path: loc.Path, ProxyPass: loc.ProxyPass, FastCGIPass: loc.FastCGIPass,
@@ -149,11 +267,12 @@ func (s *Service) ListSites(ctx context.Context, enabledFilter string) (*SiteLis
 	}
 	kept, dups := s.dedupe(scan.Entries)
 	idx := s.buildCertIndex(ctx)
-	for i := range kept {
-		if enabledFilter != "" && kept[i].Enabled() != enabledFilter {
+	for _, grp := range groupEntries(kept) {
+		item := s.aggregateGroup(grp, idx)
+		if enabledFilter != "" && item.Enabled != enabledFilter {
 			continue
 		}
-		data.Items = append(data.Items, s.projectItem(&kept[i], idx))
+		data.Items = append(data.Items, item)
 	}
 	data.Duplicates = dups
 	if data.Duplicates == nil {

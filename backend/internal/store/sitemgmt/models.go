@@ -29,6 +29,12 @@ const (
 
 	ChallengeHTTP01  = "http_01"
 	ChallengeTLSALPN = "tls_alpn"
+	ChallengeDNS01   = "dns_01" // v2.0（⚠️A20/Gate 1 改判）
+
+	// dns_provider 取值域（v2.0，DDL CHECK 兜底；初始清单=lego 官方内置 provider）。
+	ProviderCloudflare = "cloudflare"
+	ProviderAliyun     = "aliyun"
+	ProviderDNSPod     = "dnspod"
 )
 
 // DeployRef 是 deploy_prev_refs JSON map 的单站点值：部署前 ssl_certificate/
@@ -41,22 +47,23 @@ type DeployRef struct {
 // Certificate 对应 certificate 表一行（api §4.1.1 字段清单）。
 // Issuer/NotBefore/NotAfter：acme 落库；imported 读时刷新呈现（D-08）。
 type Certificate struct {
-	ID             int64
-	PrimaryDomain  string
-	Domains        []string // SAN 列表（JSON 数组列的解析态）
-	Issuer         string
-	Source         string
-	Status         string
-	Challenge      *string // acme 必填（I-01 应用层校验）
-	StoragePath    *string
-	OriginPath     *string
-	NotBefore      *time.Time
-	NotAfter       *time.Time
-	DeployPrevRefs map[string]DeployRef // siteId → 部署前原值（D-11）
-	LastError      *string
-	AcmeAccountRef *string
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	ID              int64
+	PrimaryDomain   string
+	Domains         []string // SAN 列表（JSON 数组列的解析态）
+	Issuer          string
+	Source          string
+	Status          string
+	Challenge       *string // acme 必填（I-01 应用层校验）
+	StoragePath     *string
+	OriginPath      *string
+	NotBefore       *time.Time
+	NotAfter        *time.Time
+	DeployPrevRefs  map[string]DeployRef // siteId → 部署前原值（D-11）
+	DnsCredentialID *int64               // v2.0：DNS 凭证引用（仅 dns_01 行非空，I-01/I-C01）
+	LastError       *string
+	AcmeAccountRef  *string
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 // ---- 时间映射：与 001_account_auth/002_panel_core 同法，DATETIME 列以
@@ -103,4 +110,16 @@ func wrapErr(op string, err error) error {
 		return nil
 	}
 	return fmt.Errorf("store/sitemgmt: %s: %w", op, err)
+}
+
+// DnsCredential 对应 dns_credential 表一行（v2.0，⚠️A20；api §4.3.1）。
+// CredentialEnc 为凭据材料密文（JSON→AES-256-GCM 单列；明文仅 service 层
+// 签发/续期内存态解密，任何接口零回显 I-D01）。
+type DnsCredential struct {
+	ID            int64
+	Name          string
+	Provider      string
+	CredentialEnc []byte
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }

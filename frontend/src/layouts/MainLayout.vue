@@ -7,6 +7,7 @@ import type { MenuOption } from 'naive-ui'
 import type { Component } from 'vue'
 import {
   AppsOutline,
+  CloudDownloadOutline,
   CloudUploadOutline,
   CubeOutline,
   DiscOutline,
@@ -84,7 +85,9 @@ const MENU_ICONS: Readonly<Record<string, Component>> = {
   // cron-backup 菜单项（后端模块 todo：「计划任务」cron /「备份」backup 预置映射，同上兜底口径；
   // 菜单项对 admin/readonly 均下发——ADR-018 全可看，readonly 可进入查看，操作面为其不可见）
   cron: TimerOutline,
-  backup: CloudUploadOutline
+  backup: CloudUploadOutline,
+  // env-mgmt 菜单项（main.go 登记 icon=env；两角色下发——ADR-018 全可看）
+  env: CloudDownloadOutline
 }
 
 function resolveIcon(name: string): Component {
@@ -110,6 +113,25 @@ function toMenuOptions(items: PanelMenuItem[]): MenuOption[] {
 }
 
 const menuOptions = computed<MenuOption[]>(() => toMenuOptions(panelStore.menuItems))
+
+/** 顶栏标题（D-P18）：路由 meta.title 优先；兜底按当前 path 在菜单树（含分组
+ * children 遍历）中取 title；再兜底「斗拱面板」。 */
+const headerTitle = computed<string>(() => {
+  const t = route.meta.title
+  if (typeof t === 'string' && t !== '') return t
+  const path = route.path
+  const find = (items: PanelMenuItem[]): string | null => {
+    for (const it of items) {
+      if (it.path !== '' && it.path === path) return it.title
+      if (it.children != null && it.children.length > 0) {
+        const hit = find(it.children)
+        if (hit !== null) return hit
+      }
+    }
+    return null
+  }
+  return find(panelStore.menuItems) ?? '斗拱面板'
+})
 
 /** 布局每次挂载重新拉取（登出换角色登录后不残留上一角色菜单） */
 onMounted(() => {
@@ -179,7 +201,9 @@ async function onLogout(): Promise<void> {
       </n-layout-sider>
       <n-layout>
         <n-layout-header bordered class="header">
-          <span class="header-title">账户与安全基座</span>
+          <!-- v0.1.2 反馈第 5 项（D-P18）：顶栏标题=当前页面标题（路由 meta.title 优先、
+           菜单 title 兜底）——替换硬编码业务域显示名，内部术语不泄漏用户 UI -->
+          <span class="header-title">{{ headerTitle }}</span>
           <div class="header-right">
             <span class="username">{{ authStore.currentUser?.username ?? '' }}</span>
             <n-tag :type="roleDict.tag" size="small">{{ roleDict.label }}</n-tag>

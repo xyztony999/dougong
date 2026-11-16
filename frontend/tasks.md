@@ -497,3 +497,23 @@ W1/W2 维持报告原判（WARN 非本轮 FAIL 修复项）：views/monitoring �
 | E1（阻断：backup-job/list sourceSummary[] 与 backup-run/detail sources[] 后端未产出契约 ref 字段） | 新增 `src/utils/cronback.ts` 归一适配器并接线 `src/api/cron.ts`（backupJobList/backupRunDetail 响应逐项过 `normalizeSourceRef`）：①契约分支 `{type,ref}` 直通（后端投影层补 ref 后零改动接管）；②后端现状分支（dto.go SourceItemDTO `{type,path?,instanceId?,database?}`）推导——site_dir→ref=path / database→`实例 {id}·{库}`（缺库=整实例；instanceId 为快照事实，实例名跨域不可得，已删实例如实以 id 呈现，D-12 同判）；无可推导→ref='' 渲染层降级不崩。渲染层三处防御：backup/index.vue sourceCell 与 RunDetailDrawer 源明细/BackupJobDrawer 编辑概要的 `BACKUP_SOURCE_TYPE[s.type]` 直接索引全部改 `dictItem` 兜底（⚠️A14 口径，未知 type 原值灰字不崩）；RunDetailDrawer `sourceFailed` 加 ref!=='' 守卫（includes('') 恒真会误标全部源失败）；ref==='' 时不渲染引用文本。`BackupSourceRef.type` 放宽为 `BackupSourceType \| string`（docker ContainerStatus|string 透传先例），`ref` 保持契约 `string`（归一器保证输出形状） | 采用报告修复方向 a 的前端份额（后端投影层补 ref 为主路径）；修复口径=account-auth Gate 2 E1/E2 同判（api 层归一、契约类型单一来源、后端修复后无感直通）而非改契约或弱化类型。「双侧补形状断言」前端侧落 cron.test.ts 新增 10 用例：契约直通/现状推导（site_dir·database·缺库）/空串降级/非对象剔除/输出恒契约形状/两个管线（list items[].sourceSummary、detail sources）逐项归一+契约 ref 直通不改写/坏形状不吞错。根因修复=后端 dto.go SourceItemDTO 补 ref 投影（超出前端范围，报告已列后端侧待办与 module_test.go 断言缺口） |
 
 自验（2026-11-15，cwd=frontend/）：`npm run build`（vue-tsc --noEmit && vite build）exit 0（27.30s）；构建后二次 `npm run typecheck` exit 0；`npx vitest run` 10 files / 115 tests 全过（105 既有无回归 + E1 归一器 10 新增）；grep 复扫——F-01~F-05 全 0 命中、`BACKUP_SOURCE_TYPE[` 直接索引全仓 0 残留（全部走 dictItem）。W1/W2/W3 维持报告原判（后端覆盖率与组件挂载测试基础设施非本轮 FAIL 修复项；views/store 挂载测试沿 monitoring/service-mgmt W 先例待后续裁定）。
+
+# 增量轮 · v0.1.2 用户反馈 + Gate 1 改判 DNS-01（2026-11-16/17，/pipeline session 轨）
+
+> 设计输入：PageSpec site-mgmt v1.2×2（⚠️A18/A19/A20）/ env-mgmt v1.0×2 / panel-core v1.2×2 /
+> account-auth v1.3+v1.1；数据源 api-site-mgmt.md v2.0 · api-env-mgmt.md v1.0 · api-panel-core.md v2.2（D-P18）。
+
+- [x] T-SM1 · site-mgmt 前端增量（v1.1+v1.2 合并落码）
+  - types/site.ts：SiteListItem 聚合化（去顶层 siteId、+blocks: SiteBlock[]，D-17）+ CertRequestRequest 扩展（siteId/domains 二选一+dnsCredentialId）+ DnsCredential/Replace/Renew 全套类型 + CERT_ERROR_TEXT 扩 CERT_008~010；enums.ts：AcmeChallenge +dns_01、DNS_PROVIDER 新增
+  - api/site.ts：23 Action（+certRenew/certReplace/dnsCred×3；certRequest 签名对象化）
+  - 站点列表（views/site-mgmt/index.vue）：聚合行（监听列「80 / 443 ssl」合并）+ 行展开 blocks 块清单（siteId/listen/enabled/证书引用级明细）+ 组级启停（blocks 顺序逐块、已处目标态跳过、失败停止并刷新）+ rowKey 聚合键；SiteDetailDrawer/CertDeployModal/BackupJobDrawer 寻址改 blocks[0].siteId；stores/site.ts findBySiteId 块级查找
+  - 证书页：申请弹窗重写（三挑战方式文案〔文件验证 HTTP-01/TLS-ALPN/DNS-01〕+域名来源二选一切换〔手动模式含 *.domain 泛域名〕+DNS 凭证选择〔空清单引导配置、CERT_009 弹窗引导〕）；operList「更新证书」（acme 行 valid/expiring_soon/renew_failed，取代续期重试渲染；D-18 失败分流文案「原证书仍有效」）+「替换证书文件」（imported 行，CertReplaceModal：PEM 粘贴+备份/私钥范围声明+新元数据呈现）；工具栏「DNS 凭证」（DnsCredentialsModal：列表零回显+provider 驱动新建表单〔cloudflare/aliyun/dnspod〕+删除引用警示 I-C01）
+- [x] T-ENV2 · env-mgmt 前端新模块
+  - types/env.ts（通道/条目/任务/服务操作类型；children:null 契约注释）+ api/env.ts（10 Action）+ stores/env.ts（全景成败流〔listError 如实〕+任务清单筛选+详情 5s 轮询终态即停 onUnmounted 由页面清理）
+  - views/env-mgmt/index.vue：页头通道状态条+六环境卡片网格（实况 tag〔installed=null「探测不可用」〕+在途标记查看引导+操作区 admin 专属：安装/升级 NPopconfirm、卸载强确认 NModal 两段警示+输入环境名锁定、服务启停自启组）+ EnvTaskDrawer（历史筛选列表+详情输出尾部等宽块）
+  - 路由 /env（meta.title）+ vite dev proxy /env + MainLayout MENU_ICONS env 映射
+- [x] T-IA2 · B 批 IA（v0.1.2 反馈 5-7 项，D-P18/方案一）
+  - MainLayout：顶栏标题=当前页面标题（headerTitle computed：路由 meta.title 优先→菜单树含分组遍历兜底→「斗拱面板」；替换硬编码「账户与安全基座」——反馈第 5 项根因 MainLayout.vue:182）；children 分组渲染既有支持（toMenuOptions 递归+children:null 双防护）直接生效
+  - settings/index.vue：四分组重排（常规[语言]/网络与访问[监听·入口·域名]/安全与证书[HTTPS·证书·会话]/关于[更新检查]，Card 语义编号不变+分组标题视觉层级——PageSpec panel-core v1.2）
+  - account-auth 三列表页 loadError 错误态（user-list/session-list/audit-log-list：NAlert+重试，不呈现裸空表格——反馈第 5 项「正文空白」修复，PageSpec account-auth v1.3 规范）
+- [x] 门禁自验（2026-11-17 实跑 cwd=frontend/）：vue-tsc --noEmit=0、npm run build exit 0（30.0s）、vitest 15 文件 174 用例全过（+env store 4 用例：loadList 成败流/taskFilter/clearTaskDetail 幂等）、产物同步 backend/web/dist（make web）+ 同步后 go build ./...=0；F-01~F-05 禁项 grep 0 命中（any/原生 alert·confirm/views 层 fetch/定时器不配对清理/Options API——增量代码未引入）

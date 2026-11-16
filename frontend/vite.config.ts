@@ -53,6 +53,11 @@ export default defineConfig({
         target: backendAddr,
         changeOrigin: true
       },
+      // env-mgmt（api-env-mgmt.md 3.1：/env/{resource}/{action} 三段式，读 GET + 写 POST 同前缀）
+      '/env': {
+        target: backendAddr,
+        changeOrigin: true
+      },
       '/db': {
         target: backendAddr,
         changeOrigin: true

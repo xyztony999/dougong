@@ -61,21 +61,33 @@ onMounted(() => {
       </template>
     </n-result>
 
-    <!-- 8 Card 各自独立提交（PageSpec 5.1 v1.1 提交粒度决策：无跨 Card 草稿态；顺序=Card 1~8） -->
+    <!-- 8 Card 各自独立提交（PageSpec 5.1 v1.2：四分组重排——Card 语义编号不变，
+         呈现顺序按分组；v0.1.2 反馈第 7 项「卡片顺序跳跃」收敛） -->
     <template v-else-if="panelStore.configDetail !== null">
+      <div class="group-title">常规</div>
+      <lang-card :detail="panelStore.configDetail" />
+      <div class="group-title">网络与访问</div>
       <listen-card :detail="panelStore.configDetail" />
       <entry-path-card :detail="panelStore.configDetail" />
       <bind-domain-card :detail="panelStore.configDetail" />
+      <div class="group-title">安全与证书</div>
       <https-card :detail="panelStore.configDetail" />
       <panel-cert-card :detail="panelStore.configDetail" />
-      <lang-card :detail="panelStore.configDetail" />
       <session-card :detail="panelStore.configDetail" />
+      <div class="group-title">关于</div>
       <update-check-card :detail="panelStore.configDetail" />
     </template>
   </div>
 </template>
 
 <style scoped>
+/* 分组标题（PageSpec 5.1 v1.2 四分组视觉层级：分组标题—Card 两级） */
+.group-title {
+  font-size: 13px;
+  font-weight: 600;
+  opacity: 0.55;
+  margin: 8px 0 -4px;
+}
 .page {
   display: flex;
   flex-direction: column;

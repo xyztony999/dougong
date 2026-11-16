@@ -13,18 +13,31 @@ type SiteListData struct {
 	GeneratedAt    string      `json:"generatedAt"`
 }
 
-// SiteItem 是 list 项（§4.2.1 投影条目清单）。
+// SiteItem 是 list 项（v2.0 D-17 聚合条目：同源文件且 server_name 全集相同
+// 的多个 server 块合并——listen 合并去重、enabled=任一块生效、证书状态=组内
+// 最优〔443/ssl 块优先〕、root=首个非空、proxy=组内首个反代段；寻址经
+// blocks[].siteId，全部写接口仍单块寻址）。
 type SiteItem struct {
-	SiteID      string    `json:"siteId"`
-	ServerNames []string  `json:"serverNames"`
-	Listen      []string  `json:"listen"`
-	Root        string    `json:"root"`
-	Enabled     string    `json:"enabled"`
-	CertRef     *string   `json:"certRef"`
-	CertID      *int64    `json:"certId,omitempty"`
-	CertStatus  *string   `json:"certStatus,omitempty"`
-	Proxy       *ProxyDTO `json:"proxy,omitempty"`
-	SourceFile  string    `json:"sourceFile"`
+	ServerNames []string    `json:"serverNames"`
+	Listen      []string    `json:"listen"`
+	Root        string      `json:"root"`
+	Enabled     string      `json:"enabled"`
+	CertRef     *string     `json:"certRef"`
+	CertID      *int64      `json:"certId,omitempty"`
+	CertStatus  *string     `json:"certStatus,omitempty"`
+	Proxy       *ProxyDTO   `json:"proxy,omitempty"`
+	SourceFile  string      `json:"sourceFile"`
+	Blocks      []SiteBlock `json:"blocks"`
+}
+
+// SiteBlock 是聚合条目的块级子清单项（单块条目为 1 元素数组，结构统一）。
+type SiteBlock struct {
+	SiteID     string   `json:"siteId"`
+	Listen     []string `json:"listen"`
+	Enabled    string   `json:"enabled"`
+	CertRef    *string  `json:"certRef"`
+	CertID     *int64   `json:"certId,omitempty"`
+	CertStatus *string  `json:"certStatus,omitempty"`
 }
 
 // SiteDetailData 是 GET /sites/site/detail 的 data（list 项全字段 + locations
@@ -218,10 +231,14 @@ type SiteRef struct {
 	ServerNames []string `json:"serverNames"`
 }
 
-// CertRequestRequest 是 POST /sites/cert/request 请求。
+// CertRequestRequest 是 POST /sites/cert/request 请求（v2.0 扩展：域名来源
+// siteId 与 domains 二选一——domains 支持手动指定含泛域名 *.domain〔CERT_010〕；
+// challenge=dns_01 时 dnsCredentialId 必填〔CERT_009〕）。
 type CertRequestRequest struct {
-	SiteID    string `json:"siteId"`
-	Challenge string `json:"challenge"`
+	SiteID          string   `json:"siteId"`
+	Domains         []string `json:"domains"`
+	Challenge       string   `json:"challenge"`
+	DNSCredentialID *int64   `json:"dnsCredentialId"`
 }
 
 // CertRequestData 是签发成功响应（同步终态，D-09）。
@@ -254,6 +271,78 @@ type CertDeleteData struct {
 	CertID int64 `json:"certId"`
 }
 
+// ---- cert/renew · cert/replace（v1.2，D-18）----
+
+// CertRenewData 是 cert/renew 响应（与 CertRequestData 同形）。
+type CertRenewData = CertRequestData
+
+// CertReplaceRequest 是 POST /sites/cert/replace 请求（imported 文件替换）。
+type CertReplaceRequest struct {
+	CertID  int64  `json:"certId"`
+	CertPEM string `json:"certPem"`
+}
+
+// CertReplaceData 是 replace 响应（新证书读时解析元数据；域名差异由前端呈现）。
+type CertReplaceData struct {
+	CertID    int64    `json:"certId"`
+	NotBefore *string  `json:"notBefore,omitempty"`
+	NotAfter  *string  `json:"notAfter,omitempty"`
+	Issuer    string   `json:"issuer"`
+	Domains   []string `json:"domains"`
+}
+
+// ---- dns-credential（v2.0，⚠️A20/D-20）----
+
+// DnsCredentialItem 是凭证清单项（凭据材料零回显 I-D01）。
+type DnsCredentialItem struct {
+	ID                  int64  `json:"id"`
+	Name                string `json:"name"`
+	Provider            string `json:"provider"`
+	CreatedAt           string `json:"createdAt"`
+	ReferencedCertCount int    `json:"referencedCertCount"`
+}
+
+// DnsCredentialListData 是 GET /sites/dns-credential/list 响应。
+type DnsCredentialListData struct {
+	Items []DnsCredentialItem `json:"items"`
+}
+
+// DnsCredentialPayload 是凭据材料（按 provider 形态；明文仅本请求到达 service
+// 即加密，任何响应不回显）。
+type DnsCredentialPayload struct {
+	APIToken        string `json:"apiToken,omitempty"`        // cloudflare
+	AccessKeyID     string `json:"accessKeyId,omitempty"`     // aliyun
+	AccessKeySecret string `json:"accessKeySecret,omitempty"` // aliyun
+	SecretID        string `json:"secretId,omitempty"`        // dnspod
+	SecretKey       string `json:"secretKey,omitempty"`       // dnspod
+}
+
+// DnsCredentialCreateRequest 是 POST /sites/dns-credential/create 请求。
+type DnsCredentialCreateRequest struct {
+	Name       string               `json:"name"`
+	Provider   string               `json:"provider"`
+	Credential DnsCredentialPayload `json:"credential"`
+}
+
+// DnsCredentialCreateData 是 create 响应（零凭据材料）。
+type DnsCredentialCreateData struct {
+	ID       int64  `json:"id"`
+	Name     string `json:"name"`
+	Provider string `json:"provider"`
+}
+
+// DnsCredentialDeleteData 是 delete 响应（referencedCerts 引用警示不硬阻断，I-C01）。
+type DnsCredentialDeleteData struct {
+	ID              int64            `json:"id"`
+	ReferencedCerts []DnsCertRefItem `json:"referencedCerts"`
+}
+
+// DnsCertRefItem 是凭证删除时的引用证书呈现项（I-C02 实时推导）。
+type DnsCertRefItem struct {
+	CertID        int64  `json:"certId"`
+	PrimaryDomain string `json:"primaryDomain"`
+}
+
 // ---- 错误 data 载荷（§3.4）----
 
 // SiteErrorData 是 SITE_003/SITE_004 的 data（errors[]+diff / output）。
@@ -268,6 +357,7 @@ type SiteErrorData struct {
 type ReasonData struct {
 	Reason       string `json:"reason,omitempty"`
 	CurrentMtime string `json:"currentMtime,omitempty"`
+	Status       string `json:"status,omitempty"` // v1.2：cert/renew 失败迁移后状态（D-18 分流）
 }
 
 // ExistingSiteData 是 SITE_005 载荷（data.existingSiteId）。
@@ -280,9 +370,11 @@ type ExistingCertData struct {
 	ExistingCertID int64 `json:"existingCertId"`
 }
 
-// StatusData 是 CERT_002 载荷（data.currentStatus）。
+// StatusData 是 CERT_002 载荷（data.currentStatus；v2.0：acme 调用 replace
+// 时附 reason=source）。
 type StatusData struct {
 	CurrentStatus string `json:"currentStatus"`
+	Reason        string `json:"reason,omitempty"`
 }
 
 // CertRefSitesData 是 CERT_005 载荷（data.sites[] 含 siteId/serverNames）。

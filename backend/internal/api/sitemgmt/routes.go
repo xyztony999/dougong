@@ -48,6 +48,7 @@ func (m *Module) Register(rg *gin.RouterGroup) {
 		middleware.RequireRole(authsvc.RoleAdmin))
 	readAdmin.GET("/site/source", m.h.ReadSource)
 	readAdmin.GET("/php-pools/list", m.h.ListPhpPools)
+	readAdmin.GET("/dns-credential/list", m.h.DnsCredentialList) // v2.0 D-20（敏感配置最小暴露）
 
 	// 写组（POST 全部 admin 专属 + CSRF，R-02）。
 	write := rg.Group("", middleware.AuthRequired(m.auth),
@@ -63,6 +64,10 @@ func (m *Module) Register(rg *gin.RouterGroup) {
 	write.POST("/cert/deploy", m.h.CertDeploy)
 	write.POST("/cert/undeploy", m.h.CertUndeploy)
 	write.POST("/cert/retry-renewal", m.h.CertRetryRenewal)
+	write.POST("/cert/renew", m.h.CertRenew)                      // v1.2 D-18
+	write.POST("/cert/replace", m.h.CertReplace)                  // v1.2 D-18
+	write.POST("/dns-credential/create", m.h.DnsCredentialCreate) // v2.0 D-20
+	write.POST("/dns-credential/delete", m.h.DnsCredentialDelete) // v2.0 D-20
 	write.POST("/cert/delete", m.h.CertDelete)
 }
 

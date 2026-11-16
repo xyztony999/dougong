@@ -46,8 +46,9 @@ export const useSitesStore = defineStore('sites', () => {
   }
 
   /** 按 siteId 取投影行（source 页顶栏站点标识呈现；未命中返回 null 不虚构） */
+  /** v1.2 聚合条目（D-17）：按块级 siteId 定位所属条目（寻址键在 blocks[].siteId） */
   function findBySiteId(siteId: string): SiteListItem | null {
-    return items.value.find((s) => s.siteId === siteId) ?? null
+    return items.value.find((s) => s.blocks.some((b) => b.siteId === siteId)) ?? null
   }
 
   return {

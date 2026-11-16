@@ -148,6 +148,10 @@ type fakeAcme struct {
 	err error
 }
 
+func (f *fakeAcme) IssueDNS(ctx context.Context, domains []string, provider string, cred acme.DnsCredential) (*acme.IssueResult, error) {
+	return f.Issue(ctx, domains, "dns_01", "")
+}
+
 func (f *fakeAcme) Issue(context.Context, []string, string, string) (*acme.IssueResult, error) {
 	return f.res, f.err
 }
@@ -519,8 +523,12 @@ func TestAdminFullFlow(t *testing.T) {
 	wantCode(t, env, "SITE_005")
 	env = get(t, app, admin, "/sites/site/detail?siteId=malformed")
 	wantCode(t, env, "SITE_001")
+	// v2.0 契约：dns_01 为合法枚举，缺 dnsCredentialId → CERT_009（D-20）。
 	env = post(t, app, admin, "/sites/cert/request", map[string]string{
 		"siteId": created.SiteID, "challenge": "dns_01"})
+	wantCode(t, env, "CERT_009")
+	env = post(t, app, admin, "/sites/cert/request", map[string]string{
+		"siteId": created.SiteID, "challenge": "bogus"})
 	wantCode(t, env, "CERT_007")
 
 	// SITE_003 管线回滚：注入失败校验 → 配置自动回滚（R-06）。

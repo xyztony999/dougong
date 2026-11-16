@@ -39,6 +39,7 @@ import (
 	"github.com/dougong/dougong/internal/adapter/dbmysql"
 	"github.com/dougong/dougong/internal/adapter/dbredis"
 	"github.com/dougong/dougong/internal/adapter/dockerx"
+	"github.com/dougong/dougong/internal/adapter/envpack"
 	"github.com/dougong/dougong/internal/adapter/firewallx"
 	"github.com/dougong/dougong/internal/adapter/fslocal"
 	"github.com/dougong/dougong/internal/adapter/netlisten"
@@ -52,6 +53,7 @@ import (
 	cronapi "github.com/dougong/dougong/internal/api/cronback"
 	dbapi "github.com/dougong/dougong/internal/api/dbmgmt"
 	dockerapi "github.com/dougong/dougong/internal/api/dockermgmt"
+	envapi "github.com/dougong/dougong/internal/api/envmgmt"
 	fileapi "github.com/dougong/dougong/internal/api/fileman"
 	fwapi "github.com/dougong/dougong/internal/api/firewall"
 	"github.com/dougong/dougong/internal/api/middleware"
@@ -67,6 +69,7 @@ import (
 	cronbacksvc "github.com/dougong/dougong/internal/service/cronback"
 	dbmgmtsvc "github.com/dougong/dougong/internal/service/dbmgmt"
 	dockersvc "github.com/dougong/dougong/internal/service/dockermgmt"
+	envsvc "github.com/dougong/dougong/internal/service/envmgmt"
 	filemansvc "github.com/dougong/dougong/internal/service/fileman"
 	firewallsvc "github.com/dougong/dougong/internal/service/firewall"
 	monitoringsvc "github.com/dougong/dougong/internal/service/monitoring"
@@ -78,6 +81,7 @@ import (
 	storeauth "github.com/dougong/dougong/internal/store/auth"
 	storecronback "github.com/dougong/dougong/internal/store/cronback"
 	storedbmgmt "github.com/dougong/dougong/internal/store/dbmgmt"
+	storeenv "github.com/dougong/dougong/internal/store/envmgmt"
 	storefileman "github.com/dougong/dougong/internal/store/fileman"
 	storepanel "github.com/dougong/dougong/internal/store/panel"
 	storesitemgmt "github.com/dougong/dougong/internal/store/sitemgmt"
@@ -197,6 +201,25 @@ func run(args []string) error {
 			Icon: "info", Order: 910, Visibility: []string{storeauth.RoleAdmin, storeauth.RoleReadonly}},
 	)
 
+	// account-auth 菜单分组（v2.2 D-P18，v0.1.2 反馈第 6 项）：「用户与安全」
+	// 分组四子项两角色可达——设计侧 PageSpec account-auth 第 7 节本有菜单登记，
+	// 实现侧此前未登记致 /users 不可达，本增量实现回归设计并升格为分组
+	//（MenuItem.children 两级：分组 path 空、visibility 并集）。
+	panelSvc.Menus().Register(
+		panelsvc.MenuItem{Key: "user-security", Title: "用户与安全", Path: "",
+			Icon: "people", Order: 150, Visibility: []string{storeauth.RoleAdmin, storeauth.RoleReadonly},
+			Children: []panelsvc.MenuItem{
+				{Key: "users", Title: "用户管理", Path: "/users", Order: 10,
+					Visibility: []string{storeauth.RoleAdmin, storeauth.RoleReadonly}},
+				{Key: "sessions", Title: "在线会话", Path: "/sessions", Order: 20,
+					Visibility: []string{storeauth.RoleAdmin, storeauth.RoleReadonly}},
+				{Key: "audit-logs", Title: "审计日志", Path: "/audit-logs", Order: 30,
+					Visibility: []string{storeauth.RoleAdmin, storeauth.RoleReadonly}},
+				{Key: "profile", Title: "个人安全设置", Path: "/profile", Order: 40,
+					Visibility: []string{storeauth.RoleAdmin, storeauth.RoleReadonly}},
+			}},
+	)
+
 	// monitoring：零持久化监控服务（ADR-014 无表无 DDL；缓冲随服务创建，采集
 	// 链路下方以后台任务启动）。菜单登记对齐 PageSpec 第 7 节路由（A-M12）。
 	monSvc := monitoringsvc.NewService()
@@ -251,8 +274,16 @@ func run(args []string) error {
 	// 全可看 D0 口径 + ADR-018）。
 	siteStore := storesitemgmt.New(db)
 	phpfpmGw := phpfpm.NewGateway()
+	// v2.0（⚠️A20/Gate 1 改判）：DNS 凭据保险库——独立密钥文件 dns-cred.key
+	// 0600（沿 db-cred.key CredentialVault 先例，风险域隔离）；打开失败属
+	// 启动硬错误（凭据功能不可用须显式暴露，不静默降级）。
+	dnsVault, err := sitesvc.OpenDnsCredentialVault(panelDataDir)
+	if err != nil {
+		closeErr := db.Close()
+		return errors.Join(fmt.Errorf("open dns credential vault: %w", err), closeErr)
+	}
 	siteSvc := sitesvc.New(nginxxGw, phpfpmGw, acmeGw, siteStore, auditSvc,
-		sitesvc.Options{DataDir: panelDataDir})
+		sitesvc.Options{DataDir: panelDataDir, DnsVault: dnsVault})
 	panelSvc.Menus().Register(
 		panelsvc.MenuItem{Key: "sites", Title: "网站管理", Path: "/sites",
 			Icon: "globe", Order: 400, Visibility: []string{storeauth.RoleAdmin, storeauth.RoleReadonly}},
@@ -364,6 +395,21 @@ func run(args []string) error {
 			Icon: "backup", Order: 760, Visibility: []string{storeauth.RoleAdmin, storeauth.RoleReadonly}},
 	)
 
+	// env-mgmt：环境管理（v0.1.2 用户反馈第 4 项新模块）——env_install_task
+	// 四态异步任务台账（⚠️A3，迁移 008）+ envpack 包管理器双系通道（D-03
+	// exec.LookPath；R-08 参数数组，单命令 10min 上限 D-10）+ 服务操作复用
+	// sysdGateway（D-09，与 service-mgmt 共享适配层资产）；启动恢复 I-04
+	//（running→failed「面板重启中断」）；任务 worker 为创建即触发的有限时
+	// goroutine（无长驻循环，G-06）。菜单对齐 PageSpec 路由 /env 两角色可见
+	//（查看类全可看 ADR-018）。
+	envStore := storeenv.New(db)
+	envSvc := envsvc.New(envpack.NewGateway(), sysdGateway, envStore, envsvc.Options{})
+	envSvc.RecoverInFlight(ctx)
+	panelSvc.Menus().Register(
+		panelsvc.MenuItem{Key: "env", Title: "环境管理", Path: "/env",
+			Icon: "env", Order: 850, Visibility: []string{storeauth.RoleAdmin, storeauth.RoleReadonly}},
+	)
+
 	// HTTP 骨架 + 模块挂载（后续模块在此追加 RegisterModules 参数）。
 	server := api.NewServer()
 	server.RegisterModules(
@@ -378,6 +424,7 @@ func run(args []string) error {
 		fwapi.NewModule(authSvc, fwSvc),
 		dockerapi.NewModule(authSvc, dockerSvc),
 		cronapi.NewModule(authSvc, cronSvc),
+		envapi.NewModule(authSvc, envSvc),
 	)
 
 	// D-P03：EntryPathGuard 为全局第一环，以 net/http 包装器包裹整个 gin

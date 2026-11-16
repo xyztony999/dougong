@@ -21,6 +21,9 @@ func New(db *sql.DB) *Store { return &Store{db: db} }
 // Cert 返回 certificate 仓储。
 func (s *Store) Cert() *CertRepo { return &CertRepo{x: s.db} }
 
+// DnsCred 返回 dns_credential 仓储（v2.0，A20）。
+func (s *Store) DnsCred() *DnsCredentialRepo { return &DnsCredentialRepo{x: s.db} }
+
 // Audit 返回 audit_log 仓储（跨模块复用，store/auth 实现）。
 func (s *Store) Audit() *storeauth.AuditRepo { return storeauth.NewAuditRepo(s.db) }
 
@@ -57,6 +60,9 @@ func (t *TxStore) Rollback() error {
 
 // Cert 返回事务内 certificate 仓储。
 func (t *TxStore) Cert() *CertRepo { return &CertRepo{x: t.tx} }
+
+// DnsCred 返回事务内 dns_credential 仓储（v2.0）。
+func (t *TxStore) DnsCred() *DnsCredentialRepo { return &DnsCredentialRepo{x: t.tx} }
 
 // Audit 返回事务内 audit_log 仓储。
 func (t *TxStore) Audit() *storeauth.AuditRepo { return storeauth.NewAuditRepo(t.tx) }

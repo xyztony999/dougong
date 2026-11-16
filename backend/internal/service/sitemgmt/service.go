@@ -19,10 +19,11 @@ type Service struct {
 	acme       AcmeGateway
 	store      *storesitemgmt.Store
 	audit      AuditRecorder
-	dataDir    string // 面板数据目录（备份/托管证书/acme 账户与 webroot 派生基点）
-	backupRoot string // {dataDir}/conf.backup（R-06）
-	certsDir   string // {dataDir}/certs（A-SM11）
-	webrootDir string // {dataDir}/acme-webroot（A-SM10）
+	dnsVault   *DnsCredentialVault // v2.0（⚠️A20）：dns-cred.key 凭据保险库（可空=凭证功能不可用）
+	dataDir    string              // 面板数据目录（备份/托管证书/acme 账户与 webroot 派生基点）
+	backupRoot string              // {dataDir}/conf.backup（R-06）
+	certsDir   string              // {dataDir}/certs（A-SM11）
+	webrootDir string              // {dataDir}/acme-webroot（A-SM10）
 	// defaultAccessLog/defaultErrorLog：nginx 默认日志路径回退（D-07 ⚠️A15），
 	// 可经 Options 覆写——测试环境无关性（CI runner 可能装有 nginx）。
 	defaultAccessLog string
@@ -38,6 +39,7 @@ type Options struct {
 	WebrootDir       string
 	DefaultAccessLog string
 	DefaultErrorLog  string
+	DnsVault         *DnsCredentialVault // v2.0：nil 时 DNS 凭证功能返回错误（防御）
 }
 
 // New 构造服务；clock 为 nil 用 time.Now（白盒测试可覆写）。
@@ -49,7 +51,7 @@ func New(gw NginxGateway, phpfpmGw PhpFpmGateway, acmeGw AcmeGateway,
 	}
 	s := &Service{
 		gw: gw, phpfpm: phpfpmGw, acme: acmeGw, store: store, audit: auditRec,
-		dataDir: dataDir, clock: time.Now,
+		dataDir: dataDir, clock: time.Now, dnsVault: opts.DnsVault,
 	}
 	s.backupRoot = orDefault(opts.BackupRoot, filepath.Join(dataDir, BackupDirName))
 	s.defaultAccessLog = orDefault(opts.DefaultAccessLog, NginxDefaultAccessLog)

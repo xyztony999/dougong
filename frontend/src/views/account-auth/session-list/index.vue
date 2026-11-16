@@ -66,13 +66,16 @@ const columns = computed<DataTableColumns<SessionListItem>>(() => {
   return base
 })
 
+const loadError = ref(false)
+
 async function load(): Promise<void> {
   loading.value = true
+  loadError.value = false
   try {
     const data = await sessionList()
     records.value = data.items
   } catch {
-    // AUTH_002 会话失效：拦截器已跳登录；其余错误已统一提示
+    loadError.value = true // v1.3 加载失败态（NAlert+重试，不呈现裸空表格）
   } finally {
     loading.value = false
   }
@@ -100,7 +103,12 @@ onMounted(() => {
       <template #header-extra>
         <n-button size="small" @click="load">刷新</n-button>
       </template>
+      <n-alert v-if="!loading && loadError" type="error" title="会话列表加载失败">
+        请求未成功，可重试。
+        <n-button size="small" @click="load">重试</n-button>
+      </n-alert>
       <n-data-table
+        v-else
         :columns="columns"
         :data="records"
         :loading="loading"

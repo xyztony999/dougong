@@ -12,7 +12,7 @@ import { useDialog, useMessage } from 'naive-ui'
 import { NButton, NModal, NPopconfirm, NTag, NTooltip } from 'naive-ui'
 import type { DataTableColumns, SelectOption } from 'naive-ui'
 import type { VNode } from 'vue'
-import { certDelete, certRetryRenewal } from '@/api/site'
+import { certDelete, certRenew } from '@/api/site'
 import { ApiError } from '@/api/http'
 import { useAuthStore } from '@/stores/auth'
 import { useCertsStore, useSitesStore } from '@/stores/site'
@@ -25,8 +25,10 @@ import { siteActionError } from '../errors'
 import RollbackDiffModal from '../components/RollbackDiffModal.vue'
 import CertDeployModal from './components/CertDeployModal.vue'
 import CertDetailModal from './components/CertDetailModal.vue'
+import CertReplaceModal from './components/CertReplaceModal.vue'
 import CertRequestModal from './components/CertRequestModal.vue'
 import CertUndeployModal from './components/CertUndeployModal.vue'
+import DnsCredentialsModal from './components/DnsCredentialsModal.vue'
 
 const authStore = useAuthStore()
 const certsStore = useCertsStore()
@@ -65,6 +67,10 @@ const deployCert = ref<CertItem | null>(null)
 const deployShow = ref(false)
 const undeployCert = ref<CertItem | null>(null)
 const undeployShow = ref(false)
+/** v1.2：替换证书文件（imported 行）与 DNS 凭证管理（admin 专属） */
+const replaceCert = ref<CertItem | null>(null)
+const replaceShow = ref(false)
+const credentialsShow = ref(false)
 
 function openDeploy(cert: CertItem): void {
   deployCert.value = cert
@@ -74,6 +80,12 @@ function openDeploy(cert: CertItem): void {
 function openUndeploy(cert: CertItem): void {
   undeployCert.value = cert
   undeployShow.value = true
+}
+
+/** v1.2：打开替换证书文件弹窗（imported 行） */
+function openReplace(cert: CertItem): void {
+  replaceCert.value = cert
+  replaceShow.value = true
 }
 
 /** CERT_005 引用清单 Modal（不可强制删除）+「去解除部署」引导 */
@@ -99,21 +111,27 @@ async function onViewCert(certId: number): Promise<void> {
   if (cert !== null) detailCert.value = cert
 }
 
-/** ---- 续期重试（仅 renew_failed 行；同步等待终态 loading 文案同申请） ---- */
+/** ---- 更新证书（v1.2 D-18：certRenew——acme 行 valid/expiring_soon/renew_failed；取代原「续期重试」按钮（certRetryRenewal Action 保留兼容不再渲染）；失败分流：valid 行失败提示「原证书仍有效」） ---- */
 
 const renewingId = ref<number | null>(null)
 
-async function onRetryRenewal(row: CertItem): Promise<void> {
+async function onRenew(row: CertItem): Promise<void> {
   renewingId.value = row.id
   const loadingMsg = message.loading('正在向 ACME 服务申请，最长约 2 分钟…', { duration: 0 })
   try {
-    await certRetryRenewal(row.id)
-    message.success('续期成功，已替换并重新部署')
+    await certRenew(row.id)
+    message.success('证书已更新并重新部署')
     onWriteDone()
   } catch (e) {
     if (e instanceof ApiError && e.is('CERT_004')) {
       const reason = fieldOfString(e.data, 'reason') ?? '（服务端未返回原因）'
-      dialog.error({ title: '续期失败', content: `${reason}\n（证书保持「续期失败」状态，可修正后重试）` })
+const wasValid = row.status === 'valid'
+      dialog.error({
+        title: '更新失败',
+        content: wasValid
+          ? `${reason}\n（原证书仍有效，面板已记录失败原因）`
+          : `${reason}\n（证书保持「续期失败」状态，可修正后重试）`
+      })
       onWriteDone() // 刷新 lastError（FR-24）
       return
     }
@@ -271,23 +289,35 @@ const columns = computed<DataTableColumns<CertItem>>(() => {
             { default: () => '解除部署' }
           )
         )
-        if (row.status === 'renew_failed') {
+        // v1.2「更新证书」（acme 行、非 pending/expired；renew_failed 行同按钮承载——D-18）
+        if (row.source === 'acme' && row.status !== 'pending' && row.status !== 'expired') {
+          const confirmText =
+            row.status === 'renew_failed'
+              ? `上次失败原因：${row.lastError != null && row.lastError !== '' ? row.lastError : '（无记录）'}。将重新发起 ACME 续期（同步等待 ≤2 分钟）。`
+              : '立即向 ACME 续期并替换部署，约 1~2 分钟（DNS-01 自动管理 TXT 记录）。'
           buttons.push(
             h(
               NPopconfirm,
-              {
-                onPositiveClick: () => void onRetryRenewal(row)
-              },
+              { onPositiveClick: () => void onRenew(row) },
               {
                 trigger: () =>
                   h(
                     NButton,
                     { size: 'small', type: 'warning', ghost: true, loading: renewingId.value === row.id },
-                    { default: () => '续期重试' }
+                    { default: () => '更新证书' }
                   ),
-                default: () =>
-                  `上次失败原因：${row.lastError != null && row.lastError !== '' ? row.lastError : '（无记录）'}。将重新发起 ACME 续期（同步等待 ≤2 分钟）。`
+                default: () => confirmText
               }
+            )
+          )
+        }
+        // v1.2「替换证书文件」（imported 行；D-18）
+        if (row.source === 'imported') {
+          buttons.push(
+            h(
+              NButton,
+              { size: 'small', type: 'warning', ghost: true, onClick: () => openReplace(row) },
+              { default: () => '替换证书文件' }
             )
           )
         }
@@ -361,6 +391,7 @@ onUnmounted(() => {
         <n-button v-if="authStore.isAdmin" type="primary" @click="requestShow = true">
           申请证书
         </n-button>
+        <n-button v-if="authStore.isAdmin" @click="credentialsShow = true">DNS 凭证</n-button>
       </div>
     </n-card>
 
@@ -391,7 +422,14 @@ onUnmounted(() => {
         v-model:show="requestShow"
         @done="onWriteDone"
         @view-cert="onViewCert"
+        @manage-credentials="credentialsShow = true"
       />
+      <cert-replace-modal
+        v-model:show="replaceShow"
+        :cert="replaceCert"
+        @done="onWriteDone"
+      />
+      <dns-credentials-modal v-model:show="credentialsShow" />
       <cert-deploy-modal
         v-model:show="deployShow"
         :cert="deployCert"

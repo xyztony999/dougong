@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dougong/dougong/internal/adapter/acme"
 	"github.com/dougong/dougong/internal/adapter/nginxx"
 	"github.com/dougong/dougong/internal/errcode"
 	"github.com/dougong/dougong/internal/service/audit"
@@ -75,53 +76,105 @@ func (s *Service) CertList(ctx context.Context, source, status string) (*CertLis
 	return &CertListData{Items: items, GeneratedAt: formatTS(now)}, nil
 }
 
-// CertRequest POST /sites/cert/request：siteId/challenge 校验（CERT_007）→
-// I-03 同域名防重（CERT_003）→ nginx 可用（SITE_012，80/443 通路经既有站点
-// 配置）→ INSERT pending（机制无审计，A-SM9）→ AcmeGateway 签发（同步 ≤120s，
-// http-01 经 A-SM10 临时 location 注入/移除）→ 终态落库与审计同事务。
+// CertRequest POST /sites/cert/request（v2.0 扩展）：域名来源 siteId/domains
+// 二选一（CERT_010）→ challenge 三值（CERT_007；dns_01 附 dnsCredentialId
+// 实况 CERT_009）→ I-03 防重（CERT_003）→ nginx 前置仅 http_01/tls_alpn
+// （dns_01 TXT 在服务商侧免通路前置，D-20）→ INSERT pending → 签发通道。
 func (s *Service) CertRequest(ctx context.Context, actor *authsvc.Identity, req CertRequestRequest) (*CertRequestData, error) {
-	entry, err := s.resolveSite(ctx, req.SiteID)
-	if err != nil {
-		return nil, err
-	}
 	switch req.Challenge {
-	case storesitemgmt.ChallengeHTTP01, storesitemgmt.ChallengeTLSALPN:
+	case storesitemgmt.ChallengeHTTP01, storesitemgmt.ChallengeTLSALPN, storesitemgmt.ChallengeDNS01:
 	default:
 		return nil, errcode.ErrInvalidChallenge
 	}
-	if e := validateDomainList(entry.Block.ServerNames); e != nil {
+	if (req.SiteID == "") == (len(req.Domains) == 0) {
+		return nil, errcode.ErrCertInvalidDomainInput.WithData(ReasonData{
+			Reason: "siteId 与 domains 必须二选一"})
+	}
+	var entry *SiteEntry
+	var domains []string
+	if req.SiteID != "" {
+		e, err := s.resolveSite(ctx, req.SiteID)
+		if err != nil {
+			return nil, err
+		}
+		entry = e
+		domains = append([]string(nil), e.Block.ServerNames...)
+	} else {
+		domains = append([]string(nil), req.Domains...)
+	}
+	if e := validateCertDomains(domains); e != nil {
 		return nil, e
 	}
-	domains := append([]string(nil), entry.Block.ServerNames...)
+	var dnsOpts *dnsIssueOpts
+	var dnsCredID *int64
+	if req.Challenge == storesitemgmt.ChallengeDNS01 {
+		if req.DNSCredentialID == nil {
+			return nil, errcode.ErrDnsCredentialNotFound
+		}
+		cred, err := s.store.DnsCred().GetByID(ctx, *req.DNSCredentialID)
+		if err != nil {
+			if errors.Is(err, storesitemgmt.ErrDnsCredentialNotFound) {
+				return nil, errcode.ErrDnsCredentialNotFound
+			}
+			return nil, fmt.Errorf("site-mgmt: get dns credential: %w", err)
+		}
+		opts, err := s.dnsOpts(cred)
+		if err != nil {
+			return nil, err
+		}
+		dnsOpts = opts
+		id := cred.ID
+		dnsCredID = &id
+	}
 	primary := domains[0]
 	if existing := s.findActiveByDomains(ctx, domains); existing != nil {
 		return nil, errcode.ErrCertDuplicate.WithData(ExistingCertData{ExistingCertID: existing.ID})
 	}
-	if err := s.requireNginx(); err != nil {
-		return nil, err
+	if req.Challenge != storesitemgmt.ChallengeDNS01 {
+		if err := s.requireNginx(); err != nil {
+			return nil, err
+		}
 	}
 	fullchain, _ := s.certStoragePaths(primary)
 	sp := fullchain
 	id, err := s.store.Cert().Create(ctx, storesitemgmt.Certificate{
 		PrimaryDomain: primary, Domains: domains,
 		Source: storesitemgmt.SourceAcme, Status: storesitemgmt.StatusPending,
-		Challenge: &req.Challenge, StoragePath: &sp,
+		Challenge: &req.Challenge, StoragePath: &sp, DnsCredentialID: dnsCredID,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("site-mgmt: cert create pending: %w", err)
 	}
 	return s.issueForSite(ctx, actor, entry, id, domains, req.Challenge,
-		AuditActionCertRequested, audit.SourceWeb)
+		AuditActionCertRequested, audit.SourceWeb, dnsOpts, storesitemgmt.StatusRenewFailed)
+}
+
+// validateCertDomains 证书申请域名校验（复用 validDomain 单层通配形态；
+// 错误码承载 CERT_010——证书域输入而非站点 server_name 域）。
+func validateCertDomains(domains []string) *errcode.Error {
+	if len(domains) == 0 {
+		return errcode.ErrCertInvalidDomainInput
+	}
+	for _, d := range domains {
+		if !validDomain(d) {
+			return errcode.ErrCertInvalidDomainInput
+		}
+	}
+	return nil
 }
 
 // issueForSite 签发/续期共用通道（request 与 4.1.3/retry 统一 AcmeGateway，
 // D-09）：http-01 临时 location 注入 → Issue → 恢复 → 托管文件写 → 终态落库
 // +审计同事务。resultAction/auditSource 随调用方（web/system）。
 func (s *Service) issueForSite(ctx context.Context, actor *authsvc.Identity, entry *SiteEntry,
-	certID int64, domains []string, challenge, resultAction, auditSource string) (*CertRequestData, error) {
+	certID int64, domains []string, challenge, resultAction, auditSource string,
+	dnsOpts *dnsIssueOpts, failStatus string) (*CertRequestData, error) {
 	actorName, actorID := actorIdentity(actor)
 	if auditSource == "" {
 		auditSource = audit.SourceWeb
+	}
+	if failStatus == "" {
+		failStatus = storesitemgmt.StatusRenewFailed
 	}
 	cleanup := func() {}
 	webroot := s.panelWebroot()
@@ -134,17 +187,27 @@ func (s *Service) issueForSite(ctx context.Context, actor *authsvc.Identity, ent
 		webroot = s.acmeWebroot(entry, challenge)
 	}
 	actx, cancel := context.WithTimeout(ctx, ACMETimeout)
-	res, ierr := s.acme.Issue(actx, domains, challenge, webroot)
+	var res *acme.IssueResult
+	var ierr error
+	if challenge == storesitemgmt.ChallengeDNS01 {
+		res, ierr = s.acme.IssueDNS(actx, domains, dnsOpts.Provider, acme.DnsCredential{
+			APIToken:    dnsOpts.Credential.APIToken,
+			AccessKeyID: dnsOpts.Credential.AccessKeyID, AccessKeySecret: dnsOpts.Credential.AccessKeySecret,
+			SecretID: dnsOpts.Credential.SecretID, SecretKey: dnsOpts.Credential.SecretKey,
+		})
+	} else {
+		res, ierr = s.acme.Issue(actx, domains, challenge, webroot)
+	}
 	cancel()
 	cleanup() // 移除临时 location（恢复原样）——先于终态落库
 	if ierr != nil {
 		reason := ierr.Error()
-		if err := s.finalizeRenewal(ctx, certID, storesitemgmt.StatusRenewFailed, &reason,
+		if err := s.finalizeRenewal(ctx, certID, failStatus, &reason,
 			nil, nil, "", "", resultAction, auditSource, actorName, actorID,
 			map[string]any{"challenge": challenge, "error": errcode.ErrAcmeFailed.Symbol(), "reason": reason}); err != nil {
 			return nil, err
 		}
-		return nil, errcode.ErrAcmeFailed.WithData(ReasonData{Reason: reason})
+		return nil, errcode.ErrAcmeFailed.WithData(ReasonData{Reason: reason, Status: failStatus})
 	}
 	fullchain, keyPath := s.certStoragePaths(domains[0])
 	if err := s.gw.MkdirAll(s.certsDir); err != nil {
@@ -478,17 +541,54 @@ func (s *Service) CertDelete(ctx context.Context, actor *authsvc.Identity, certI
 	return &CertDeleteData{CertID: certID}, nil
 }
 
-// renewCert 4.1.3 续期通道（retry-renewal 与每日调度共用）：AcmeGateway 续期
-// → 托管文件原路径替换（I-04）→ deploy_prev_refs 全部站点重执行部署写回 →
-// status=valid 落库+审计同事务；失败 renew_failed + last_error。
+// renewCert 4.1.3 续期通道（retry-renewal 与每日调度共用；失败统一转
+// renew_failed——D-18 分流由 CertRenew 走 renewCertWith）。
 func (s *Service) renewCert(ctx context.Context, actor *authsvc.Identity,
 	row storesitemgmt.Certificate, resultAction, auditSource string) (*CertRequestData, error) {
+	return s.renewCertWith(ctx, actor, row, resultAction, auditSource, storesitemgmt.StatusRenewFailed)
+}
+
+// renewCertWith 续期通道（v1.2 D-18：failStatus 分流——手动更新对 valid 行
+// 失败保持 valid+last_error）：dns_01 行先解密引用凭证（凭证缺失=失败如实，
+// ⚠️A20）。
+func (s *Service) renewCertWith(ctx context.Context, actor *authsvc.Identity,
+	row storesitemgmt.Certificate, resultAction, auditSource, failStatus string) (*CertRequestData, error) {
 	if actor == nil { // 调度通道（source=system）
 		actor = &authsvc.Identity{Username: "system"}
 	}
+	var dnsOpts *dnsIssueOpts
+	if *row.Challenge == storesitemgmt.ChallengeDNS01 {
+		if row.DnsCredentialID == nil {
+			reason := "DNS 凭证已删除"
+			if err := s.finalizeRenewal(ctx, row.ID, failStatus, &reason,
+				nil, nil, "", "", resultAction, auditSource, actor.Username, nil,
+				map[string]any{"challenge": *row.Challenge, "reason": reason}); err != nil {
+				return nil, err
+			}
+			return nil, errcode.ErrDnsCredentialNotFound
+		}
+		cred, err := s.store.DnsCred().GetByID(ctx, *row.DnsCredentialID)
+		if err != nil {
+			if errors.Is(err, storesitemgmt.ErrDnsCredentialNotFound) {
+				reason := "DNS 凭证已删除"
+				if ferr := s.finalizeRenewal(ctx, row.ID, failStatus, &reason,
+					nil, nil, "", "", resultAction, auditSource, actor.Username, nil,
+					map[string]any{"challenge": *row.Challenge, "reason": reason}); ferr != nil {
+					return nil, ferr
+				}
+				return nil, errcode.ErrDnsCredentialNotFound
+			}
+			return nil, fmt.Errorf("site-mgmt: get dns credential for renewal: %w", err)
+		}
+		opts, err := s.dnsOpts(cred)
+		if err != nil {
+			return nil, err
+		}
+		dnsOpts = opts
+	}
 	entry := s.findSiteByDomains(ctx, row.Domains)
 	data, err := s.issueForSite(ctx, actor, entry, row.ID, row.Domains, *row.Challenge,
-		resultAction, auditSource)
+		resultAction, auditSource, dnsOpts, failStatus)
 	if err != nil {
 		return nil, err
 	}

@@ -82,7 +82,7 @@ async function loadLinkage(): Promise<void> {
   try {
     const [sites, insts] = await Promise.all([siteList(), instanceList()])
     siteOptions.value = sites.items.map((s: SiteListItem) => ({
-      label: `${s.serverNames[0] ?? s.siteId}·${s.root}`,
+      label: `${s.serverNames[0] ?? s.sourceFile}·${s.root}`,
       value: s.root
     }))
     instances.value = insts.items

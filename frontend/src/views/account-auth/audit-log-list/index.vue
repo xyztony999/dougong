@@ -133,14 +133,17 @@ const columns: DataTableColumns<AuditLogItem> = [
 ]
 
 /** 排序固定 createdAt desc（API 无排序参数）；remote 分页 page 从 1 起 */
+const loadError = ref(false)
+
 async function load(): Promise<void> {
   loading.value = true
+  loadError.value = false
   try {
     const data = await auditList({ ...buildFilter(), page: query.page, pageSize: query.pageSize })
     records.value = data.items
     total.value = data.total
   } catch {
-    // 错误已由拦截器统一提示
+    loadError.value = true // v1.3 加载失败态（NAlert+重试，不呈现裸空表格）
   } finally {
     loading.value = false
   }
@@ -260,7 +263,12 @@ onMounted(() => {
           导出 CSV
         </n-button>
       </template>
+      <n-alert v-if="!loading && loadError" type="error" title="审计日志加载失败">
+        请求未成功，可重试。
+        <n-button size="small" @click="load">重试</n-button>
+      </n-alert>
       <n-data-table
+        v-else
         :columns="columns"
         :data="records"
         :loading="loading"

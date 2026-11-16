@@ -44,6 +44,12 @@ var (
 	ErrCertReferenced = New("CERT_005", "证书仍被站点引用，请先解除部署")
 	// ErrUndeployNotDeployed CERT_006 该站点当前未部署此证书（I-05 引用一致性校验）。
 	ErrUndeployNotDeployed = New("CERT_006", "该站点未部署此证书")
-	// ErrInvalidChallenge CERT_007 challenge 不在 acme_challenge 取值内（R-14）。
-	ErrInvalidChallenge = New("CERT_007", "challenge 取值非法（http_01|tls_alpn）")
+	// ErrInvalidChallenge CERT_007 challenge 不在 acme_challenge 取值内（R-14；v2.0 扩 dns_01）。
+	ErrInvalidChallenge = New("CERT_007", "challenge 取值非法（http_01|tls_alpn|dns_01）")
+	// ErrCertInvalidPEM CERT_008 certPem 非法：x509 PEM 解析失败/超 1MiB（R-14，v1.2，cert/replace）。
+	ErrCertInvalidPEM = New("CERT_008", "证书 PEM 非法（解析失败或超 1MiB）")
+	// ErrDnsCredentialNotFound CERT_009 DNS 凭证不存在或已删除（v2.0 ⚠️A20；request dns_01 前置与凭证接口实况）。
+	ErrDnsCredentialNotFound = New("CERT_009", "DNS 凭证不存在")
+	// ErrCertInvalidDomainInput CERT_010 域名输入非法（v2.0）：siteId/domains 二选一违反；domains 形态非法（泛域名仅 *.domain 前缀形态）。
+	ErrCertInvalidDomainInput = New("CERT_010", "域名输入非法（siteId 与 domains 二选一；泛域名须为 *.domain 形态）")
 )

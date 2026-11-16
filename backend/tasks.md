@@ -977,3 +977,33 @@
   - 门禁探针：backend/.secgate-probe.go（package 声明 + exec.Command("systemctl","status","nginx") 字面量参数数组一行）Write 写入成功=Mimosa 已禁用（裁定 dwfq-eb98056b-1/2），探针即删（rm+ls 复核不存在）
   - 桩排查结论：cron-backup 所属包（adapter/cronx、adapter/backupx、service/cronback、api/cronback、store/cronback、errcode/cronbackup.go）合并 grep 零 TODO(SEC-GATE)/SEC-GATE/not-implemented/NotImplemented/未实现/合规桩/stub/placeholder 标记——唯一 "placeholders" 命中为 store/cronback/run_repo.go:112-120 的 SQL `?` 占位符构造（Rotate IN 列表=纯数字收集+占位符数组+args 绑定，T07 G-02 判定项）非合规桩；本模块外部命令网关自 T03 交付（2026-11-15）起即真实直写形态（本清单环境备注首行明记「Mimosa 门禁探针写入成功=已禁用……cronx/backupx 含真实外部命令（crontab/journalctl/rsync/sh），一律字面量参数数组」）；执行点逐点复核——cronx/gateway.go:41（crontab -l）/:59（crontab - stdin 写回，A-C11）、cronx/runner.go:51（journalctl --no-pager -n N -u cron，N=strconv.Itoa 服务端档位整数）/:145（sh -c 命令串为独立 argv 元素，A-C2/G-01 登记判定）、backupx/rsync.go:37（rsync 参数切片=字面量 -a / -e ssh -p %d〔服务端校验端口 1..65535〕+append 构造整组传入）——全部 exec.CommandContext 参数数组形态，二进制名构造期默认 "crontab"/"journalctl"（gateway.go:26 / NewLogSource 经 exec.LookPath 预解析）与 "rsync"（executor.go NewExecutor :126-131）；tasks.md cron-backup 段（:869-955）无 `- [!]` 阻塞项（全部 [x]/[~]）；INDEX.md cron-backup backend(:149)/validation(:151)/gate2(:154) 行已双证「外部命令全字面量参数数组 R-08」「SEC-GATE 探针全过」→「桩替换」与「阻塞项解除」均为空操作，零代码改动，INDEX 沿先例维持不改写
   - 自验（2026-11-16 实跑，go1.26.0 windows/amd64，PATH 内 go，cwd=backend/）：`go build ./...`=0 ✓ `go vet ./...`=0 ✓ `go test -count=1 ./...`=0、39 个含测试包全 ok、0 FAIL（本模块五包 adapter/cronx 0.481s / adapter/backupx 0.570s / service/cronback 0.526s / api/cronback 0.619s / store/cronback 0.322s 单列复跑全 ok）→ PASS
+
+# 增量轮 · v0.1.2 用户反馈 + Gate 1 改判 DNS-01（2026-11-16/17，/pipeline session 轨）
+
+> 设计输入：api-site-mgmt.md v2.0（⚠️A18/A19/A20）· api-env-mgmt.md v1.0（⚠️A1~A7）·
+> api-panel-core.md v2.2（D-P18）；B 阶段按变更类型增量映射（表结构→T01/T02、接口→T03/T04、装配→main）。
+
+- [x] T-DNS1 · site-mgmt v1.2 增量（D-17/D-18）
+  - site/list 聚合投影：projector.go projectBlock/aggregateGroup/groupEntries（同源文件同 server_name 全集聚合、listen 合并去重、enabled 任一、证书组内最优 ssl 块优先、blocks[] 子清单；单块条目 1 元素统一结构）；detail 保持单块寻址（D-17 仅展示层）
+  - cert/renew（D-18 手动更新）：failStatus 分流——valid 行失败保持 valid+last_error（renewCertWith 参数化，调度/重试沿用 renew_failed 缺省）
+  - cert/replace（D-18）：PEM x509 校验（CERT_008）→ cert-backup/{certId}/ 备份保留 5 份（trimCertBackups）→ 原子写回 origin_path → reload（W5 统一 reload）；响应读时元数据（domains/issuer/notAfter）
+- [x] T-DNS2 · site-mgmt v2.0 DNS-01（⚠️A20/Gate 1 改判 P2）
+  - 迁移 009：certificate 表重建（challenge CHECK +dns_01、+dns_credential_id 列，007 同法 INSERT SELECT）+ dns_credential 表（credential_enc 密文 BLOB）
+  - dns_credential 聚合根：store DnsCredentialRepo（Create/GetByID〔含密文〕/List〔零回显形态〕/Delete）；service DnsCredentialVault（AES-256-GCM+dns-cred.key 0600，沿 dbmgmt CredentialVault 先例同构实现，MkdirAll 修复）；三接口（list 零回显+referencedCertCount 推导、create 形态校验〔cloudflare=apiToken/aliyun=id+secret/dnspod=secretId+key〕、delete 引用警示不硬阻断 I-C01）
+  - cert/request 扩展：siteId/domains 二选一（CERT_010，泛域名 validDomain 单层通配复用）+ dns_01 免 nginx 前置 + dnsCredentialId 实况（CERT_009）+ DnsCredentialID 落库
+  - 续期凭证复用：renewCertWith 对 dns_01 行解密凭证（缺失=失败落库 last_error=「DNS 凭证已删除」，D-18 分流适用）
+  - AcmeGateway.IssueDNS（adapter/acme/dns.go）：lego DNS provider——cloudflare（AuthToken）/aliyun（alidns APIKey+SecretKey）/dnspod 值经 tencentcloud API（SecretId/SecretKey——lego dnspod 包为传统 Token 形态不匹配 D-20 字段口径，A-ENV1 裁定）；gateway.go 提取 ctxClient/ensureRegistered/obtain 共用尾部（Issue/IssueDNS 同源）
+  - 依赖：lego v4.22.3 DNS provider 子包（cloudflare-go/alibaba-cloud-sdk/tencentcloud-sdk-go 经 go.mod tidy 引入）
+- [x] T-ENV1 · env-mgmt 新模块四层（api-env-mgmt.md v1.0）
+  - 迁移 008 env_install_task（四态 CHECK+env_type/status 索引）
+  - adapter/envpack：DetectChannel（exec.LookPath apt→dnf→yum 择一，Windows 退化 Channel{}）/QueryInstalled（dpkg-query / rpm -q，未装与通道错误如实区分）/RefreshIndex（update|makecache）/Install/Remove（-y 非交互，DEBIAN_FRONTEND 经 Env 不进 argv；OpTimeout=10min 参数数组 R-08）
+  - store/envmgmt：TaskRepo（Create/InFlight〔互斥判定事务内〕/InFlightAll/GetByID/List 筛选分页/MarkRunning/AppendOutput/Finish/FailRunningAll）+ TxStore（任务+审计同事务 I-03）
+  - service/envmgmt：EnvCatalog 六条目编译期映射（⚠️A1/A7：Debian/RHEL 包名与单元名；docker RHEL 系 VendorRepo 标记）/EnvList 实时探测（通道不可用 installed=null「探测不可用」≠未装；GetUnit 服务态）/Install（已装=升级 D-05）/Uninstall（已装前置 ENV_004）/createTask 互斥+审计同事务/dispatchWorker（go runTask 有限时 goroutine——链路 ≤3×OpTimeout 自然终止，G-06）/ServiceOp（sysd 复用 D-09，单元映射限定）/RecoverInFlight（I-04 running→failed「面板重启中断」）
+  - api/envmgmt：10 接口（GET 3 两角色/POST 7 admin+CSRF）
+  - errcode ENV_001~006
+- [x] T-IA1 · panel-core 菜单 IA（D-P18，v0.1.2 反馈 5/6 项）
+  - main.go：account-auth「用户与安全」分组（MenuItem.children 四子项两角色，Order 150——实现回归 PageSpec account-auth 第 7 节既有设计）+ env-mgmt「环境管理」（Order 850 两角色）；menu.go 既有 children 支持直接生效（分组 path 空）
+  - site-mgmt 装配注入 DnsVault（OpenDnsCredentialVault 失败=启动硬错误，不静默降级）
+- [x] T07 · 合规复扫（增量面）：G-01 exec 全 CommandContext 参数数组+LookPath（envpack/acme dns 零 shell）；G-02/G-03 零命中；G-04 SQL 层外命中均注释；G-06 增量 goroutine 唯一（dispatchWorker 有限时）；gofmt 0 文件
+- 自验（2026-11-17 实跑 cwd=backend/）：go build ./...=0、go vet ./...=0、go test -race -count=1 ./... 全 ok 0 FAIL（新增测试：sitemgmt dns_inc_test 3 用例〔聚合/凭证生命周期含 D-18 分流断言/replace〕+ store envmgmt 4 用例〔生命周期/互斥/恢复/分页〕+ api envmgmt 3 用例〔两角色矩阵/ENV_001 退化/AUTH_008+ENV_002+ENV_005〕+ sitemgmt module_test 扩 CERT_009/007 断言）；GOOS=linux 交叉编译=0；迁移 008/009 经 store.Migrate 全量重放验证（migrate_test 动态计数）
+  - 环境绑定如实声明：envpack 包操作（apt/dnf/yum 实机）与 sysd 单元操作归 Linux 目标环境冒烟（Windows 开发机 DetectChannel 退化 ENV_001 如实呈现，测试断言退化路径）；acme IssueDNS 三 provider 实联归 Linux 冒烟（fake 网关测试覆盖编排分支）

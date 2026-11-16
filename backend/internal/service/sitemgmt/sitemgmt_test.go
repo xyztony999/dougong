@@ -172,6 +172,10 @@ type fakeAcme struct {
 	webroot   string
 }
 
+func (f *fakeAcme) IssueDNS(ctx context.Context, domains []string, provider string, cred acme.DnsCredential) (*acme.IssueResult, error) {
+	return f.Issue(ctx, domains, "dns_01", "")
+}
+
 func (f *fakeAcme) Issue(_ context.Context, domains []string, challenge, webroot string) (*acme.IssueResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -333,7 +337,7 @@ func TestScanDedupeAndImport(t *testing.T) {
 		t.Fatalf("items=%d want 2 (跨目录重复仅保留一处)", len(data.Items))
 	}
 	kept := data.Items[0]
-	if kept.SiteID == "" || !strings.HasSuffix(kept.SourceFile, filepath.Join("sites-enabled", "a.conf")) {
+	if kept.Blocks[0].SiteID == "" || !strings.HasSuffix(kept.SourceFile, filepath.Join("sites-enabled", "a.conf")) {
 		t.Fatalf("kept item should anchor at sites-enabled: %+v", kept)
 	}
 	if len(data.Duplicates) != 1 || len(data.Duplicates[0].Files) != 2 {
@@ -674,7 +678,7 @@ func TestToggleDisableEnable(t *testing.T) {
 	}
 	// 投影：dormant 站点仍可见，enabled=disabled，siteId 稳定（A-SM3）。
 	list, _ := env.svc.ListSites(ctx, SiteDisabled)
-	if len(list.Items) != 1 || list.Items[0].SiteID != siteID {
+	if len(list.Items) != 1 || list.Items[0].Blocks[0].SiteID != siteID {
 		t.Fatalf("dormant projection: %+v", list.Items)
 	}
 	// 幂等：重复 disable 成功零写回。
@@ -693,7 +697,7 @@ func TestToggleDisableEnable(t *testing.T) {
 		t.Fatalf("enable restore mismatch:\n got=%q\nwant=%q", got, orig)
 	}
 	list, _ = env.svc.ListSites(ctx, SiteEnabled)
-	if len(list.Items) != 1 || list.Items[0].SiteID != siteID {
+	if len(list.Items) != 1 || list.Items[0].Blocks[0].SiteID != siteID {
 		t.Fatalf("enabled projection: %+v", list.Items)
 	}
 }
@@ -994,8 +998,12 @@ func TestCertRequestFlowAndDup(t *testing.T) {
 	// challenge 非法（CERT_007）。
 	q := env.writeConf(t, "sites-enabled", "acme2.conf",
 		"server {\n    listen 80;\n    server_name other.example.com;\n}\n")
+	// v2.0：dns_01 合法但缺凭证 → CERT_009；非法枚举 → CERT_007。
 	_, err = env.svc.CertRequest(ctx, adminActor(), CertRequestRequest{
 		SiteID: q + "#0", Challenge: "dns_01"})
+	wantSymbol(t, err, "CERT_009")
+	_, err = env.svc.CertRequest(ctx, adminActor(), CertRequestRequest{
+		SiteID: q + "#0", Challenge: "bogus"})
 	wantSymbol(t, err, "CERT_007")
 
 	// 签发失败：renew_failed + last_error + CERT_004 + failure 审计（同事务）。

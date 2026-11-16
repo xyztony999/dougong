@@ -52,6 +52,10 @@ type PhpFpmGateway interface {
 // acme-challenge location 时传其 root，A-SM10）。
 type AcmeGateway interface {
 	Issue(ctx context.Context, domains []string, challenge, webroot string) (*acme.IssueResult, error)
+	// IssueDNS v2.0（D-20，⚠️A20）：dns_01 经 DNS 服务商 API 自动 TXT——
+	// provider ∈ cloudflare/aliyun/dnspod（lego 官方内置 provider）；cred 为
+	// 内存态解密凭据（明文止步于适配器，R-09 例外语义与 Issue 同判）。
+	IssueDNS(ctx context.Context, domains []string, provider string, cred acme.DnsCredential) (*acme.IssueResult, error)
 }
 
 // AuditRecorder 是审计 OHS 契约（R-03；service/audit.Service 实现）。

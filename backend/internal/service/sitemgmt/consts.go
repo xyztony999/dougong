@@ -30,6 +30,11 @@ const (
 	NewSiteFilePrefix = "dougong-"
 	// BackupDirName 快照根目录名（R-06：conf.backup/时间戳/，挂面板数据目录下）。
 	BackupDirName = "conf.backup"
+	// CertBackupKeep 每证书替换前原文件保留份数（v1.2，D-18：cert-backup/{certId}/）。
+	CertBackupKeep = 5
+	// CertPemSizeLimit cert/replace 证书 PEM 大小上限（v1.2，CERT_008；沿
+	// SourceSizeLimit 同值先例）。
+	CertPemSizeLimit = 1 << 20
 )
 
 // ScanDirNames 惯例目录优先级（D-03 SCAN_DIR_PRIORITY：sites-enabled >
@@ -71,12 +76,17 @@ const (
 	AuditActionCertRenewalRetried = "cert_renewal_retried"
 	AuditActionCertDeleted        = "cert_deleted"
 	AuditActionCertRenewed        = "cert_renewed"
+	AuditActionCertManualRenewed  = "cert_manual_renewed"    // v1.2（D-18）
+	AuditActionCertReplaced       = "cert_replaced"          // v1.2（D-18）
+	AuditActionDnsCredCreated     = "dns_credential_created" // v2.0（D-20）
+	AuditActionDnsCredDeleted     = "dns_credential_deleted" // v2.0（D-20）
 )
 
 // 审计对象类型（object_type 取值，api §3.4）。
 const (
-	ObjectTypeSite        = "site"
-	ObjectTypeCertificate = "certificate"
+	ObjectTypeSite          = "site"
+	ObjectTypeCertificate   = "certificate"
+	ObjectTypeDnsCredential = "dns_credential" // v2.0（D-20）
 )
 
 // defaultHostHeader 反代 Host 头默认值（模板内置默认，api 1.3 D-03）。

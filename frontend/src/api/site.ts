@@ -1,5 +1,5 @@
 /**
- * site-mgmt api 层 —— 18 Action 与 api-site-mgmt.md 4.1.4/4.2.4 一一对应（S7，无虚构接口）。
+ * site-mgmt api 层 —— 23 Action 与 api-site-mgmt.md v2.0 4.1.4/4.2.4 一一对应（S7，无虚构接口）。
  * 读 4 GET 两角色（siteList/siteDetail/logTail/certList，D0 口径 + ADR-018 全可看）；
  * admin 专属 GET 2（siteSource 编辑前置读取、phpPoolsList 建站候选）；
  * 写 12 POST（admin + CSRF——http.ts 统一注入 X-CSRF-Token）。
@@ -17,7 +17,14 @@ import type {
   CertDeployResult,
   CertItem,
   CertListData,
+  CertRenewResult,
+  CertReplaceRequest,
+  CertReplaceResult,
   CertRequestResult,
+  DnsCredentialCreateRequest,
+  DnsCredentialCreateResult,
+  DnsCredentialDeleteResult,
+  DnsCredentialListData,
   LogTailData,
   NginxReloadResult,
   PhpPoolsData,
@@ -112,15 +119,16 @@ export function certList(
   return request<CertListData>('/sites/cert/list', { query: { source: q.source, status: q.status } })
 }
 
-/** certRequest：ACME 申请（同步终态 ≤120s，D-09；challenge 覆盖两挑战菜单） */
+/**
+ * certRequest：ACME 申请（同步终态 ≤120s，D-09；v2.0 扩展——challenge 覆盖三挑战
+ * 方式；域名来源 siteId 与 domains 二选一（domains 支持泛域名 *.domain，适用无
+ * 站点/泛域名场景，CERT_010）；challenge=dns_01 时 dnsCredentialId 必填（CERT_009，
+ * DNS API 自动化 D-20）。
+ */
 export function certRequest(
-  siteId: string,
-  challenge: AcmeChallenge
+  req: { siteId?: string; domains?: string[]; challenge: AcmeChallenge; dnsCredentialId?: number }
 ): Promise<CertRequestResult> {
-  return request<CertRequestResult>('/sites/cert/request', {
-    method: 'POST',
-    body: { siteId, challenge }
-  })
+  return request<CertRequestResult>('/sites/cert/request', { method: 'POST', body: req })
 }
 
 /** certDeploy / certUndeploy：部署（写 ssl_cert 引用）/ 解除（恢复部署前原值 D-11） */
@@ -149,6 +157,37 @@ export function certRetryRenewal(certId: number): Promise<CertRequestResult> {
 /** certDelete：删除（引用守卫 CERT_005；acme 连带托管文件、imported 仅删行，I-04） */
 export function certDelete(certId: number): Promise<CertDeleteResult> {
   return request<CertDeleteResult>('/sites/cert/delete', { method: 'POST', body: { certId } })
+}
+
+/** certRenew：手动立即续期/更新证书（v1.2 D-18：acme 行 valid/expiring_soon/renew_failed；失败分流——valid 行失败保持 valid+lastError） */
+export function certRenew(certId: number): Promise<CertRenewResult> {
+  return request<CertRenewResult>('/sites/cert/renew', { method: 'POST', body: { certId } })
+}
+
+/** certReplace：imported 证书文件替换（v1.2 D-18：PEM 校验 CERT_008+备份原子写回+reload） */
+export function certReplace(req: CertReplaceRequest): Promise<CertReplaceResult> {
+  return request<CertReplaceResult>('/sites/cert/replace', { method: 'POST', body: req })
+}
+
+/** dnsCredList：DNS 凭证清单（v2.0 D-20：凭据材料零回显；admin 专属） */
+export function dnsCredList(): Promise<DnsCredentialListData> {
+  return request<DnsCredentialListData>('/sites/dns-credential/list')
+}
+
+/** dnsCredCreate：新建 DNS 凭证（v2.0 D-20：形态校验+AES 密文落库） */
+export function dnsCredCreate(req: DnsCredentialCreateRequest): Promise<DnsCredentialCreateResult> {
+  return request<DnsCredentialCreateResult>('/sites/dns-credential/create', {
+    method: 'POST',
+    body: req
+  })
+}
+
+/** dnsCredDelete：删除 DNS 凭证（v2.0 D-20：引用警示不硬阻断 I-C01） */
+export function dnsCredDelete(id: number): Promise<DnsCredentialDeleteResult> {
+  return request<DnsCredentialDeleteResult>('/sites/dns-credential/delete', {
+    method: 'POST',
+    body: { id }
+  })
 }
 
 /** 便捷别名类型（CertItem 供页面行类型引用） */

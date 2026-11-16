@@ -101,11 +101,8 @@ func (g *Gateway) Issue(ctx context.Context, domains []string, challenge, webroo
 	}
 	cfg := lego.NewConfig(user)
 	cfg.CADirURL = g.dirURL
-	cfg.Certificate.KeyType = certcrypto.EC256
-	cfg.HTTPClient = &http.Client{
-		Timeout:   httpRequestWait,
-		Transport: &ctxTransport{ctx: ctx, base: http.DefaultTransport},
-	}
+	cfg.Certificate.KeyType = certcryptoDefault()
+	cfg.HTTPClient = g.ctxClient(ctx)
 	client, err := lego.NewClient(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("acme: new client: %w", err)
@@ -115,19 +112,47 @@ func (g *Gateway) Issue(ctx context.Context, domains []string, challenge, webroo
 	}
 	// 账户注册（首次）与注册资源持久化；已注册账户 ResolveAccountByKey 校验
 	// 由首次 Obtain 隐式完成（lego 携带 key kid 调用，CA 拒绝时如实报错）。
-	if user.reg == nil {
-		reg, err := client.Registration.Register(registration.RegisterOptions{TermsOfServiceAgreed: true})
-		if err != nil {
-			return nil, fmt.Errorf("acme: register account: %w", err)
-		}
-		user.reg = reg
-		if err := g.saveAccount(user); err != nil {
-			return nil, err
-		}
+	if err := g.ensureRegistered(client, user); err != nil {
+		return nil, err
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("acme: issue deadline: %w", err)
 	}
+	return g.obtain(ctx, client, user, domains)
+}
+
+// certcryptoDefault 证书密钥类型（ECDSA P-256，A-SM13）。
+func certcryptoDefault() certcrypto.KeyType { return certcrypto.EC256 }
+
+// ctxClient 构造 ctx 注入的 HTTP 客户端（ACME_TIMEOUT 总上限经 RoundTripper
+// 承载；Issue/IssueDNS 共用）。
+func (g *Gateway) ctxClient(ctx context.Context) *http.Client {
+	return &http.Client{
+		Timeout:   httpRequestWait,
+		Transport: &ctxTransport{ctx: ctx, base: http.DefaultTransport},
+	}
+}
+
+// registrationOptions 注册选项（TermsOfServiceAgreed——账户注册共用）。
+func registrationOptions() registration.RegisterOptions {
+	return registration.RegisterOptions{TermsOfServiceAgreed: true}
+}
+
+// ensureRegistered 账户注册（首次）与注册资源持久化（Issue/IssueDNS 共用）。
+func (g *Gateway) ensureRegistered(client *lego.Client, user *accountUser) error {
+	if user.reg != nil {
+		return nil
+	}
+	reg, err := client.Registration.Register(registrationOptions())
+	if err != nil {
+		return fmt.Errorf("acme: register account: %w", err)
+	}
+	user.reg = reg
+	return g.saveAccount(user)
+}
+
+// obtain Obtain + 证书产物解析（Issue/IssueDNS 共用尾部）。
+func (g *Gateway) obtain(ctx context.Context, client *lego.Client, user *accountUser, domains []string) (*IssueResult, error) {
 	res, err := client.Certificate.Obtain(certificate.ObtainRequest{
 		Domains: domains,
 		Bundle:  true,

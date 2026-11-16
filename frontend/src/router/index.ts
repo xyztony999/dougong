@@ -212,6 +212,16 @@ const router = createRouter({
           name: 'cron-backup',
           component: () => import('@/views/cron-backup/backup/index.vue'),
           meta: { title: '备份' }
+        },
+        // ---- env-mgmt（PageSpec env-mgmt v1.0 第 7 节：requiresAuth 继承布局路由；
+        // admin+readonly 同路由，组件内按角色渲染子集——readonly 卡片操作区整区不渲染
+        //（安装/升级/卸载/服务操作/自启开关，7 负空间），任务 Drawer 只读可看，ADR-018；
+        // 菜单项「环境管理」由后端 ModuleMenuRegistry 按角色下发（两角色可见）----
+        {
+          path: 'env',
+          name: 'env-mgmt',
+          component: () => import('@/views/env-mgmt/index.vue'),
+          meta: { title: '环境管理' }
         }
       ]
     },

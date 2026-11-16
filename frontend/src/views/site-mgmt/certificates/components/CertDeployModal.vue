@@ -42,7 +42,7 @@ const form = ref<{ siteId: string | null }>({ siteId: null })
 const siteOptions = computed<SelectOption[]>(() =>
   sitesStore.items
     .filter((s) => s.enabled === 'enabled')
-    .map((s) => ({ label: s.serverNames.join(', '), value: s.siteId }))
+    .map((s) => ({ label: s.serverNames.join(', '), value: s.blocks[0]?.siteId ?? '' }))
 )
 
 const rules: FormRules = {

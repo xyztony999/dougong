@@ -7,7 +7,7 @@
  * - listen 为监听声明列表（如 `80`、`443 ssl`）；create 请求 listen 为逗号分隔 string、
  *   update 请求/全部响应为 string[]（api 契约原样，不归一）。
  */
-import type { AcmeChallenge, CertSource, CertStatus, SiteEnabled, SiteLogType, SiteType } from './enums'
+import type { AcmeChallenge, CertSource, CertStatus, DnsProvider, SiteEnabled, SiteLogType, SiteType } from './enums'
 
 /** 站点主反代段（值对象；非反代站点 proxy=null；多反代 location 仅呈现首个，D-03）。
  *  hostHeader 为 string 且恒序列化（backend ProxyDTO.HostHeader string 无 omitempty，
@@ -18,21 +18,35 @@ export interface SiteProxy {
   websocket: boolean
 }
 
-/** GET /sites/site/list items 条目 */
+/**
+ * GET /sites/site/list items 条目（v2.0 D-17 聚合条目）：同来源文件且 server_name
+ * 全集相同的多个 server 块合并——listen 合并去重、enabled=任一块生效、证书状态=
+ * 组内最优（443/ssl 块优先）、root=首个非空、proxy=组内首个反代段；寻址经
+ * blocks[].siteId（全部写接口仍单块寻址，仅展示层聚合）。
+ */
 export interface SiteListItem {
-  siteId: string
   serverNames: string[]
   listen: string[]
   root: string
   enabled: SiteEnabled
-  /** ssl_cert 引用值（无证书引用为 null） */
+  /** 组内最优证书引用值（无证书引用为 null） */
   certRef: string | null
-  /** D-11 实时推导：匹配到的纳管证书 id（未纳管引用缺失） */
   certId?: number
-  /** D-11 实时推导：纳管证书推算状态（未纳管引用缺失） */
   certStatus?: CertStatus
   proxy: SiteProxy | null
   sourceFile: string
+  /** 块级子清单（单块条目为 1 元素数组，结构统一；siteId 寻址键在块级） */
+  blocks: SiteBlock[]
+}
+
+/** 聚合条目块级子项（D-17：siteId/listen/enabled/证书引用级明细） */
+export interface SiteBlock {
+  siteId: string
+  listen: string[]
+  enabled: SiteEnabled
+  certRef: string | null
+  certId?: number
+  certStatus?: CertStatus
 }
 
 /** 同域名多文件重复定义（D-03 如实呈现，不静默丢弃） */
@@ -301,5 +315,78 @@ export const CERT_ERROR_TEXT: Readonly<Record<string, string>> = {
   CERT_004: 'ACME 签发/续期失败',
   CERT_005: '证书仍被站点引用，请先解除部署',
   CERT_006: '该站点当前未部署此证书',
-  CERT_007: '参数非法'
+  CERT_007: '参数非法',
+  CERT_008: '证书 PEM 非法（解析失败或超 1MiB）',
+  CERT_009: 'DNS 凭证不存在',
+  CERT_010: '域名输入非法（siteId 与 domains 二选一；泛域名须为 *.domain 形态）'
+}
+
+
+/** ---- v1.2/v2.0 增量（D-18/D-20） ---- */
+
+/** POST /sites/cert/renew 结果（与 CertRequestResult 同形） */
+export type CertRenewResult = CertRequestResult
+
+/** POST /sites/cert/replace req（imported 文件替换，D-18） */
+export interface CertReplaceRequest {
+  certId: number
+  certPem: string
+}
+
+/** POST /sites/cert/replace 结果（读时解析元数据；域名差异如实呈现不阻断） */
+export interface CertReplaceResult {
+  certId: number
+  notBefore?: string
+  notAfter?: string
+  issuer: string
+  domains: string[]
+}
+
+/** DNS 凭证清单项（凭据材料零回显 I-D01；referencedCertCount 为 I-C02 实时推导） */
+export interface DnsCredentialItem {
+  id: number
+  name: string
+  provider: DnsProvider
+  createdAt: string
+  referencedCertCount: number
+}
+
+/** GET /sites/dns-credential/list 响应 data */
+export interface DnsCredentialListData {
+  items: DnsCredentialItem[]
+}
+
+/** DNS 凭据材料（按 provider 形态；明文仅本请求到达后端即加密，任何响应不回显） */
+export interface DnsCredentialPayload {
+  apiToken?: string
+  accessKeyId?: string
+  accessKeySecret?: string
+  secretId?: string
+  secretKey?: string
+}
+
+/** POST /sites/dns-credential/create req */
+export interface DnsCredentialCreateRequest {
+  name: string
+  provider: DnsProvider
+  credential: DnsCredentialPayload
+}
+
+/** POST /sites/dns-credential/create 结果（零凭据材料） */
+export interface DnsCredentialCreateResult {
+  id: number
+  name: string
+  provider: DnsProvider
+}
+
+/** 凭证删除时的引用证书呈现项（I-C01 警示不硬阻断） */
+export interface DnsCertRefItem {
+  certId: number
+  primaryDomain: string
+}
+
+/** POST /sites/dns-credential/delete 结果 */
+export interface DnsCredentialDeleteResult {
+  id: number
+  referencedCerts: DnsCertRefItem[]
 }

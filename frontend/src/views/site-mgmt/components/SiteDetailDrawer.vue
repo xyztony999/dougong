@@ -87,7 +87,7 @@ const enabledDict = computed(() =>
 
 async function onToggle(target: boolean): Promise<void> {
   if (detail.value === null) return
-  const siteId = detail.value.siteId
+  const siteId = detail.value.blocks[0]?.siteId ?? ''
   toggling.value = true
   try {
     const data = target ? await siteEnable(siteId) : await siteDisable(siteId)
@@ -179,7 +179,7 @@ async function submitInfoEdit(): Promise<void> {
   const f = infoForm.value
   try {
     await siteUpdate({
-      siteId: detail.value.siteId,
+      siteId: detail.value.blocks[0]?.siteId ?? '',
       serverNames: f.serverNames,
       listen: f.listen.split(',').map((s) => s.trim()).filter((s) => s !== ''),
       root: f.root
@@ -235,7 +235,7 @@ async function submitProxyEdit(): Promise<void> {
   const f = proxyForm.value
   try {
     await proxyUpdate({
-      siteId: detail.value.siteId,
+      siteId: detail.value.blocks[0]?.siteId ?? '',
       upstream: f.upstream,
       hostHeader: f.hostHeader !== '' ? f.hostHeader : undefined,
       websocket: f.websocket
@@ -258,7 +258,7 @@ function goCertificates(): void {
 
 function goSource(): void {
   if (detail.value === null) return
-  void router.push(`/sites/${encodeURIComponent(detail.value.siteId)}/source`)
+  void router.push(`/sites/${encodeURIComponent(detail.value.blocks[0]?.siteId ?? '')}/source`)
 }
 
 /** ---- location 清单（只读；结构化单 location 编辑不做——全量经源码编辑） ---- */
@@ -326,7 +326,7 @@ watch([show, () => props.siteId], ([open]) => {
     <n-drawer-content closable>
       <template #header>
         <div class="drawer-header">
-          <span class="drawer-header__title" :title="detail?.siteId ?? ''">
+          <span class="drawer-header__title" :title="detail?.blocks[0]?.siteId ?? ''">
             {{ detail?.serverNames.join(', ') ?? '站点详情' }}
           </span>
           <!-- admin：开关语义即启停动作（确认弹层 + 响应值回写）；readonly 只读 tag -->
