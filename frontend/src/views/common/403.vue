@@ -13,7 +13,7 @@ function goHome(): void {
     <n-result
       status="403"
       title="无权限访问"
-      description="当前角色无权执行此操作（只读角色禁止变更操作，ADR-018 边界矩阵）。"
+      description="当前角色为只读，无权执行变更操作。"
     >
       <template #footer>
         <n-button type="primary" @click="goHome">返回首页</n-button>

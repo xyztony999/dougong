@@ -18,6 +18,8 @@ import {
   InformationCircleOutline,
   LockClosedOutline,
   PeopleOutline,
+  PersonCircleOutline,
+  PersonOutline,
   PulseOutline,
   ServerOutline,
   SettingsOutline,
@@ -57,13 +59,19 @@ const MENU_ICONS: Readonly<Record<string, Component>> = {
   shield: ShieldCheckmarkOutline,
   settings: SettingsOutline,
   info: InformationCircleOutline,
+  // 「用户与安全」分组子项（main.go 登记：users=person / sessions=time /
+  // audit-logs=document / profile=person-circle）——分组用 people，与子项区分
+  person: PersonOutline,
+  'person-circle': PersonCircleOutline,
   // monitoring 菜单项（backend main.go 菜单登记：monitoring=pulse / monitoring-history=trend）
   pulse: PulseOutline,
   trend: TrendingUpOutline,
-  // service-mgmt 菜单项（后端模块 todo：ModuleMenuRegistry 登记名待后端落定，暂按 server 预置映射；
-  // 未登记名兜底 AppsOutline，登记名不符时零影响）
+  // service-mgmt 菜单项（main.go ModuleMenuRegistry 登记名 services；server 为
+  // 预置键保留兼容，未命中兜底 AppsOutline）
+  services: ServerOutline,
   server: ServerOutline,
-  // file-manager 菜单项（后端模块 todo：「文件管理」folder /「回收站」trash 预置映射，同上兜底口径）
+  // file-manager 菜单项（main.go 登记名 files；folder 预置键保留兼容，同上兜底口径）
+  files: FolderOutline,
   folder: FolderOutline,
   trash: TrashOutline,
   // site-mgmt 菜单项（后端模块 todo：「网站管理」globe /「SSL 证书」lock 预置映射，同上兜底口径）

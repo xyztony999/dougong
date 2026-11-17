@@ -329,7 +329,7 @@ onMounted(() => {
         <template #extra>
           <div class="empty-hint">
             {{ nginxUnavailableReason }}
-            面板不重装不重建：在本机安装并启动 nginx 后，重新进入本页即可自动识别存量站点。
+            在本机安装并启动 nginx 后，重新进入本页会自动识别已有站点。
           </div>
         </template>
       </n-empty>

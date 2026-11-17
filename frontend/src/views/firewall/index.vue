@@ -455,7 +455,7 @@ onUnmounted(() => {
           <span class="status-label">版本</span>
           <span class="meta">{{ store.backend.version ?? '—' }}</span>
           <span class="status-label">动作支持</span>
-          <span class="meta">当前后端支持动作：{{ supportedText }}</span>
+          <span class="meta">{{ supportedText }}</span>
         </div>
         <div class="meta">数据生成于 {{ statusGeneratedAtText }}</div>
       </template>

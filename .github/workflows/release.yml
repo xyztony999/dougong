@@ -52,9 +52,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          awk -v tag="$GITHUB_REF_NAME" '
+            $0 ~ "^## "tag { found=1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "CHANGELOG.md has no section for $GITHUB_REF_NAME - refusing to publish without release notes" >&2
+            exit 1
+          fi
           gh release create "$GITHUB_REF_NAME" \
             out/dougong-linux-amd64.tar.gz \
             out/dougong-linux-arm64.tar.gz \
             out/sha256sums.txt \
             --title "Dougong $GITHUB_REF_NAME" \
-            --generate-notes
+            --notes-file release-notes.md
