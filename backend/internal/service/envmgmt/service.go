@@ -165,6 +165,18 @@ func (s *Service) unitFor(ctx context.Context, e *CatalogEntry, family string) (
 	return lit, sysd.UnitDetail{}, false
 }
 
+// unitServiceStates 由单元详情映射服务态指针（纯函数可测）。
+// LoadUnit 对系统上不存在的单元也返回对象路径（LoadState="not-found"、
+// ActiveState="inactive"）——此形态服务态如实为 null（v0.1.4 实机教训：
+// 未装环境曾因此显示「已停止/自启关」）；已装载单元正常映射运行/自启指针。
+func unitServiceStates(d sysd.UnitDetail) (running, enabled *bool) {
+	if d.LoadState == "not-found" || d.LoadState == "" {
+		return nil, nil
+	}
+	r, e := d.ActiveState == "active", d.EnabledState == "enabled"
+	return &r, &e
+}
+
 // ---- EnvList（D-01 实时探测投影；v1.1 三态如实）----
 
 // EnvList GET /env/env/list：通道探测 → 逐条目实况探测（版本/服务状态）→
@@ -205,12 +217,12 @@ func (s *Service) EnvList(ctx context.Context) (*EnvListData, error) {
 		if unit, d, ok := s.unitFor(ctx, e, ch.Family); unit != "" {
 			item.UnitName = unit
 			if ok {
-				running := d.ActiveState == "active"
-				enabled := d.EnabledState == "enabled"
-				item.ServiceRunning = &running
-				item.ServiceEnabled = &enabled
+				running, enabled := unitServiceStates(d)
+				if running != nil {
+					item.ServiceRunning, item.ServiceEnabled = running, enabled
+				}
 			}
-			// 单元不存在（未装/非 service）：ServiceRunning/Enabled 保持 nil——
+			// 单元不可解析（非 service 等）：ServiceRunning/Enabled 保持 nil——
 			// 探测失败≠false（如实区分）。
 		}
 		items = append(items, item)

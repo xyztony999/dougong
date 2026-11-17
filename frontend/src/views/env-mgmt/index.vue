@@ -271,7 +271,8 @@ onUnmounted(() => {
           </n-tag>
         </template>
         <div class="env-desc">{{ item.description }}</div>
-        <div class="env-service">
+        <!-- 未安装环境不渲染服务态行（v0.1.4：曾显示「已停止/自启关」误导） -->
+        <div v-if="item.installed !== false" class="env-service">
           <template v-if="item.serviceRunning !== null">
             <n-tag :type="item.serviceRunning ? 'success' : 'default'" size="small" :bordered="false">
               {{ item.serviceRunning ? '运行中' : '已停止' }}

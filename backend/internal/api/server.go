@@ -68,6 +68,14 @@ func (s *Server) serveSPA(c *gin.Context) {
 	p := path.Clean(c.Request.URL.Path)
 	for _, mod := range s.modules {
 		if p == mod.Prefix() || strings.HasPrefix(p, mod.Prefix()+"/") {
+			// 浏览器导航（刷新/深链/收藏夹，Accept 含 text/html）继续走 SPA
+			// 服务——九个模块前缀与 SPA 页面路由同名（/env /sites /services
+			// /files /monitoring /terminal /firewall /docker /cron），v0.1.4 前
+			// 刷新这些页面会吐 404 包络裸 JSON（v0.1.3 实机 /env 反馈）；
+			// API 客户端（fetch/curl，Accept 无 text/html）维持 404 包络契约。
+			if strings.Contains(c.Request.Header.Get("Accept"), "text/html") {
+				break
+			}
 			response.FailWith(c, errcode.ErrNotFound)
 			return
 		}
