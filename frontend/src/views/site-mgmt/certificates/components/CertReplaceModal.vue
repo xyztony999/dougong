@@ -33,6 +33,7 @@ function reset(): void {
 }
 
 function onClose(v: boolean): void {
+  show.value = v // X 关闭回写（defineModel 受控）
   if (!v) reset()
 }
 

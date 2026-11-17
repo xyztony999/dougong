@@ -161,9 +161,10 @@ const columns = computed<DataTableColumns<DnsCredentialItem>>(() => [
   <n-modal
     :show="show"
     preset="card"
-    title="DNS 凭证管理（DNS-01 自动 TXT）"
+    title="DNS 凭证管理"
     style="width: 720px"
     :mask-closable="false"
+    @update:show="(v: boolean) => (show = v)"
   >
     <n-alert type="info" :show-icon="true" style="margin-bottom: 12px">
       凭据将以加密形式存储且不再显示；有效性在申请证书时由服务商验证。服务商初始清单：Cloudflare / 阿里云 DNS / 腾讯云 DNSPod。

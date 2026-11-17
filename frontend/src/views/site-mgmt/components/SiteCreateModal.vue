@@ -237,15 +237,7 @@ async function onSubmit(): Promise<void> {
         <n-select v-model:value="form.type" :options="typeOptions" />
       </n-form-item>
       <n-form-item label="域名（首个为主域名）" path="serverNames">
-        <n-select
-          v-model:value="form.serverNames"
-          multiple
-          filterable
-          tag
-          clearable
-          :options="[]"
-          placeholder="输入域名后回车添加"
-        />
+        <n-dynamic-tags v-model:value="form.serverNames" />
       </n-form-item>
       <n-form-item label="监听端口（多值逗号分隔）" path="listen">
         <n-input v-model:value="form.listen" placeholder="如 80 或 80,443 ssl" @keydown.enter.prevent />

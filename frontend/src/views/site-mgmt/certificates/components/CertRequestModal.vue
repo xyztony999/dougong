@@ -138,6 +138,8 @@ function resetForm(): void {
 }
 
 function onClose(v: boolean): void {
+  // X/遮罩关闭必须回写 show（defineModel 受控）——否则弹窗无法关闭（实机反馈）。
+  show.value = v
   if (!v) resetForm()
 }
 
@@ -235,15 +237,7 @@ async function onSubmit(): Promise<void> {
           </n-radio-group>
         </n-form-item>
         <n-form-item v-if="form.domainMode === 'manual'" label="域名" path="domains">
-          <n-select
-            v-model:value="form.domains"
-            multiple
-            filterable
-            tag
-            :reserve-keyword="false"
-            placeholder="输入域名后回车添加（支持 *.example.com）"
-            :options="form.domains.map((d) => ({ label: d, value: d }))"
-          />
+          <n-dynamic-tags v-model:value="form.domains" />
         </n-form-item>
         <n-form-item label="DNS 凭证" path="dnsCredentialId">
           <n-select
