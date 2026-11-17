@@ -100,10 +100,11 @@ type cliEnv struct {
 	operator   string              // 变更审计 actor 标签（终端操作者）
 }
 
-// newCLIEnv 构造生产环境（裸 dougong 子命令入口用）。
+// newCLIEnv 构造生产环境（裸 dougong 子命令入口用）。配置缺省优先已安装
+// 服务数据目录（resolveConfigPath——CLI 在任意 CWD 都指向服务那套数据）。
 func newCLIEnv() cliEnv {
 	return cliEnv{
-		configPath: "dougong.json",
+		configPath: resolveConfigPath(""),
 		getenv:     os.Getenv,
 		systemctl:  execSystemctl,
 		stdout:     os.Stdout,
@@ -201,6 +202,8 @@ func openCLIServices(ctx context.Context, env cliEnv) (*cliServices, error) {
 	if err != nil {
 		return nil, err
 	}
+	// db_path 锚定到配置文件目录：CLI 与服务（run 同规则）永远同一套数据。
+	cfg.DBPath = config.ResolveDBPath(env.configPath, cfg.DBPath)
 	db, err := store.Open(cfg.DBPath)
 	if err != nil {
 		return nil, err

@@ -128,7 +128,7 @@ func main() {
 // 后台任务 → 优雅退出（停入站 → 排空任务 → 关库）。
 func run(args []string) error {
 	fs := flag.NewFlagSet("dougong", flag.ContinueOnError)
-	cfgPath := fs.String("config", "dougong.json", "配置文件路径（JSON，不存在则用默认值）")
+	cfgPath := fs.String("config", resolveConfigPath(""), "配置文件路径（JSON，不存在则用默认值；缺省优先已安装服务数据目录）")
 	if err := fs.Parse(args); err != nil {
 		return fmt.Errorf("parse flags: %w", err)
 	}
@@ -136,6 +136,8 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
+	// db_path 锚定到配置文件目录（config.ResolveDBPath 语义；与 CLI 同锚点）。
+	cfg.DBPath = config.ResolveDBPath(*cfgPath, cfg.DBPath)
 	absTimeout, err := cfg.AbsoluteTimeoutDur()
 	if err != nil {
 		return err
@@ -670,7 +672,7 @@ func panelListenPort(addr string) (uint16, error) {
 // runInit 实现 `dougong init` CLI 子命令（AuthService.InitViaCLI 服务消费方）。
 func runInit(args []string) error {
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
-	cfgPath := fs.String("config", "dougong.json", "配置文件路径")
+	cfgPath := fs.String("config", resolveConfigPath(""), "配置文件路径（缺省优先已安装服务数据目录）")
 	username := fs.String("username", "", "初始管理员用户名")
 	password := fs.String("password", "", "初始管理员密码（推荐改用 DOUGONG_INIT_PASSWORD 环境变量注入）")
 	totpSecret := fs.String("totp-secret", "", "可选：TOTP Base32 密钥（与 totp-code 成对）")
@@ -689,6 +691,7 @@ func runInit(args []string) error {
 	if err != nil {
 		return err
 	}
+	cfg.DBPath = config.ResolveDBPath(*cfgPath, cfg.DBPath) // 锚定配置目录（同 run/CLI）
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	db, err := store.Open(cfg.DBPath)
