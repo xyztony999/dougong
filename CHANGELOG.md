@@ -2,6 +2,57 @@
 
 发布说明按版本倒序排列；每个版本的完整说明也会作为 GitHub Release 正文发布。
 
+## v0.1.11 - 未发布（草稿，攒批中）
+
+> 草稿小节，尚未发版（用户拍板「先不发」，继续攒批，下一批候选 PHP 多版本）。本批以「环境安装后配置就绪」为主，随附 DBM_005 凭据弹窗 UX 小修与 ACME v2.4 链路修复（详见下方 v0.1.8/v0.1.9 草稿节）。版本号待发布时定稿。
+
+环境安装后**配置就绪**：装完数据库环境即可在面板直接治理，不再「装完 ≠ 可用」。
+
+### 变更内容
+
+**新增：环境安装后自动引导配置（env-mgmt + database-mgmt 联动，api-env-mgmt v1.2 / api-database-mgmt v2.2）**
+- 痛点：经环境管理 apt 装完 MySQL 只有 root@localhost（auth_socket 无密码），面板走 TCP+密码连不上，用户无法自助建第一个账户（DBM_005 诊断轮终裁）
+- 修复：MySQL/Redis/MongoDB 安装/升级成功后，worker 自动执行引导——建管理账户/设随机强密码并注册实例与凭据到数据库管理（**装完即可管**）：
+  - **MySQL**：经 unix socket 以 root auth_socket 免密建 `dougong@localhost`（ALL PRIVILEGES WITH GRANT OPTION，**不动 root**）
+  - **Redis**：CONFIG SET requirepass 随机密码 + CONFIG REWRITE 持久化（仅未设置时写）+ bind 本机校验
+  - **MongoDB**：localhost exception 建 admin 库 root 角色用户
+- 安全：随机强密码（crypto/rand）AES-256-GCM 密文落库、**永不回显**；账户限本机、bind 本机不公网暴露；引导动作审计留痕
+- 幂等保守：已配置凭据/账户已存在/requirepass 已设/已有用户 → 跳过不覆盖用户已有配置
+- 引导结果独立呈现：任务状态仍为包安装结果，新增引导结果维度（任务列表「引导」列 + 任务详情横幅）；**安装成功但引导失败**如实标注「已安装·引导失败」+ 原因 + 「重新安装/升级以重试引导」指引（不混淆「已装」与「可治理」）
+- PHP/nginx/Apache/Docker 装完即用无引导
+
+**随附（本批攒批，详见下方草稿节）**
+- DBM_005 凭据弹窗 UX 小修：DBM_005/006 内联服务器原文 reason + 按引擎族排查指引 + 文案订正（database-mgmt v2.1，前端域内）
+- ACME v2.4 链路修复：HTTP-01 webroot 迁出 0700 数据目录（v0.1.7）→ 挑战注入/复原后 reload nginx（v0.1.8）→ 存量纳管跳过面板托管路径影子行（v0.1.9）
+
+### 安装与升级
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/xyztony999/dougong/main/install.sh | sudo bash
+dougong version   # 应为 v0.1.10（发布时定稿）
+```
+
+升级后验证（配置就绪）：在环境管理装 MySQL/Redis/MongoDB 后，系统自动创建管理账户并注册实例到数据库管理——打开数据库页即可直接治理（无需手动建第一个账户）；若引导失败，任务详情独立呈现「已安装·引导失败」与原因，重新安装/升级可幂等重试。已有环境/已有配置不受影响（保守跳过不覆盖）。
+
+## v0.1.10 - 2026-11-17
+
+reload 对存量坏 pid 文件鲁棒化：`nginx -s reload` 因 pid 文件空/缺失失败时，回退解析 master PID 直接 SIGHUP。
+
+### 变更内容
+
+**修复：reload 回退通道（nginxx v2.7，D-05 补强）**
+- 实机根因：存量 nginx 的 `/run/nginx.pid` 为**空文件**——`nginx -s reload` 报 `invalid PID number ""`，systemd `ExecReload`（`kill -HUP $(cat /run/nginx.pid)`）同败，而 master 实际存活 → 部署/续期写盘的新配置永不生效（表现为「证书还是老的」；用户被迫 `pkill -9` 重启才生效）
+- 回退链：`nginx -s reload` 失败且输出为 pid 文件类错误 → `systemctl show nginx.service --property=MainPID` → 否则扫 `/proc` cmdline 的 `nginx: master process` → 经 Go `os.Process.Signal(SIGHUP)`（无 shell，R-08）；回退成功在输出注明 master pid；解析/发信号失败保留原错误（D-05 配置保留语义不变）
+- 回归锁：TestIsPidFileErr / TestMasterPidFromProc（procfs 目录注入，跨平台可跑）
+- 服务器侧仍建议根治：查明 pid 文件为何为空（`grep -n pid /etc/nginx/nginx.conf`、`cat /etc/systemd/system/nginx.service.d/override.conf`），必要时 `systemctl restart nginx` 一次让 master 重写
+
+### 安装与升级
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/xyztony999/dougong/main/install.sh | sudo bash
+dougong version   # 应为 v0.1.10
+```
+
 ## v0.1.9 - 2026-11-17
 
 修复证书「存量导入」影子行：ACME 证书部署到站点后，存量自动纳管把面板托管证书文件又导入为一行「存量导入」（与 ACME 行同到期日）。
