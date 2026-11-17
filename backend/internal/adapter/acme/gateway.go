@@ -50,9 +50,16 @@ const (
 const (
 	accountKeyFile  = "acme-account.key"
 	accountRegFile  = "acme-account.json"
-	webrootDirName  = "acme-webroot"
 	httpRequestWait = 30 * time.Second // 单次 ACME API 请求上限（总上限由 ctx 决定）
 )
+
+// DefaultWebrootDir http-01 挑战 webroot 默认目录（v2.4 迁出数据目录）：
+// nginx worker（www-data/nginx）须可读挑战文件，而面板数据目录为 0700 root
+// 不可穿越——webroot 留在数据目录内则注入修好后必然 403（第二层根因）；
+// /var/www 为 Debian/RHEL 标准 httpd 内容目录（RHEL SELinux
+// httpd_sys_content_t 覆盖），certbot webroot 插件同族路径。
+// 测试经 sitemgmt Options.WebrootDir 注入隔离。
+const DefaultWebrootDir = "/var/www/dougong-acme"
 
 // Gateway 是 AcmeGateway 适配器（并发安全：无共享可变状态，账户文件按次加载）。
 type Gateway struct {
@@ -65,8 +72,9 @@ func NewGateway(dirURL, dataDir string) *Gateway {
 	return &Gateway{dirURL: dirURL, dataDir: dataDir}
 }
 
-// WebrootDir 返回 http-01 webroot 目录（面板数据目录派生，A-SM10/A-SM11）。
-func (g *Gateway) WebrootDir() string { return filepath.Join(g.dataDir, webrootDirName) }
+// WebrootDir 返回 http-01 webroot 目录（v2.4：公共可读默认路径，不再派生自
+// 0700 数据目录；A-SM10/A-SM11 语义不变——挑战文件落点唯一来源）。
+func (g *Gateway) WebrootDir() string { return DefaultWebrootDir }
 
 // IssueResult 是签发/续期产物（外部 ACME 概念翻译后的唯一出口形态）。
 type IssueResult struct {

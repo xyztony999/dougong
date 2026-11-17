@@ -2,6 +2,26 @@
 
 发布说明按版本倒序排列；每个版本的完整说明也会作为 GitHub Release 正文发布。
 
+## v0.1.7 - 2026-11-17
+
+HTTP-01 签发链路第二层根因修复：挑战 webroot 迁出 0700 数据目录（v0.1.6 修好注入后仍会 403 的隐藏缺陷）。
+
+### 变更内容
+
+**修复：ACME HTTP-01 webroot 迁移至 /var/www/dougong-acme（api-site-mgmt v2.4，D-19）**
+- 根因：webroot 原为 `{数据目录}/acme-webroot`，而数据目录权限 0700 root——nginx worker（www-data/nginx）不可穿越，挑战文件永远读不到（UNIX 权限 403；RHEL SELinux 下 var_t 上下文同样拒绝 httpd 读取）
+- 迁移至 `/var/www/dougong-acme`：Debian/RHEL 标准 httpd 内容目录（SELinux httpd_sys_content_t 覆盖），目录 0755、挑战文件 0644；certbot webroot 插件同族路径
+- 三处派生同源收敛（acme 网关 / 面板证书通道 / site-mgmt），账户密钥、写前备份、托管证书仍留 0700 数据目录——安全面零变化
+- 与 v0.1.6 的跨文件/默认兜底块注入（v2.3）叠加后，HTTP-01 覆盖：单文件多块、跨文件 80/443、全局 catch-all 重定向、worker 可读性四层全通
+
+### 安装与升级
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/xyztony999/dougong/main/install.sh | sudo bash   # 重复执行即升级
+```
+
+升级后对 renew_failed 证书点「更新证书」重试。**若仍失败**请附：`dougong version` 输出 + `nginx -T 2>/dev/null | grep -B2 -A18 "server_name <你的域名>"` 片段，用于定位剩余拓扑。
+
 ## v0.1.6 - 2026-11-17
 
 修复存量 nginx 拓扑下 ACME HTTP-01 签发 404（v0.1.5 修复未覆盖的两类拓扑，二次实机反馈）。

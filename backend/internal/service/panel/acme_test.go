@@ -484,8 +484,8 @@ func TestRequestCertSuccessFlow(t *testing.T) {
 	if len(env.acme.domains) != 1 || env.acme.domains[0] != "panel.example.com" {
 		t.Fatalf("issue domains = %v", env.acme.domains)
 	}
-	if !strings.Contains(strings.ToLower(env.acme.webroot), "acme-webroot") {
-		t.Fatalf("webroot = %q", env.acme.webroot)
+	if env.acme.webroot != acme.DefaultWebrootDir { // v2.4：公共可读挑战目录
+		t.Fatalf("webroot = %q, want %q", env.acme.webroot, acme.DefaultWebrootDir)
 	}
 	// 撤除：配置恢复原状（I-P10 成败均恢复）。
 	if got := env.readConf(t); got != testConf {

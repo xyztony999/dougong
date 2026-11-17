@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dougong/dougong/internal/adapter/acme"
 	"github.com/dougong/dougong/internal/errcode"
 	"github.com/dougong/dougong/internal/service/audit"
 	authsvc "github.com/dougong/dougong/internal/service/auth"
@@ -101,7 +102,7 @@ func WithAcmeChannel(acmeGw AcmeIssuer, nginxGw NginxChannel, dataDir string) Op
 		if acmeGw != nil && nginxGw != nil && dataDir != "" {
 			s.acme = acmeGw
 			s.nginx = nginxGw
-			s.webrootDir = filepath.Join(dataDir, "acme-webroot")
+			s.webrootDir = acme.DefaultWebrootDir // v2.4：公共可读挑战目录（nginx worker 可读）
 			s.backupRoot = filepath.Join(dataDir, "conf.backup", "panel-acme")
 		}
 	}

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/dougong/dougong/internal/adapter/acme"
 	"github.com/dougong/dougong/internal/service/audit"
 	authsvc "github.com/dougong/dougong/internal/service/auth"
 	storesitemgmt "github.com/dougong/dougong/internal/store/sitemgmt"
@@ -57,7 +58,7 @@ func New(gw NginxGateway, phpfpmGw PhpFpmGateway, acmeGw AcmeGateway,
 	s.defaultAccessLog = orDefault(opts.DefaultAccessLog, NginxDefaultAccessLog)
 	s.defaultErrorLog = orDefault(opts.DefaultErrorLog, NginxDefaultErrorLog)
 	s.certsDir = orDefault(opts.CertsDir, filepath.Join(dataDir, "certs"))
-	s.webrootDir = orDefault(opts.WebrootDir, filepath.Join(dataDir, "acme-webroot"))
+	s.webrootDir = orDefault(opts.WebrootDir, acme.DefaultWebrootDir) // v2.4 公共可读
 	return s
 }
 
