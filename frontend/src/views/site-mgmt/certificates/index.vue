@@ -311,13 +311,24 @@ const columns = computed<DataTableColumns<CertItem>>(() => {
             )
           )
         }
-        // v1.2「替换证书文件」（imported 行；D-18）
+        // v1.2「替换证书文件」（imported 行；D-18）。Tooltip 说明为何导入证书
+        // 无续签按钮 + 指引 ACME 接管路径（用户实测反馈：找不到续签入口）。
         if (row.source === 'imported') {
           buttons.push(
             h(
-              NButton,
-              { size: 'small', type: 'warning', ghost: true, onClick: () => openReplace(row) },
-              { default: () => '替换证书文件' }
+              NTooltip,
+              null,
+              {
+                trigger: () =>
+                  h(
+                    NButton,
+                    { size: 'small', type: 'warning', ghost: true, onClick: () => openReplace(row) },
+                    { default: () => '替换证书文件' }
+                  ),
+                default: () =>
+                  '导入证书无自动续签（面板不持有其签发账户）：到期前上传新文件替换；' +
+                  '或点右上「申请证书」以 ACME 重新签发，即获得自动续期能力'
+              }
             )
           )
         }
