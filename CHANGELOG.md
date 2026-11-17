@@ -23,6 +23,7 @@
 
 - **新安装**：`curl -fsSL https://raw.githubusercontent.com/xyztony999/dougong/main/install.sh | bash`
 - **从 v0.1.1 / v0.1.2 升级**：服务器上重跑同一条命令即可（自动下载最新版、sha256 校验、原地替换二进制并重启 systemd 服务；数据目录 `/var/lib/dougong` 不动）
+- **国内服务器**（github 直连易被重置）：`DOUGONG_MIRROR=https://ghproxy.com sudo -E bash install.sh`；镜像不代理 API 时可固定版本：`DOUGONG_VERSION=v0.1.3`
 - 数据库迁移 010（env_type 枚举扩 MongoDB）随启动自动执行
 
 ### 升级后建议验证
