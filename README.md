@@ -35,6 +35,24 @@ curl -fsSL https://raw.githubusercontent.com/xyztony999/dougong/main/install.sh 
 # 升级 = 重复执行同一命令（二进制替换 + 重启；配置与数据不动）
 ```
 
+### 国内服务器安装 / Installing from mainland China
+
+国内直连 GitHub 常被 RST，脚本内置三条通道（安装时会自动提示）：
+
+```bash
+# ① 镜像前缀（对 github/raw/api 三源统一生效）
+curl -fsSL https://ghproxy.com/https://raw.githubusercontent.com/xyztony999/dougong/main/install.sh | sudo bash
+DOUGONG_MIRROR=https://ghproxy.com sudo -E bash install.sh
+
+# ② 镜像不代理 api.github.com 时：指定版本跳过版本查询
+DOUGONG_VERSION=v0.1.2 DOUGONG_MIRROR=https://ghproxy.com sudo -E bash install.sh
+
+# ③ 本地模式（任意机器下载 Release 后上传，零外网依赖）
+bash install.sh ./dougong-linux-amd64
+```
+
+镜像仅是传输通道——下载包仍强制 **sha256 校验**，完整性不受镜像方影响。
+
 从源码构建（需要 Go 1.22+ 与 Node 18+）/ Build from source：
 
 ```bash

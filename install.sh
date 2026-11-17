@@ -9,6 +9,8 @@
 #   bash install.sh                            # 同上（从 GitHub Releases 装最新版）
 #   bash install.sh ./dougong-linux-amd64      # 从本地二进制安装（离线 / 测试）
 #   DOUGONG_LANG=en bash install.sh            # 非交互指定语言（zh|en；交互终端会询问）
+#   DOUGONG_MIRROR=https://ghproxy.com sudo -E bash install.sh      # 国内加速前缀（三源统一）
+#   DOUGONG_VERSION=v0.1.2 DOUGONG_MIRROR=... sudo -E bash install.sh  # 指定版本（跳过 API 查询）
 #
 # 重复执行 = 升级：替换二进制并重启服务；配置与数据目录（/var/lib/dougong）不动。
 # Re-running = upgrade: binary replaced & service restarted; config and the
@@ -23,6 +25,28 @@ REPO="xyztony999/dougong"
 BIN="/usr/local/bin/dougong"
 DATA_DIR="/var/lib/dougong"
 UNIT="/etc/systemd/system/dougong.service"
+
+# ── 网络源 / Network sources ────────────────────────────────────────────────
+# 国内服务器连 GitHub 常 RST——两条自助通道：
+#   DOUGONG_MIRROR=https://ghproxy.com  拼接式加速前缀（对 github/raw/api 三源
+#                                       统一生效；也可用任何同协议镜像）
+#   DOUGONG_VERSION=v0.1.2              直接指定版本，跳过 api.github.com 最新版
+#                                       查询（镜像不代理 API 时用这个）
+# Mainland servers often get RST towards GitHub — two knobs:
+#   DOUGONG_MIRROR: prefix-style accelerator applied to all three hosts
+#   DOUGONG_VERSION: pin a version, skipping the api.github.com query
+MIRROR="${DOUGONG_MIRROR:-}"
+GH_BASE="https://github.com"
+RAW_BASE="https://raw.githubusercontent.com"
+API_BASE="https://api.github.com"
+if [ -n "$MIRROR" ]; then
+  GH_BASE="$MIRROR/$GH_BASE"
+  RAW_BASE="$MIRROR/$RAW_BASE"
+  API_BASE="$MIRROR/$API_BASE"
+fi
+# 短超时+有限重试：直连被 RST 时快速失败给出指引，而非挂死几分钟。
+# Short timeout + bounded retries: fail fast with guidance instead of hanging.
+CURL_OPTS="--connect-timeout 8 --retry 2 --retry-delay 2"
 
 # ── 0) 语言选择 / Language selection ────────────────────────────────────────
 # 优先级：DOUGONG_LANG 环境变量 > 交互询问（经 /dev/tty——curl|bash 的 stdin 是
@@ -64,14 +88,38 @@ if [ "${1:-}" != "" ]; then
   msg ">> 使用本地二进制：$1" ">> Using local binary: $1"
   cp "$1" "$TMP/dougong"
 else
-  msg ">> 查询最新版本（GitHub Releases API）…" ">> Querying the latest release (GitHub Releases API)..."
-  VER="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" \
-        | grep -oE '"tag_name": *"[^"]+"' | head -1 | cut -d'"' -f4)"
-  [ -n "$VER" ] || { msg "错误：未取到最新版本号" "Error: failed to resolve the latest version"; exit 1; }
-  msg ">> 最新版本 / Latest version: $VER"
+  # 网络失败指引（直连 RST / 镜像不支持 API 等场景的统一出口）。
+  # Unified guidance for network failures (direct RST, mirror without API).
+  net_fail_hint() {
+    msg "" ""
+    msg "无法访问 GitHub（国内服务器常见 RST）。三种解法：" \
+        "Cannot reach GitHub (mainland servers often get RST). Three ways out:"
+    msg "  1) 加镜像前缀重试 / Retry with a mirror prefix:" \
+        "     1) Retry with a mirror prefix:"
+    msg "     DOUGONG_MIRROR=https://ghproxy.com bash install.sh" \
+        "     DOUGONG_MIRROR=https://ghproxy.com bash install.sh"
+    msg "  2) 指定版本跳过 API 查询（镜像不代理 api.github.com 时）/" \
+        "     2) Pin a version to skip the API query (mirrors often don't proxy it):"
+    msg "     DOUGONG_VERSION=v0.1.2 DOUGONG_MIRROR=https://ghproxy.com bash install.sh" \
+        "     DOUGONG_VERSION=v0.1.2 DOUGONG_MIRROR=https://ghproxy.com bash install.sh"
+    msg "  3) 本地模式（本地下载后上传，零外网依赖）/" \
+        "     3) Local mode (download elsewhere, upload — zero WAN dependency):"
+    msg "     bash install.sh ./dougong-linux-amd64" \
+        "     bash install.sh ./dougong-linux-amd64"
+  }
+  if [ -n "${DOUGONG_VERSION:-}" ]; then
+    VER="$DOUGONG_VERSION"
+    msg ">> 使用指定版本 / Pinned version: $VER"
+  else
+    msg ">> 查询最新版本（GitHub Releases API）…" ">> Querying the latest release (GitHub Releases API)..."
+    VER="$(curl -fsSL $CURL_OPTS "$API_BASE/repos/$REPO/releases/latest" \
+          | grep -oE '"tag_name": *"[^"]+"' | head -1 | cut -d'"' -f4)" || { net_fail_hint; exit 1; }
+    [ -n "$VER" ] || { net_fail_hint; exit 1; }
+    msg ">> 最新版本 / Latest version: $VER"
+  fi
   msg ">> 下载 dougong-linux-amd64.tar.gz 与 sha256sums.txt …" ">> Downloading dougong-linux-amd64.tar.gz and sha256sums.txt..."
-  curl -fsSL -o "$TMP/dougong-linux-amd64.tar.gz" "https://github.com/$REPO/releases/download/$VER/dougong-linux-amd64.tar.gz"
-  curl -fsSL -o "$TMP/sha256sums.txt" "https://github.com/$REPO/releases/download/$VER/sha256sums.txt"
+  curl -fsSL $CURL_OPTS -o "$TMP/dougong-linux-amd64.tar.gz" "$GH_BASE/$REPO/releases/download/$VER/dougong-linux-amd64.tar.gz" || { net_fail_hint; exit 1; }
+  curl -fsSL $CURL_OPTS -o "$TMP/sha256sums.txt" "$GH_BASE/$REPO/releases/download/$VER/sha256sums.txt" || { net_fail_hint; exit 1; }
   msg ">> sha256 校验：" ">> sha256 verification:"
   # 包名与 sha256sums.txt 完全一致才能命中；--ignore-missing 跳过未下载的
   # arm64 条目（校验数必须 ≥1，否则说明文件名对不上——立即失败）。
