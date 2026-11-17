@@ -1106,6 +1106,92 @@ func TestCertRequestTakeoverImported(t *testing.T) {
 	wantSymbol(t, err, "CERT_003")
 }
 
+// TestPrepareChallengeBlocks v2.2 HTTP-01 树变换单测（实机 LE 404 修正的回归
+// 锁）：server 级 301 + 443 双块配置 → 相关两块均获挑战 location、跳转被
+// 包裹为 location /；无关块原样；幂等。
+func TestPrepareChallengeBlocks(t *testing.T) {
+	conf := "server {\n" +
+		"    listen 80;\n" +
+		"    server_name proxy2.example.com;\n" +
+		"    return 301 https://$host$request_uri;\n" +
+		"}\n" +
+		"server {\n" +
+		"    listen 443 ssl;\n" +
+		"    server_name proxy2.example.com;\n" +
+		"    location / { proxy_pass http://127.0.0.1:8080; }\n" +
+		"}\n" +
+		"server {\n" +
+		"    listen 80;\n" +
+		"    server_name other.example.com;\n" +
+		"    return 301 https://other.example.com$request_uri;\n" +
+		"}\n"
+	tree := nginxx.Parse(conf)
+	if err := prepareChallengeBlocks(tree, []string{"proxy2.example.com"}, "/var/lib/dougong/acme-webroot"); err != nil {
+		t.Fatal(err)
+	}
+	out, err := tree.Serialize()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Count(out, "acme-challenge"); got != 2 {
+		t.Fatalf("挑战 location 应注入 80+443 两块, got %d:\n%s", got, out)
+	}
+	if !strings.Contains(out, "location / {\n        return 301 https://$host$request_uri;") {
+		t.Fatalf("server 级 301 应被包裹为 location /:\n%s", out)
+	}
+	// 无关块（other.example.com）原样：裸 return 保留、未被包裹。
+	if !strings.Contains(out, "    return 301 https://other.example.com$request_uri;") {
+		t.Fatalf("无关块的 301 应保持原样:\n%s", out)
+	}
+	// location / 计数 = 443 块原有 1 + 包裹产生 1。
+	if strings.Count(out, "location / {") != 2 {
+		t.Fatalf("location / 计数应为 2（原有+包裹）:\n%s", out)
+	}
+	// 幂等：树编辑按次累积（同树重跑必撞重叠编辑）——产品语义是每次签发
+	// 重新 parse，故对产物重新 parse 后再变换应零变化。
+	tree2 := nginxx.Parse(out)
+	if err := prepareChallengeBlocks(tree2, []string{"proxy2.example.com"}, "/var/lib/dougong/acme-webroot"); err != nil {
+		t.Fatal(err)
+	}
+	out2, err := tree2.Serialize()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out2 != out {
+		t.Fatalf("幂等性破坏（重复变换产生差异）:\n%s", out2)
+	}
+}
+
+// TestCertRequestHTTP01ServerLevelRedirect E2E：server 级 301 跳转配置下的
+// HTTP-01 签发（v2.2 多块注入路径）——签发成功且完成后整文件恢复原字节。
+func TestCertRequestHTTP01ServerLevelRedirect(t *testing.T) {
+	env := newEnv(t)
+	ctx := context.Background()
+	conf := "server {\n" +
+		"    listen 80;\n" +
+		"    server_name redir.example.com;\n" +
+		"    return 301 https://$host$request_uri;\n" +
+		"}\n" +
+		"server {\n" +
+		"    listen 443 ssl;\n" +
+		"    server_name redir.example.com;\n" +
+		"    location / { proxy_pass http://127.0.0.1:8080; }\n" +
+		"}\n"
+	p := env.writeConf(t, "sites-enabled", "redir.conf", conf)
+	env.acmeGw.res = issueResult(env.now.Add(90 * 24 * time.Hour))
+	data, err := env.svc.CertRequest(ctx, adminActor(), CertRequestRequest{
+		SiteID: p + "#0", Challenge: storesitemgmt.ChallengeHTTP01})
+	if err != nil {
+		t.Fatalf("server 级 301 配置下 HTTP-01 应成功: %v", err)
+	}
+	if data.Status != storesitemgmt.StatusValid {
+		t.Fatalf("终态 = %s, want valid", data.Status)
+	}
+	if got := readConf(t, p); strings.Contains(got, "acme-challenge") || got != conf {
+		t.Fatalf("cleanup 应整文件恢复原字节:\n%s", got)
+	}
+}
+
 func TestCertDeployUndeployDelete(t *testing.T) {
 	env := newEnv(t)
 	ctx := context.Background()

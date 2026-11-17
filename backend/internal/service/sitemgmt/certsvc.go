@@ -303,14 +303,19 @@ func (s *Service) findActiveByDomains(ctx context.Context, domains []string) *st
 	return fallback
 }
 
-// prepareHTTP01 A-SM10：已有 /.well-known/acme-challenge/ location → 复用其
-// root 为 webroot（零写回）；无 → 经 WritePipeline 注入临时 location（root=
-// 面板 webroot，^~ 前缀）→ 返回 cleanup（恢复原字节，同管线）。
+// prepareHTTP01 A-SM10（v2.2 修正）：已有 /.well-known/acme-challenge/ location
+// → 复用其 root 为 webroot（零写回；复用判定扩至全部相关 server 块）；无 →
+// 经 WritePipeline 在**同文件全部相关 server 块**（server_name 与申请域名
+// 精确/泛域名匹配，含 80 与 443 块）注入临时 location，并对块内 server 级
+// 301/302 跳转做 location / 临时包裹（见 wrapServerRedirect 注释）→ 返回
+// cleanup（恢复原字节，同管线）。
+// 修正动机（实机 bug）：原实现只注入 siteId 指向的单块——存量站点常见
+// server 级 `return 301 https://…`（先于 location 匹配执行）把挑战请求整体
+// 重定向到 443 块，443 块无挑战入口 → LE 校验 404。
 func (s *Service) prepareHTTP01(ctx context.Context, entry *SiteEntry) (func(), error) {
-	if loc := findAcmeLocation(entry.Block.Node); loc != nil {
-		if root := directiveArgIn(loc, "root"); root != "" {
-			return func() {}, nil // 复用既有 location（其 root 即挑战文件落点）
-		}
+	domains := entry.Block.ServerNames
+	if !entry.Block.Dormant && reusableChallengeRoot(entry.Tree, domains) != "" {
+		return func() {}, nil // 复用既有 location（其 root 即挑战文件落点，零写回）
 	}
 	orig, _, err := s.gw.ReadFile(entry.File)
 	if err != nil {
@@ -320,21 +325,32 @@ func (s *Service) prepareHTTP01(ctx context.Context, entry *SiteEntry) (func(), 
 	if err := s.gw.MkdirAll(webroot); err != nil {
 		return nil, fmt.Errorf("site-mgmt: webroot mkdir: %w", err)
 	}
-	tgt, _, err := s.openEdit(ctx, entry.SiteID)
-	if err != nil {
-		return nil, err
-	}
-	indent := indentOfBlock(tgt.tree, tgt.block)
-	loc := indent + "location ^~ /.well-known/acme-challenge/ {\n" +
-		indent + "    root " + webroot + ";\n" +
-		indent + "}"
-	pos := insertPos(tgt.tree, tgt.block)
-	if err := tgt.tree.Apply(pos, pos, loc+"\n"+indent); err != nil {
-		return nil, fmt.Errorf("site-mgmt: inject challenge location: %w", err)
-	}
-	content, err := tgt.serialize()
-	if err != nil {
-		return nil, err
+	var content string
+	if entry.Block.Dormant { // 注释块：子树单块注入（原路径；域未在服务，签发
+		// 成败由 LE 侧自然判定）
+		tgt, _, err := s.openEdit(ctx, entry.SiteID)
+		if err != nil {
+			return nil, err
+		}
+		indent := indentOfBlock(tgt.tree, tgt.block)
+		loc := indent + "location ^~ /.well-known/acme-challenge/ {\n" +
+			indent + "    root " + webroot + ";\n" +
+			indent + "}"
+		pos := insertPos(tgt.tree, tgt.block)
+		if err := tgt.tree.Apply(pos, pos, loc+"\n"+indent); err != nil {
+			return nil, fmt.Errorf("site-mgmt: inject challenge location: %w", err)
+		}
+		content, err = tgt.serialize()
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		if err := prepareChallengeBlocks(entry.Tree, domains, webroot); err != nil {
+			return nil, fmt.Errorf("site-mgmt: inject challenge locations: %w", err)
+		}
+		if content, err = entry.Tree.Serialize(); err != nil {
+			return nil, err
+		}
 	}
 	if err := s.applyPipeline(ctx, entry.File, content, false); err != nil {
 		return nil, err
@@ -347,13 +363,119 @@ func (s *Service) prepareHTTP01(ctx context.Context, entry *SiteEntry) (func(), 
 	}, nil
 }
 
+// reusableChallengeRoot 整文件内任一相关 server 块已有挑战 location 时返回
+// 其 root（A-SM10 ①复用，v2.2 从单块扩至全部相关块）。
+func reusableChallengeRoot(t *nginxx.Tree, domains []string) string {
+	domSet := domainSet(domains)
+	for _, top := range t.Nodes {
+		if !isServerNode(top) || !serverBlockMatches(top, domSet) {
+			continue
+		}
+		if loc := findAcmeLocation(top); loc != nil {
+			if root := directiveArgIn(loc, "root"); root != "" {
+				return root
+			}
+		}
+	}
+	return ""
+}
+
+// prepareChallengeBlocks 在整文件树内为全部相关 server 块注入挑战 location，
+// 并包裹 server 级跳转（纯树变换，单测锁定）。幂等：已有挑战入口的块跳过。
+func prepareChallengeBlocks(t *nginxx.Tree, domains []string, webroot string) error {
+	domSet := domainSet(domains)
+	for _, top := range t.Nodes {
+		if !isServerNode(top) || !serverBlockMatches(top, domSet) {
+			continue
+		}
+		if findAcmeLocation(top) != nil {
+			continue
+		}
+		for _, ch := range top.Children {
+			if ch.Kind != nginxx.KindDirective {
+				continue
+			}
+			if (ch.Name == "return" && len(ch.Args) >= 1 &&
+				(ch.Args[0] == "301" || ch.Args[0] == "302")) ||
+				(ch.Name == "rewrite" && len(ch.Args) >= 2 &&
+					(ch.Args[len(ch.Args)-1] == "permanent" || ch.Args[len(ch.Args)-1] == "redirect")) {
+				if err := wrapServerRedirect(t, ch); err != nil {
+					return err
+				}
+			}
+		}
+		indent := indentOfBlock(t, top)
+		loc := indent + "location ^~ /.well-known/acme-challenge/ {\n" +
+			indent + "    root " + webroot + ";\n" +
+			indent + "}"
+		pos := insertPos(t, top)
+		if err := t.Apply(pos, pos, loc+"\n"+indent); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// wrapServerRedirect 把 server 级跳转指令临时包裹为 location / { … }：
+// nginx 的 server 级 rewrite/return 在 location 选择**之前**执行，不包裹则
+// 挑战请求连同 /.well-known/ 一起被重定向到 HTTPS 块（无挑战入口 → 404）。
+// 包裹后：`^~ /.well-known/acme-challenge/` 前缀命中挑战 location，其余路径
+// 经 location / 保持原跳转语义。挑战完成 cleanup 整文件恢复原字节。
+func wrapServerRedirect(t *nginxx.Tree, ch *nginxx.Node) error {
+	indent := t.IndentOf(ch)
+	wrapped := "location / {\n" + indent + "    " + t.TextOf(ch) + "\n" + indent + "}"
+	return t.Apply(ch.Start, ch.End, wrapped)
+}
+
+// serverBlockMatches server_name 与申请域名相关（精确命中，或泛域名条目
+// 覆盖某申请域名，如 *.tonyxyz.com 覆盖 proxy2.tonyxyz.com）。
+func serverBlockMatches(block *nginxx.Node, domSet map[string]bool) bool {
+	for _, ch := range block.Children {
+		if ch.Kind != nginxx.KindDirective || !strings.EqualFold(ch.Name, "server_name") {
+			continue
+		}
+		for _, a := range ch.Args {
+			if domSet[a] {
+				return true
+			}
+			if strings.HasPrefix(a, "*.") {
+				suffix := a[1:] // ".tonyxyz.com"
+				for d := range domSet {
+					if strings.HasSuffix(d, suffix) {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
+}
+
+// domainSet 域名集合（小写归一——server_name 大小写不敏感惯例）。
+func domainSet(domains []string) map[string]bool {
+	m := make(map[string]bool, len(domains))
+	for _, d := range domains {
+		m[strings.ToLower(d)] = true
+	}
+	return m
+}
+
+// isServerNode 顶层 server 块判定。
+func isServerNode(n *nginxx.Node) bool {
+	return n.Kind == nginxx.KindBlock && strings.EqualFold(n.Name, "server")
+}
+
 // acmeWebroot Issue 调用的 webroot 实参（http-01；复用既有 location root 时
-// 取该值，否则面板 webroot；tls_alpn 忽略）。
+// 取该值——v2.2 扩至全部相关块，否则面板 webroot；tls_alpn 忽略）。
 func (s *Service) acmeWebroot(entry *SiteEntry, challenge string) string {
 	if challenge != storesitemgmt.ChallengeHTTP01 {
 		return ""
 	}
-	if loc := findAcmeLocation(entry.Block.Node); loc != nil {
+	if !entry.Block.Dormant {
+		if root := reusableChallengeRoot(entry.Tree, entry.Block.ServerNames); root != "" {
+			return root
+		}
+	} else if loc := findAcmeLocation(entry.Block.Node); loc != nil {
 		if root := directiveArgIn(loc, "root"); root != "" {
 			return root
 		}
