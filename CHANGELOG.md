@@ -2,6 +2,27 @@
 
 发布说明按版本倒序排列；每个版本的完整说明也会作为 GitHub Release 正文发布。
 
+## v0.1.8 - 2026-11-17
+
+修复 ACME HTTP-01 持续 404 的最终根因：挑战配置写盘后**未 reload nginx**（v0.1.4~v0.1.7 实机全部命中）。
+
+### 变更内容
+
+**修复：挑战注入/复原后 reload nginx（site-mgmt）**
+- 根因：`applyPipeline` 按 D-05 设计不含 reload（由调用方呈现），而 HTTP-01 挑战注入路径从不调用——挑战 location 写进了配置文件，**运行中的 nginx 仍是旧配置**：80 端口裸 `return 301` 把 LE 带到无挑战入口的 443 → 每次尝试均 404（fake 网关测试无法暴露，故连逃四个版本）
+- 修复：注入写回成功后 reload（失败=复原+报错，不留半注入态）；cleanup 复原后 reload（best-effort，D-05 日志呈现）；单文件/dormant 与 v2.3 多文件两条路径均覆盖
+- 回归锁：E2E 断言 reload ≥2 次（注入+复原）
+- 面板证书 ACME 通道本就带 reload（panel/acme.go），仅 site-mgmt 挑战路径缺失
+
+### 安装与升级
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/xyztony999/dougong/main/install.sh | sudo bash
+dougong version   # 应为 v0.1.8
+```
+
+升级后对 renew_failed 证书点「更新证书」重试。HTTP-01 至此五层全通：同文件多块注入+跳转包裹（v2.2）→ 跨文件+catch-all 兜底（v2.3）→ webroot 公共可读（v2.4）→ **reload 生效（v2.5/v0.1.8）**；存量 HTTPS 域名仍推荐 DNS-01 最稳。
+
 ## v0.1.7 - 2026-11-17
 
 HTTP-01 签发链路第二层根因修复：挑战 webroot 迁出 0700 数据目录（v0.1.6 修好注入后仍会 403 的隐藏缺陷）。
