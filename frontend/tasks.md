@@ -527,3 +527,13 @@ W1/W2 维持报告原判（WARN 非本轮 FAIL 修复项）：views/monitoring �
   - views/env-mgmt/index.vue：installedText 三态精确化（null 且通道可用=「探测不可用」橙/通道不可用=「未探测」灰——页头横幅承载通道语义不重复/false=「未安装」）；安装·升级 Popconfirm 文案补第三方源代配说明（MongoDB/RHEL 系 Docker CE）；卸载警示二补 MongoDB、提交文案补源文件保留说明；七条目网格注释与页头注释 v1.1
   - stores/__tests__/env.test.ts：载荷升七条目（+mongodb 卡片）与全名 unitName（nginx.service/mongod.service——D-13 回归）
 - [x] 门禁自验（2026-11-17 实跑 cwd=frontend/）：npm run build exit 0（vue-tsc --noEmit + vite build 24.8s）、npx vitest run 16 文件 174 用例全过（env store 载荷升七条目含 mongodb 卡片与全名 unitName）、产物同步 backend/web/dist（make web）+ 同步后 go build ./...=0；F-01~F-05 禁项 grep 0 命中（改动面未引入 any/原生 alert·confirm/views 层 fetch/Options API）
+
+## 增量轮 · 安装后配置就绪（2026-11-17，api-env-mgmt v1.2 / PageSpec v1.3）
+
+- [x] T-ENV-F1 · env-mgmt 引导结果呈现（D-18/⚠️A14，无新 Action/路由）
+  - types/enums.ts：+BootstrapStatus/BOOTSTRAP_STATUS（succeeded=已就绪 success/failed=引导失败 warning〔包已装故非红〕/skipped=跳过 default；与 env_task_status 独立）
+  - types/env.ts：EnvTaskItem +bootstrapStatus: BootstrapStatus|null +bootstrapNote: string|null（null=无引导步骤）
+  - views/env-mgmt/index.vue：任务清单 +「引导」列（bootstrapStatus 非空→NTag colorTag+NTooltip note；null→「—」不渲染角标）；NTooltip/BOOTSTRAP_STATUS import
+  - views/env-mgmt/components/EnvTaskDrawer.vue：详情 +引导结果横幅（succeeded=NAlert success「配置就绪」+note+「前往数据库管理」router-link /databases；failed=NAlert warning「已安装·引导失败」+note+重试指引文案〔readonly 无恢复按钮，负空间〕；skipped=NAlert info「保守跳过」+note）；输出尾部标题补 [bootstrap] 行注记；boot-link/boot-hint 样式
+  - 测试：types/__tests__/env.test.ts S8 锚点 6 用例（env_type 七值/env_task_action/env_task_status/package_manager_family/bootstrap_status 三值+颜色+独立维度）；stores/__tests__/env.test.ts +引导字段流 1 用例（loadTaskDetail 透传 bootstrapStatus/bootstrapNote，status=succeeded+bootstrapStatus=failed 独立）+既有 fixture 补两字段
+- [x] 门禁自验（2026-11-17 实跑 cwd=frontend/）：npx vue-tsc --noEmit exit 0、npx vitest run 18 文件 195 用例全过（+7 本轮）、npm run build exit 0（25.11s，chunk 体积警告既有 INFO）、产物同步 backend/web/dist + 同步后 go build ./...=0；F-01~F-05 禁项 grep 0 命中（改动面）；Action/路由/表单零变更（引导=worker 机制+OHS，结果经既有 task/detail 呈现，S7 10/10 不变）

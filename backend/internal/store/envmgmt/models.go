@@ -34,6 +34,12 @@ const (
 	TaskRunning   = "running"
 	TaskSucceeded = "succeeded"
 	TaskFailed    = "failed"
+
+	// bootstrap_status 取值域（v1.2 安装后配置就绪，api D-18；DDL CHECK 兜底）。
+	// NULL=无引导步骤（非数据库环境/卸载/包操作失败未达引导），非枚举值。
+	BootstrapSucceeded = "succeeded"
+	BootstrapFailed    = "failed"
+	BootstrapSkipped   = "skipped"
 )
 
 // ErrTaskNotFound 任务不存在（ENV_005 语义）。
@@ -52,6 +58,9 @@ type Task struct {
 	UpdatedAt   time.Time
 	StartedAt   *time.Time
 	FinishedAt  *time.Time
+	// 引导结果（v1.2 安装后配置就绪，D-18）：nil=无引导步骤；终态定格。
+	BootstrapStatus *string
+	BootstrapNote   *string
 }
 
 func formatTime(t time.Time) string { return t.UTC().Format(time.RFC3339) }

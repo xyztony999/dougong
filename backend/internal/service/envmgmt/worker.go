@@ -56,22 +56,24 @@ func (s *Service) runTask(taskID int64) {
 		return
 	}
 	ring := newOutputRing()
-	finish := func(status string, taskErr *string, out string) {
+	// finish 终态回写（bootstrapStatus/bootstrapNote 为 nil 时无引导步骤；
+	// 数据库类 install/upgrade 成功后经 runBootstrap 定格引导结果，D-18/I-09）。
+	finish := func(status string, taskErr *string, out string, bootstrapStatus, bootstrapNote *string) {
 		_ = s.store.Task().AppendOutput(ctx, taskID, tailLines(out, TaskOutputTailLines))
-		if err := s.finishTask(ctx, taskID, status, taskErr, task); err != nil {
+		if err := s.finishTask(ctx, taskID, status, taskErr, bootstrapStatus, bootstrapNote, task); err != nil {
 			slog.Error("envmgmt: finish task", "task", taskID, "err", err)
 		}
 	}
 	entry := CatalogByType(task.EnvType)
 	if entry == nil {
 		e := "环境类型不在目录内"
-		finish(storeenv.TaskFailed, &e, ring.String())
+		finish(storeenv.TaskFailed, &e, ring.String(), nil, nil)
 		return
 	}
 	ch := s.pack.DetectChannel()
 	if !ch.Available {
 		e := "包管理器通道不可用"
-		finish(storeenv.TaskFailed, &e, ring.String())
+		finish(storeenv.TaskFailed, &e, ring.String(), nil, nil)
 		return
 	}
 	ring.append(fmt.Sprintf("[channel] %s", ch.Family))
@@ -84,7 +86,7 @@ func (s *Service) runTask(taskID int64) {
 		}
 		if verr != nil {
 			e := "第三方源代配失败: " + verr.Error()
-			finish(storeenv.TaskFailed, &e, ring.String())
+			finish(storeenv.TaskFailed, &e, ring.String(), nil, nil)
 			return
 		}
 		s.recordRepoAudit(ctx, task, ch.Family, summary)
@@ -96,7 +98,7 @@ func (s *Service) runTask(taskID int64) {
 		p, _, found, _ := s.installedPkg(ctx, entry, ch.Family)
 		if !found {
 			e := "包数据库未检出已装候选（可能已被系统外部变更），卸载中止"
-			finish(storeenv.TaskFailed, &e, ring.String())
+			finish(storeenv.TaskFailed, &e, ring.String(), nil, nil)
 			return
 		}
 		pkg = p
@@ -104,7 +106,7 @@ func (s *Service) runTask(taskID int64) {
 		cands := entry.PkgByFamily[ch.Family]
 		if len(cands) == 0 {
 			e := "目录映射缺少候选包名（family=" + ch.Family + "）"
-			finish(storeenv.TaskFailed, &e, ring.String())
+			finish(storeenv.TaskFailed, &e, ring.String(), nil, nil)
 			return
 		}
 		pkg = cands[0]
@@ -113,7 +115,7 @@ func (s *Service) runTask(taskID int64) {
 	ring.append(out)
 	if err != nil {
 		e := "刷新包索引失败: " + err.Error()
-		finish(storeenv.TaskFailed, &e, ring.String())
+		finish(storeenv.TaskFailed, &e, ring.String(), nil, nil)
 		return
 	}
 	if task.Action == storeenv.ActionUninstall {
@@ -124,10 +126,14 @@ func (s *Service) runTask(taskID int64) {
 	ring.append(out)
 	if err != nil {
 		e := err.Error()
-		finish(storeenv.TaskFailed, &e, ring.String())
+		finish(storeenv.TaskFailed, &e, ring.String(), nil, nil)
 		return
 	}
-	finish(storeenv.TaskSucceeded, nil, ring.String())
+	// 安装后配置就绪引导（v1.2，D-15~D-19）：仅数据库类 install/upgrade 成功后
+	// 执行（runBootstrap 内部按 bootstrapEnvTypes 判定，非数据库返回 nil）；引导
+	// 失败不改包安装 succeeded（独立维度，⚠️A14），结果随终态同事务定格（I-09）。
+	bStatus, bNote := s.runBootstrap(ctx, task, ring)
+	finish(storeenv.TaskSucceeded, nil, ring.String(), bStatus, bNote)
 }
 
 // recordRepoAudit 代配写入审计（env_repo_configured，D-06；失败重试一次后
@@ -146,14 +152,15 @@ func (s *Service) recordRepoAudit(ctx context.Context, task storeenv.Task, famil
 	}
 }
 
-// finishTask 终态落库与终态审计同事务（I-03；succeeded/failed 均记）。
-func (s *Service) finishTask(ctx context.Context, taskID int64, status string, taskErr *string, task storeenv.Task) error {
+// finishTask 终态落库与终态审计同事务（I-03；succeeded/failed 均记；引导结果
+// bootstrap_status/note 同事务定格，v1.2 I-09）。
+func (s *Service) finishTask(ctx context.Context, taskID int64, status string, taskErr, bootstrapStatus, bootstrapNote *string, task storeenv.Task) error {
 	tx, err := s.store.BeginTx(ctx)
 	if err != nil {
 		return fmt.Errorf("envmgmt: finish tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err := tx.Task().Finish(ctx, taskID, status, taskErr); err != nil {
+	if err := tx.Task().Finish(ctx, taskID, status, taskErr, bootstrapStatus, bootstrapNote); err != nil {
 		return fmt.Errorf("envmgmt: finish: %w", err)
 	}
 	result := audit.ResultSuccess

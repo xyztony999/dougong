@@ -115,6 +115,8 @@ describe('envStore', () => {
       startedAt: '2026-11-17T00:00:01Z',
       finishedAt: null,
       error: null,
+      bootstrapStatus: null,
+      bootstrapNote: null,
       outputTail: ''
     })
     const envList = vi.fn().mockResolvedValue(okPayload)
@@ -144,6 +146,8 @@ describe('envStore', () => {
       startedAt: null,
       finishedAt: '2026-11-16T00:01:00Z',
       error: 'boom',
+      bootstrapStatus: null,
+      bootstrapNote: null,
       outputTail: ''
     })
     vi.doMock('@/api/env', () => ({ envList, envTaskList: vi.fn(), envTaskDetail }))
@@ -152,5 +156,31 @@ describe('envStore', () => {
     const store = useFresh()
     await store.loadTaskDetail(3)
     expect(envList).not.toHaveBeenCalled()
+  })
+
+  it('引导结果字段经 loadTaskDetail 透传（v1.2 安装后配置就绪，D-18）', async () => {
+    const envTaskDetail = vi.fn().mockResolvedValue({
+      id: 11,
+      envType: 'mysql',
+      action: 'install',
+      status: 'succeeded', // 包安装成功
+      requestedBy: 'admin',
+      createdAt: '2026-11-17T00:00:00Z',
+      startedAt: '2026-11-17T00:00:01Z',
+      finishedAt: '2026-11-17T00:02:00Z',
+      error: null,
+      bootstrapStatus: 'failed', // 引导失败独立维度（不改任务 succeeded）
+      bootstrapNote: '引导通道建连失败',
+      outputTail: '[bootstrap] failed: 引导通道建连失败'
+    })
+    vi.doMock('@/api/env', () => ({ envList: vi.fn(), envTaskList: vi.fn(), envTaskDetail }))
+    vi.resetModules()
+    const { useEnvStore: useFresh } = await import('../env')
+    const store = useFresh()
+    await store.loadTaskDetail(11)
+    expect(store.currentTask?.status).toBe('succeeded')
+    expect(store.currentTask?.bootstrapStatus).toBe('failed')
+    expect(store.currentTask?.bootstrapNote).toBe('引导通道建连失败')
+    store.stopPoll()
   })
 })

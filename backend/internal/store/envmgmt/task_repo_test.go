@@ -39,7 +39,7 @@ func TestTaskLifecycle(t *testing.T) {
 	if err := s.Task().AppendOutput(ctx, id, "[channel] apt\nHit:1 ..."); err != nil {
 		t.Fatalf("append: %v", err)
 	}
-	if err := s.Task().Finish(ctx, id, TaskSucceeded, nil); err != nil {
+	if err := s.Task().Finish(ctx, id, TaskSucceeded, nil, nil, nil); err != nil {
 		t.Fatalf("finish: %v", err)
 	}
 	got, _ = s.Task().GetByID(ctx, id)
@@ -94,7 +94,7 @@ func TestListFilterAndPage(t *testing.T) {
 	ctx := context.Background()
 	for i := 0; i < 3; i++ {
 		id, _ := s.Task().Create(ctx, Task{EnvType: EnvMySQL, Action: ActionUninstall, RequestedBy: "admin"})
-		_ = s.Task().Finish(ctx, id, TaskFailed, strp("boom"))
+		_ = s.Task().Finish(ctx, id, TaskFailed, strp("boom"), nil, nil)
 	}
 	id, _ := s.Task().Create(ctx, Task{EnvType: EnvNginx, Action: ActionInstall, RequestedBy: "admin"})
 	_ = id
@@ -125,5 +125,54 @@ func TestEnvTypeSevenValues(t *testing.T) {
 	}
 	if _, err := s.Task().Create(ctx, Task{EnvType: "postgresql", Action: ActionInstall, RequestedBy: "admin"}); err == nil {
 		t.Fatal("非法 env_type 应被 CHECK 拒绝")
+	}
+}
+
+// TestBootstrapResultRoundTrip 迁移 012（bootstrap_status/note 两列）回归：
+// 引导结果随终态定格可读、无引导步骤两列 NULL、非法 bootstrap_status 被 CHECK
+// 拒绝（D-18/I-09）。
+func TestBootstrapResultRoundTrip(t *testing.T) {
+	s := openTestDB(t)
+	ctx := context.Background()
+	// 数据库类安装成功 + 引导成功：status=succeeded + bootstrap_status=succeeded。
+	id, err := s.Task().Create(ctx, Task{EnvType: EnvMySQL, Action: ActionInstall, RequestedBy: "admin"})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if err := s.Task().Finish(ctx, id, TaskSucceeded, nil, strp(BootstrapSucceeded), strp("已创建管理账户并注册")); err != nil {
+		t.Fatalf("finish with bootstrap: %v", err)
+	}
+	row, err := s.Task().GetByID(ctx, id)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if row.Status != TaskSucceeded || row.BootstrapStatus == nil || *row.BootstrapStatus != BootstrapSucceeded {
+		t.Fatalf("引导结果未定格: %+v", row)
+	}
+	if row.BootstrapNote == nil || *row.BootstrapNote == "" {
+		t.Fatalf("引导摘要缺失: %+v", row)
+	}
+	// 安装成功但引导失败：status=succeeded + bootstrap_status=failed（独立维度）。
+	id2, _ := s.Task().Create(ctx, Task{EnvType: EnvRedis, Action: ActionInstall, RequestedBy: "admin"})
+	if err := s.Task().Finish(ctx, id2, TaskSucceeded, nil, strp(BootstrapFailed), strp("引导通道建连失败")); err != nil {
+		t.Fatalf("finish bootstrap failed: %v", err)
+	}
+	row2, _ := s.Task().GetByID(ctx, id2)
+	if row2.Status != TaskSucceeded || row2.BootstrapStatus == nil || *row2.BootstrapStatus != BootstrapFailed {
+		t.Fatalf("引导失败应不改任务 succeeded: %+v", row2)
+	}
+	// 非数据库环境：无引导步骤，两列 NULL。
+	id3, _ := s.Task().Create(ctx, Task{EnvType: EnvNginx, Action: ActionInstall, RequestedBy: "admin"})
+	if err := s.Task().Finish(ctx, id3, TaskSucceeded, nil, nil, nil); err != nil {
+		t.Fatalf("finish no bootstrap: %v", err)
+	}
+	row3, _ := s.Task().GetByID(ctx, id3)
+	if row3.BootstrapStatus != nil || row3.BootstrapNote != nil {
+		t.Fatalf("无引导步骤两列应为 NULL: %+v", row3)
+	}
+	// 非法 bootstrap_status 被 CHECK 拒绝。
+	id4, _ := s.Task().Create(ctx, Task{EnvType: EnvMySQL, Action: ActionInstall, RequestedBy: "admin"})
+	if err := s.Task().Finish(ctx, id4, TaskSucceeded, nil, strp("bogus"), nil); err == nil {
+		t.Fatal("非法 bootstrap_status 应被 CHECK 拒绝")
 	}
 }

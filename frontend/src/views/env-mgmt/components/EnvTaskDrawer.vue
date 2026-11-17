@@ -112,7 +112,35 @@ function onFilterStatus(v: string | null): void {
         >
           {{ store.currentTask.error }}
         </n-alert>
-        <div class="tail-head">命令输出尾部（排障；≤200 行）</div>
+        <!-- 引导结果横幅（v1.2 安装后配置就绪，D-18/⚠️A14；bootstrapStatus 非空时渲染。
+             任务 status 仍包操作结果——引导失败独立维度，不改 succeeded。两角色可看 ADR-018。） -->
+        <n-alert
+          v-if="store.currentTask.bootstrapStatus === 'succeeded'"
+          type="success"
+          title="配置就绪"
+          style="margin-top: 10px"
+        >
+          {{ store.currentTask.bootstrapNote || '已创建管理账户并注册到数据库管理，可直接治理。' }}
+          <router-link to="/databases" class="boot-link">前往数据库管理</router-link>
+        </n-alert>
+        <n-alert
+          v-else-if="store.currentTask.bootstrapStatus === 'failed'"
+          type="warning"
+          title="已安装 · 引导失败"
+          style="margin-top: 10px"
+        >
+          {{ store.currentTask.bootstrapNote || '安装后配置就绪引导失败。' }}
+          <div class="boot-hint">环境已安装，但面板尚无法直接治理；可重新安装/升级以重试引导（幂等）。</div>
+        </n-alert>
+        <n-alert
+          v-else-if="store.currentTask.bootstrapStatus === 'skipped'"
+          type="info"
+          title="保守跳过"
+          style="margin-top: 10px"
+        >
+          {{ store.currentTask.bootstrapNote || '检测到已有配置，保守跳过引导（不覆盖）。' }}
+        </n-alert>
+        <div class="tail-head">命令输出尾部（排障；≤200 行，含 [bootstrap] 引导步骤行）</div>
         <pre class="tail">{{ store.currentTask.outputTail || '（暂无输出）' }}</pre>
         <div class="detail-actions">
           <n-button
@@ -157,5 +185,14 @@ function onFilterStatus(v: string | null): void {
 }
 .detail-actions {
   margin-top: 8px;
+}
+.boot-link {
+  margin-left: 8px;
+  font-weight: 500;
+}
+.boot-hint {
+  margin-top: 4px;
+  font-size: 12px;
+  opacity: 0.8;
 }
 </style>

@@ -2,10 +2,10 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v1.1 |
+| 版本 | v1.2 |
 | 状态 | 稳定 |
-| 最后更新 | 2026-11-17（v1.1 W1 实机冒烟缺陷修复轮增量） |
-| 输入 | prd-env-mgmt.md v1.0（完备性检查通过：G 5/5、T 适用 6/6、N 4/4）、domain-model.md v1.19（支撑域判定 + env_install_task 聚合根 + 环境条目投影实体）、D1 三文档（BA/AA/FL v1.0，⚠️A1~A7） |
+| 最后更新 | 2026-11-17（v1.2 安装后配置就绪增量轮） |
+| 输入 | prd-env-mgmt.md v1.2（完备性检查通过：G 5/5、T 适用 6/6、N 4/4；FR-07 安装后配置就绪）、domain-model.md v1.22（env_install_task 聚合根 +bootstrap_status/note 引导结果维度）、D1 三文档（BA/AA/FL v1.1，⚠️A1~A15）、d0-clarification-2026-11-17-bootstrap.md（拍板 Q1~Q4） |
 | 接口规约 | 栈规约 backend-02-api-conventions.md（go-vue3）；认证=HttpOnly Cookie 会话 + CSRF token（R-02，复用 account-auth）；鉴权=RBAC 两角色边界矩阵（ADR-018）；外部命令一律字面量参数数组（R-08） |
 
 ## 1. 模块设计概述
@@ -40,6 +40,11 @@
 | D-12 | 混合模式（MIXED）声明：全部对象实际为自管（无外部数据同步源；包管理器为本机通道非数据源），不设 manage_mode 字段，权限管控按角色区分（ADR-018） | 分册 Step 2 默认混合模式；本模块无托管侧 |
 | D-13 | **systemd 单元名规范全名**（⚠️A8，v1.1）：目录映射单元名一律含 .service 后缀（nginx.service 等；mongod.service 随 MongoDB 入目）。根因：EnableUnitFiles/DisableUnitFiles 的 DBus 契约对单元名做 unit_name_to_type 校验、**无后缀补全**——无后缀名直接回 org.freedesktop.DBus.Error.InvalidArgs（W1 实机缺陷 1：enable nginx 报错逐字吻合；StartUnit/StopUnit/RestartUnit/LoadUnit 有服务端 .service 补全故 start 正常仅 enable/disable 报错）；SysdGateway 编组（as+bb / as+b）本身正确零改动 | W1 实机缺陷 1 根因定位（systemd dbus-manager.c 行为）；统一全名消除两类方法不对称 |
 | D-14 | **已装查询未装判定口径**（⚠️A9，v1.1）：apt 分支改 `dpkg-query -W -f=${Status} ${Version}`——以 Status 数据字段判定（install ok installed / hold ok installed=已装；deinstall ok config-files / unknown ok not-installed=未装），不依赖本地化消息文本；命令 Env 注入 LC_ALL=C（沿 DEBIAN_FRONTEND 注入先例，输出确定化）；退出码非 0 且输出含 "no packages found matching" = **未装**（包名完全不在 dpkg 数据库——W1 缺陷 2 根因：该形态被误归通道错误）；rpm 分支退出码 1 且输出含 "not installed" = 未装；其余非 0 = 条目级探测错误（installed=null，D-01 三态）；候选包名数组由 service 层逐候选调用本查询编排（任一命中即已装，全部未装=未装，任一真错误且无命中=探测不可用） | W1 实机缺陷 2 根因（dpkg-query no-packages-found 分支未覆盖 + locale 影响 + 单候选映射）；数据字段判定优先于消息文本匹配 |
+| D-15 | **安装后配置就绪触发与归属**（⚠️A11，v1.2）：worker 执行链在 Install/Upgrade 包操作**成功后**追加 post-install bootstrap 独立步骤（卸载与非数据库环境无此步骤）；仅 env_type ∈ {mysql,redis,mongodb} 触发。职责切分：**env-mgmt** 负责服务就绪（经 SysdGateway 幂等 start 目录单元，D-19）+ 消费 OHS + 引导结果回写任务台账；**database-mgmt** 负责建账户/设密码/注册实例与凭据（经进程内 OHS `BootstrapAfterInstall(ctx, engine, actorName) → BootstrapOutcome{Status, Note, InstanceID}`，单向依赖 env-mgmt→db-mgmt，与 cron-backup 消费 DumpStream 同构，契约见 api-database-mgmt.md §5.1）。引导失败**不改变包安装终态**（D-18） | D0 拍板（装完即配置就绪）；实例与凭据生命周期归 db-mgmt 实例层（四层分界），env-mgmt 止步触发与呈现 |
+| D-16 | **引导通道与账户**（⚠️A12，v1.2，D0 拍板 Q1/Q2/Q4）：引导通道区别于 TCP+密码验证通道——**MySQL** 经 unix socket 以 root auth_socket 免密建连（面板 root 运行，dbmysql 网关 `--socket` + `-u root` + 空 MYSQL_PWD；socket 取 DISCOVERY_PROBE_SET 候选逐一尝试），CREATE USER **dougong@localhost** IDENTIFIED BY 随机强密码 + **GRANT ALL PRIVILEGES ON *.* WITH GRANT OPTION**（不动 root auth_socket）；**Redis** redis-cli 连 localhost:6379（初始免认证）CONFIG GET requirepass 判未设→CONFIG SET requirepass 随机密码 + CONFIG REWRITE 持久化（新密码认证）+ CONFIG GET bind 校验本机；**MongoDB** mongo-driver 免认证连 localhost:27017（localhost exception）admin 库建 dougong root 角色用户随机密码。随机强密码 crypto/rand（BOOTSTRAP_PASSWORD_BYTES=24 → base64url 32 字符）；注册经治理通道 TCP Ping 验证新凭据→AES-256-GCM 密文 UPSERT db_instance（db-mgmt CredentialVault/db-cred.key）；**密码永不回显**（审计 detail/任务输出/响应/BootstrapOutcome.Note 均不含密码） | D0 拍板 Q1（dougong@localhost）/Q2（ALL WITH GRANT OPTION——支撑 db-mgmt 三档授权 all 档）/Q4（CONFIG SET+REWRITE）；MySQL host 依赖默认名字解析（skip-name-resolve=OFF），开启后 TCP 落空如实呈现引导失败 |
+| D-17 | **引导幂等保守**（⚠️A13，v1.2）：db-mgmt BootstrapAfterInstall 前置——目标本机默认 identity 已配置凭据（credentialsSet）→ skipped；引擎侧已存在配置（MySQL dougong 账户已存在 / Redis requirepass 已设 / MongoDB 已有用户或已开鉴权）→ skipped（不覆盖用户已有配置、不重置密码，conffile 保守先例）；skipped 携带 Note 说明。已装/已配置环境重复安装/升级不重复引导（重跑终态一致）。引导动作审计 env_bootstrap（env-mgmt 侧）+ instance_bootstrapped（db-mgmt 侧，脱敏） | D0 拍板；用户已有配置不覆盖；与 D-05 升级幂等同哲学 |
+| D-18 | **引导失败独立维度**（⚠️A14，v1.2，D0 拍板 Q3）：env_install_task **+bootstrap_status TEXT NULL CHECK(in succeeded,failed,skipped) + bootstrap_note TEXT NULL**（NULL=无引导步骤）；任务 status 仍为包操作四态结果——安装成功但引导失败 → status=succeeded + bootstrap_status=failed + note 原因；引导结果与任务终态**同事务定格**（Finish 扩展，SQL #7/#10）；task/list·detail 响应 +bootstrapStatus/bootstrapNote（interface_changed，无新接口）；前端任务详情引导结果横幅（succeeded=已就绪可到数据库管理治理 / failed=已安装·引导失败+原因+「重新安装/升级以重试引导」/ skipped=保守跳过说明）；恢复路径=重新安装/升级（幂等重跑引导，无新重试接口） | D0 拍板 Q3；不混淆「已装」与「可治理」；引导结果非新状态机（domain-model v1.22 辨析） |
+| D-19 | **引导服务就绪与超时**（⚠️A15，v1.2）：bootstrap 前 env-mgmt 经 SysdGateway 幂等 start 目录 DB 单元（start 对已运行无副作用；enable 不强制，沿 ⚠️A5）；db-mgmt 引导建连有界重试等待引擎就绪（**BOOTSTRAP_READY_TIMEOUT=60s**，间隔 2s 重试，超时→bootstrap_status=failed note=引擎未就绪）；引导各步受 ctx 超时约束（包操作链路上界外另计，单引擎引导 ≤BOOTSTRAP_READY_TIMEOUT+建连/命令超时）；**全注入化**——MySQL socket 建连/Redis CONFIG/MongoDB 建用户/凭据注册均经网关接口注入替身，零 runner 实况引擎依赖（CI 环境耦合第 7 起预防；引擎实联归 Linux 冒烟） | D0 拍板（⚠️A5 细化）；MySQL 首装初始化数据目录可达数十秒，有界重试承载；CI 预防沿 v0.1.2 教训 |
 
 ### 1.4 领域对象总览
 
@@ -59,6 +64,7 @@
 | panel-core | 消费其 HTTP 骨架 | `/env` 路由组挂载；外壳与菜单归 panel-core（本轮 B 批增量同步登记菜单「环境管理」） |
 | service-mgmt | 共享适配层 | SysdGateway systemd 网关实现共享（进程内适配器，非模块间调用）；本模块服务操作限定目录环境单元 |
 | docker-mgmt / database-mgmt / site-mgmt | 被消费（软引导） | 关联模块未装引导态呈现「到环境管理安装」指引链接（PageSpec 层，无跨模块 API 硬依赖） |
+| database-mgmt（v1.2 安装后配置就绪） | **OHS 消费（进程内，单向硬依赖）** | 数据库类环境安装成功后 worker 消费 `BootstrapAfterInstall(ctx, engine, actorName) → BootstrapOutcome{Status, Note, InstanceID}`（建账户/设密码/注册实例与凭据归 db-mgmt 实例层，D-15/D-16）；引导结果回写任务台账（bootstrap_status/note）；契约见 api-database-mgmt.md §5.1；与 cron-backup 消费 DumpStream 同构（env-mgmt→db-mgmt 单向，无环） |
 | apt/dnf/yum、systemd（本机系统组件） | 数据源与动作通道 | envpack 适配器（R-08 参数数组）承载包操作与通道探测；SysdGateway 承载服务操作；本机资源非外部业务系统对接，无 ACL 必要 |
 
 > 跨聚合根设计（第 2 章）：不适用——本模块单聚合根（env_install_task）；环境条目为无守门投影实体（domain-model.md 第一部分判定）。
@@ -130,9 +136,10 @@
 | env_task_action | install \| upgrade \| uninstall | 任务动作（task/list·detail 响应；D-05 实况判定） |
 | env_task_status | pending \| running \| succeeded \| failed | 任务状态（task/list·detail 响应与筛选；D-04 四态机） |
 | package_manager_family | apt \| dnf \| yum | 通道族（env/list channel.family；探测结论） |
+| bootstrap_status | succeeded \| failed \| skipped | 引导结果（v1.2，task/list·detail bootstrapStatus；NULL=无引导步骤非枚举值；D-18；与 env_task_status 独立） |
 | panel_role / audit_action / audit_result | （引用） | 权限与审计（account-auth 定稿） |
 
-**业务常量**（审计细粒度动作码，非枚举池条目）：`env_install_started / env_upgrade_started / env_uninstall_started / env_task_finished（终态，detail 含 action/status/error 摘要）/ env_repo_configured / env_service_started / env_service_stopped / env_service_restarted / env_service_enabled / env_service_disabled`（category 均为 change；object_type=`env_install_task`/`env`，object_id=taskId 或 envType）。
+**业务常量**（审计细粒度动作码，非枚举池条目）：`env_install_started / env_upgrade_started / env_uninstall_started / env_task_finished（终态，detail 含 action/status/error 摘要）/ env_repo_configured / env_bootstrap（v1.2 引导动作，detail 含 envType/bootstrapStatus，**不含密码**）/ env_service_started / env_service_stopped / env_service_restarted / env_service_enabled / env_service_disabled`（category 均为 change；object_type=`env_install_task`/`env`，object_id=taskId 或 envType）。db-mgmt 侧引导注册审计 `instance_bootstrapped`（脱敏，见 api-database-mgmt.md）。
 
 **业务常量**（操作参数与阈值，非枚举池条目）：
 
@@ -146,6 +153,9 @@
 | VENDOR_APT_LIST_DIR | /etc/apt/sources.list.d | apt 系第三方源文件目录（D-06） |
 | VENDOR_YUM_REPO_DIR | /etc/yum.repos.d | dnf/yum 系第三方源文件目录（D-06） |
 | QUERY_TIMEOUT | 30s | 已装查询命令超时（D-14；dpkg-query/rpm） |
+| BOOTSTRAP_READY_TIMEOUT | 60s | 引导等待引擎就绪上限（D-19；间隔 2s 有界重试，超时 bootstrap_status=failed） |
+| BOOTSTRAP_PASSWORD_BYTES | 24 | 引导随机强密码随机字节数（D-16；crypto/rand → base64url 32 字符，不弱默认） |
+| BOOTSTRAP_ENV_TYPES | mysql,redis,mongodb | 触发安装后配置就绪的环境集合（D-15；编译期常量，非数据库环境无引导） |
 
 ## 4. 聚合根与领域对象详细设计
 
@@ -168,6 +178,8 @@
 | requested_by | TEXT | NOT NULL | 发起者用户名（admin） |
 | created_at / updated_at | DATETIME | NOT NULL | 发起时间 / 状态更新时间 |
 | started_at / finished_at | DATETIME | NULL | 执行开始 / 终态时间 |
+| bootstrap_status | TEXT | NULL CHECK(in succeeded,failed,skipped) | 引导结果（v1.2，D-18；NULL=无引导步骤〔非数据库环境/卸载/包操作失败未达引导〕；终态定格） |
+| bootstrap_note | TEXT | NULL | 引导摘要/原因（v1.2；不含密码；终态定格） |
 
 **不变量**（聚合内）：
 
@@ -178,8 +190,9 @@
 | I-03 | 任务创建与发起审计同事务；终态落库与终态审计同事务 | D-12 同构（均 SQLite 侧） |
 | I-04 | 重启恢复：启动扫描 running 任务标 failed（error=「面板重启中断」），不续跑 | main 装配启动环节（D-04） |
 | I-05 | 输出尾部上限：output_tail 恒为最近 ≤TASK_OUTPUT_TAIL_LINES 行 | 采集侧保证（D-08） |
+| I-09 | 引导结果与任务终态同事务定格（v1.2）：bootstrap_status/note 随 Finish 同事务落库；引导失败不改任务 status（包操作结果独立，D-18）；bootstrap_note/审计/输出不含密码 | D-18 同事务（Finish 扩展，SQL #7/#10） |
 
-**领域服务**：EnvCatalog（编译期目录+映射，D-02）、ChannelDetector（D-03）、TaskWorker（D-04 执行链：索引刷新→仓库代配→装卸→终态+审计）、EnvProber（实况探测编排：EnvPackGateway 版本查询+SysdGateway 单元状态）、ServiceOps（D-09 启停自启编排+审计）。
+**领域服务**：EnvCatalog（编译期目录+映射，D-02）、ChannelDetector（D-03）、TaskWorker（D-04 执行链：索引刷新→仓库代配→装卸→**安装后配置就绪引导〔D-15~D-19，数据库类 install/upgrade 成功后〕**→终态+审计）、EnvProber（实况探测编排：EnvPackGateway 版本查询+SysdGateway 单元状态）、ServiceOps（D-09 启停自启编排+审计）、**BootstrapTrigger（v1.2：服务就绪〔SysdGateway 幂等 start〕+ 消费 db-mgmt BootstrapAfterInstall OHS + 引导结果回写，D-15/D-19）**。
 
 #### 4.1.2 状态模型
 
@@ -213,10 +226,10 @@ env_task_status 四态状态机（⚠️A3）：
 **接口详情**（全部写接口隐含 CSRF 与 AUTH_008 角色边界；install/uninstall 隐含通道可用性 ENV_001 前置与互斥 ENV_003，不再逐条重复）：
 
 - **GET /env/env/list**：无参。处理：ChannelDetector 探测（D-03）→ EnvCatalog 七条目 × EnvProber 逐环境探测（已装/版本经 EnvPackGateway 多候选查询〔D-02/D-14〕，服务运行/自启经 SysdGateway 单元名映射〔⚠️A8 全名；php-fpm apt 版本化单元经 ListUnits 前缀扫描〕）→ 在途任务标记（I-01 查询 pending/running 归组）。响应 data=`{channel:{family: package_manager_family|null, available: boolean}, items:[{envType, displayName, description, installed: boolean|null, version: string|null, serviceRunning: boolean|null, serviceEnabled: boolean|null, unitName: string, runningTaskId: number|null}], generatedAt}`（三态 D-01：通道不可用=全条目 null+页头横幅；条目级真错误=该条目 null「探测不可用」角标；未装=installed=false 含包名不在包数据库形态；unitName 随映射表下发供呈现）。审计：—（查看类）。
-- **POST /env/env/install**：req `{envType}`。校验：envType ∈ env_type（ENV_002）；通道可用（ENV_001，data.reason）；I-01 互斥（ENV_003，data.taskId）。执行：action 按实况判定（未装=install/已装=upgrade〔多候选任一命中即已装〕，D-05）→ INSERT 任务（pending）+ 发起审计同事务（I-03）→ worker 异步执行（D-06 仓库代配〔needsVendorRepo 时**先于索引刷新**，env_repo_configured 审计；发行版不支持组合任务 failed〕→索引刷新→安装〔候选首选〕→终态落库+审计）。响应 data=`{taskId, action: env_task_action}`。审计：env_install_started / env_upgrade_started（change，detail={envType, action}）+ env_repo_configured（代配时）+ env_task_finished（终态）。
+- **POST /env/env/install**：req `{envType}`。校验：envType ∈ env_type（ENV_002）；通道可用（ENV_001，data.reason）；I-01 互斥（ENV_003，data.taskId）。执行：action 按实况判定（未装=install/已装=upgrade〔多候选任一命中即已装〕，D-05）→ INSERT 任务（pending）+ 发起审计同事务（I-03）→ worker 异步执行（D-06 仓库代配〔needsVendorRepo 时**先于索引刷新**，env_repo_configured 审计；发行版不支持组合任务 failed〕→索引刷新→安装〔候选首选〕→**安装后配置就绪引导〔v1.2，仅 env_type∈BOOTSTRAP_ENV_TYPES 且包操作成功：服务就绪（SysdGateway 幂等 start，D-19）→消费 db-mgmt BootstrapAfterInstall OHS（建账户/设密码/注册实例凭据，D-15/D-16）→引导结果 bootstrap_status/note，幂等保守 D-17；引导失败不改包安装 succeeded，D-18〕**→终态落库+审计〔bootstrap_status/note 同事务定格，I-09〕）。响应 data=`{taskId, action: env_task_action}`（引导异步执行，结果经 task/detail 呈现）。审计：env_install_started / env_upgrade_started（change，detail={envType, action}）+ env_repo_configured（代配时）+ **env_bootstrap（引导时，detail={envType, bootstrapStatus}，不含密码）** + env_task_finished（终态）。
 - **POST /env/env/uninstall**：req `{envType}`。校验：envType（ENV_002）；通道（ENV_001）；已装（ENV_004，data.installed）；I-01 互斥（ENV_003）。执行：INSERT 任务（action=uninstall，pending）+审计 → worker 执行 remove（保留配置与数据，D-07；卸载目标=候选数组中实际命中〔已装〕的包）。响应 data=`{taskId, action:"uninstall"}`。审计：env_uninstall_started + env_task_finished。
-- **GET /env/task/list**：query `{envType?(env_type), status?(env_task_status), page?, pageSize?(默认 50)}`。响应 data=`{items:[{id, envType, action, status, requestedBy, createdAt, startedAt?, finishedAt?, error?}], total}`（created_at 倒序）。审计：—（查看类）。
-- **GET /env/task/detail**：query `{taskId}`。校验：任务存在（ENV_005）。响应 data=`{...list 项全字段, outputTail}`。审计：—（查看类）。
+- **GET /env/task/list**：query `{envType?(env_type), status?(env_task_status), page?, pageSize?(默认 50)}`。响应 data=`{items:[{id, envType, action, status, requestedBy, createdAt, startedAt?, finishedAt?, error?, bootstrapStatus?: bootstrap_status|null, bootstrapNote?: string|null}], total}`（created_at 倒序；**v1.2 +bootstrapStatus/bootstrapNote**——NULL=无引导步骤，前端列表引导角标数据源，D-18）。审计：—（查看类）。
+- **GET /env/task/detail**：query `{taskId}`。校验：任务存在（ENV_005）。响应 data=`{...list 项全字段（含 bootstrapStatus/bootstrapNote）, outputTail}`（outputTail 含 [bootstrap] 行；前端详情引导结果横幅数据源，D-18）。审计：—（查看类）。
 - **POST /env/service/{start|stop|restart|enable|disable}**：req `{envType}`（路径段承载服务动作）。校验：envType（ENV_002）；已装（ENV_004——服务操作对象为已装环境单元）；单元存在（单元不存在经网关错误 ENV_006）。执行：SysdGateway 按映射单元名操作（D-09，等待终态语义同 service-mgmt）→ 同事务审计。响应 data=`{envType, unit: unitName, result: "ok"|失败 ENV_006 data.reason}`。审计：env_service_started/stopped/restarted/enabled/disabled（change，detail={envType, unit}）。
 
 **跨接口复用规则**：实况探测统一 EnvProber（list/安装 action 判定/卸载前置共用）；任务执行统一 TaskWorker（install/uninstall 共用命令链骨架）；服务操作统一 ServiceOps；审计统一 AuditService.Record（I-03 同事务）。
@@ -225,7 +238,7 @@ env_task_status 四态状态机（⚠️A3）：
 
 #### 4.1.5 领域事件与集成
 
-无 MQ、无领域事件。仓储契约：`EnvTaskRepository { Create(tx), GetByID, List(筛选+分页), UpdateStatus(tx)(running/终态), AppendOutputTail, FailRunningAll(tx)(重启恢复) }`。本机资源侧网关契约（进程内适配层，非 SQL）：
+无 MQ、无领域事件。仓储契约：`EnvTaskRepository { Create(tx), GetByID, List(筛选+分页), UpdateStatus(tx)(running/终态), AppendOutputTail, Finish(tx)(status/error/bootstrap_status/bootstrap_note 同事务，v1.2 扩展), FailRunningAll(tx)(重启恢复) }`。**跨模块 OHS 消费契约（v1.2，进程内，单向 env-mgmt→db-mgmt）**：`BootstrapGateway { BootstrapAfterInstall(ctx, engine string, actorName string) (BootstrapOutcome, error) }`——db-mgmt Service 实现，main 装配注入；`BootstrapOutcome { Status string(succeeded|failed|skipped), Note string(摘要/原因，不含密码), InstanceID *int64(注册成功时) }`；契约权威定义见 api-database-mgmt.md §5.1。本机资源侧网关契约（进程内适配层，非 SQL）：
 
 ```
 EnvPackGateway {
@@ -288,8 +301,9 @@ SysdGateway（复用 service-mgmt 适配器，D-09）{ UnitState(unit) / Start /
 | 环境未装实况（软引导，非 HTTP） | docker-mgmt/database-mgmt/site-mgmt 引导态 | 关联模块 PageSpec 指引链接（无跨模块 API 硬依赖） |
 | 中间件 AuthRequired / CsrfGuard / RoleRequired | （复用） | account-auth 提供（3.1） |
 | AuditService.Record | （出站调用） | 操作审计（R-03，I-03 同事务） |
+| **db-mgmt BootstrapAfterInstall（v1.2 消费）** | **（出站调用，进程内 OHS）** | **安装后配置就绪：建账户/设密码/注册实例与凭据（D-15/D-16）；BootstrapOutcome 回传引导结果；契约见 api-database-mgmt.md §5.1** |
 
-本模块无对外 OHS 服务契约（HTTP 消费方仅前端环境管理页；软引导为 PageSpec 层指引非 API）。
+本模块无对外提供的 OHS 服务契约（HTTP 消费方仅前端环境管理页；软引导为 PageSpec 层指引非 API）；**v1.2 起消费 db-mgmt BootstrapAfterInstall OHS（单向硬依赖，安装后配置就绪）**。
 
 ### 5.2 SQL 清单
 
@@ -301,7 +315,7 @@ SysdGateway（复用 service-mgmt 适配器，D-09）{ UnitState(unit) / Start /
 | 4 | SELECT * FROM env_install_task WHERE [env_type=?] [AND status=?] ORDER BY created_at DESC LIMIT ? OFFSET ? | 任务列表（筛选+分页） |
 | 5 | UPDATE env_install_task SET status='running', started_at=?, updated_at=? WHERE id=? | 执行开始（worker） |
 | 6 | UPDATE env_install_task SET output_tail=?, updated_at=? WHERE id=? | 输出尾部追加/定格（D-08） |
-| 7 | UPDATE env_install_task SET status=?, error=?, finished_at=?, updated_at=? WHERE id=? | 终态回写（同事务终态审计，I-03） |
+| 7 | UPDATE env_install_task SET status=?, error=?, bootstrap_status=?, bootstrap_note=?, finished_at=?, updated_at=? WHERE id=? | 终态回写（v1.2 +bootstrap_status/note 同事务定格，I-03/I-09；无引导步骤时 bootstrap 两列 NULL） |
 | 8 | UPDATE env_install_task SET status='failed', error='面板重启中断', finished_at=?, updated_at=? WHERE status='running' | 重启恢复（I-04，启动扫描） |
 | 9 | SELECT DISTINCT env_type, id FROM env_install_task WHERE status IN ('pending','running') | 环境列表在途标记（I-01 查询） |
 
@@ -319,13 +333,15 @@ CREATE TABLE IF NOT EXISTS env_install_task (
   created_at   DATETIME NOT NULL,
   updated_at   DATETIME NOT NULL,
   started_at   DATETIME,
-  finished_at   DATETIME
+  finished_at  DATETIME,
+  bootstrap_status TEXT CHECK (bootstrap_status IN ('succeeded','failed','skipped')),  -- v1.2 引导结果（NULL=无引导步骤，D-18）
+  bootstrap_note   TEXT                                -- v1.2 引导摘要/原因（不含密码）
 );
 CREATE INDEX IF NOT EXISTS idx_env_task_env_status ON env_install_task(env_type, status);
 CREATE INDEX IF NOT EXISTS idx_env_task_created ON env_install_task(created_at);
 ```
 
-> 迁移：008_env_mgmt.sql（初建，env_type 六值）；v1.1 env_type CHECK 扩七值（+mongodb）经 **010_env_mgmt_mongodb.sql**（009 已被 site-mgmt DNS-01 占用）——SQLite CHECK 约束不可 ALTER，迁移内表重建（CREATE 新表（七值 CHECK）→ INSERT SELECT 全量拷贝 → DROP 旧表 → RENAME → 重建两索引；AUTOINCREMENT 序列经 sqlite_sequence 保持，无既有行丢失）。
+> 迁移：008_env_mgmt.sql（初建，env_type 六值）；v1.1 env_type CHECK 扩七值（+mongodb）经 **010_env_mgmt_mongodb.sql**（009 已被 site-mgmt DNS-01 占用）——SQLite CHECK 约束不可 ALTER，迁移内表重建（CREATE 新表（七值 CHECK）→ INSERT SELECT 全量拷贝 → DROP 旧表 → RENAME → 重建两索引；AUTOINCREMENT 序列经 sqlite_sequence 保持，无既有行丢失）。**v1.2 +bootstrap_status/bootstrap_note 经 012_env_bootstrap.sql（011 已被 database-mgmt MongoDB 占用）——新增可空列用 ALTER TABLE ADD COLUMN（SQLite 支持带 CHECK 的可空列追加，无需表重建）：`ALTER TABLE env_install_task ADD COLUMN bootstrap_status TEXT CHECK(...)` + `ADD COLUMN bootstrap_note TEXT`；既有行两列 NULL（无引导步骤），无数据丢失。**
 
 ## 6. 更新记录
 
@@ -336,6 +352,7 @@ CREATE INDEX IF NOT EXISTS idx_env_task_created ON env_install_task(created_at);
 |------|------|---------|---------|---------|
 | v1.0 | 2026-11-16 | initial | 首次生成：10 个 HTTP 接口（/env/{env,task,service}/*——GET 3 两角色（env/list、task/list、task/detail）/ POST 7 admin+CSRF（install、uninstall、service/{start,stop,restart,enable,disable}））+ 1 表 DDL（env_install_task：四态任务台账，env_type+status 索引承载互斥查询）+ 2 网关契约（EnvPackGateway 包操作 R-08 参数数组+PKG_OP_TIMEOUT=600s；SysdGateway 复用 service-mgmt 适配层）+ 6 错误码（ENV_001~006 + 复用 AUTH 族）+ 4 枚举引用（本域 D2 定稿入池）+ 10 审计动作常量 + 12 项设计决策（D-01 实时探测/D-02 编译期目录映射/D-03 双系通道/D-04 异步任务互斥+重启恢复/D-05 升级幂等/D-06 仓库代配/D-07 卸载保守/D-08 输出尾部 200 行/D-09 服务操作复用通道/D-10 超时与最小权限/D-11 台账全量保留/D-12 混合模式声明）；关闭 prd-env-mgmt.md 待对齐-1（DDL/上限值定稿：TASK_OUTPUT_TAIL_LINES=200）/待对齐-2（仓库代配落点=编译期模板内置，D-06）；待对齐-3（在途呈现节奏）归 D4；无旧版对比 | — |
 | v1.1 | 2026-11-17 | enum_value_added + rule_changed×4 + rule_added×2 + table_changed | W1 实机冒烟缺陷修复轮（v0.1.2 实测 3 项）：①enum_value_added：env_type +mongodb（七值；DDL CHECK 同步→迁移 010 表重建；ENV_002 取值域七值；4.1.1 字段约束/I-08 目录七条目）；②rule_changed：D-01 三态如实区分（通道级/条目级/未装，W1 缺陷 2 修复口径）、D-02 映射表多候选包名+单元名规范全名+php-fpm 版本化单元解析、D-05/D-07 多候选编排（安装首选/卸载命中者）、D-06 代配补真（os-release 判定/apt keyring/yum repo 文件/env_repo_configured 审计落地/次序前移至索引刷新前）；③rule_added：D-13 单元名规范全名（EnableUnitFiles 无后缀补全→InvalidArgs，W1 缺陷 1 根因）、D-14 QueryInstalled 未装判定口径（dpkg Status 字段+LC_ALL=C+no-packages-found=未装）；④table_changed：env_install_task env_type CHECK 六值→七值（010_env_mgmt_mongodb.sql 表重建，009 已占用）；⑤业务常量 +4（MONGODB_ORG_TRACK=8.0 ⚠️待主会话终确认/VENDOR_* 路径×3/QUERY_TIMEOUT=30s）；4.1.5 契约 EnsureVendorRepo 签名落定 | 1.3（D-01/D-02/D-06/D-13/D-14）、3.4（枚举/常量/ENV_002）、4.1.1（字段约束）、4.1.4（env/list·install·uninstall）、4.1.5、5.3（DDL+迁移）、4.2 I-08 |
+| v1.2 | 2026-11-17 | rule_added×5 + field_added×2 + enum_added + interface_changed×2 + table_changed | 安装后配置就绪增量轮（d0-clarification-2026-11-17-bootstrap.md，D0 拍板 Q1~Q4）：①rule_added D-15~D-19（触发与归属〔worker 后置步骤+db-mgmt BootstrapAfterInstall OHS 单向消费〕/引导通道与账户〔MySQL socket root auth_socket→dougong@localhost ALL WITH GRANT OPTION、Redis CONFIG SET+REWRITE、MongoDB localhost exception admin root、随机强密码密文零回显〕/幂等保守〔已配置跳过〕/引导失败独立维度〔bootstrap_status/note，任务 status 仍包操作结果〕/服务就绪与超时〔幂等 start+BOOTSTRAP_READY_TIMEOUT=60s 有界重试+全注入化 CI 预防〕）；②field_added：env_install_task +bootstrap_status(CHECK 三值可空)/bootstrap_note（迁移 012 ADD COLUMN，011 已占用）；③enum_added：bootstrap_status{succeeded,failed,skipped} 入池（NULL=无引导步骤非值）；④interface_changed：task/list·task/detail 响应 +bootstrapStatus/bootstrapNote（无新接口，S7 Action 数不变 10）；install 执行链 +引导步骤；⑤table_changed：DDL +两列；⑥业务常量 +env_bootstrap 审计动作 +BOOTSTRAP_READY_TIMEOUT/BOOTSTRAP_PASSWORD_BYTES/BOOTSTRAP_ENV_TYPES；⑦仓储契约 Finish 扩展 +BootstrapGateway OHS 消费契约；⑧I-09 引导结果与终态同事务；1.5/3.2/5.1 +db-mgmt OHS 消费登记；关闭 prd 待对齐-4 | 1.3（D-15~D-19）、1.5、3.4（枚举/常量/审计）、4.1.1（字段/I-09/领域服务）、4.1.4（install·task/list·task/detail）、4.1.5、5.1、5.2（SQL#7）、5.3（DDL+迁移 012） |
 
 ### 6.2 变更类型词汇表
 

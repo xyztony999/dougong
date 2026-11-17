@@ -188,7 +188,8 @@ func newAcmeTestEnv(t *testing.T, confContent string) *acmeTestEnv {
 	}
 	fa := &fakeAcmeIssuer{}
 	fn := &fakeNginxChannel{confDirs: []string{confDir}, testOK: true}
-	svc := New(storepanel.New(db), WithAcmeChannel(fa, fn, dir))
+	svc := New(storepanel.New(db), WithAcmeChannel(fa, fn, dir),
+		WithAcmeWebrootDir(filepath.Join(dir, "acme-webroot"))) // CI 非 root 写不了 /var/www
 	if _, err := svc.Bootstrap(context.Background()); err != nil {
 		t.Fatalf("bootstrap: %v", err)
 	}
@@ -484,8 +485,10 @@ func TestRequestCertSuccessFlow(t *testing.T) {
 	if len(env.acme.domains) != 1 || env.acme.domains[0] != "panel.example.com" {
 		t.Fatalf("issue domains = %v", env.acme.domains)
 	}
-	if env.acme.webroot != acme.DefaultWebrootDir { // v2.4：公共可读挑战目录
-		t.Fatalf("webroot = %q, want %q", env.acme.webroot, acme.DefaultWebrootDir)
+	// v2.4：生产缺省=acme.DefaultWebrootDir（/var/www/dougong-acme，nginx worker
+	// 可读）；本用例经 WithAcmeWebrootDir 注入 tempdir（CI 非 root 写不了 /var/www）。
+	if want := filepath.ToSlash(filepath.Join(env.Dir, "acme-webroot")); env.acme.webroot != want {
+		t.Fatalf("webroot = %q, want %q", env.acme.webroot, want)
 	}
 	// 撤除：配置恢复原状（I-P10 成败均恢复）。
 	if got := env.readConf(t); got != testConf {

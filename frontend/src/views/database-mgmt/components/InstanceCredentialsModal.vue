@@ -5,6 +5,9 @@
  * 密码 type=password 不回显（⚠️A18/I-02——无任何读出口）。
  * DBM_005/006/021 内联错误（均不落库语义，弹窗保持打开；DBM_021 客户端通道
  * 不可用=v0.1.4 修复轮新增）；DBM_020 连接目标纠正冲突内联提示。
+ * v0.1.7 UX 增强：DBM_005/006 内联追加 data.reason 服务器原文（此前固定文案
+ * 丢弃 reason）；DBM_005 另按引擎族呈现可操作排查指引（dbmAuthRejectedTips）——
+ * 1045 不区分账户不存在/host 落空/密码不符，不再断言「用户名或密码错误」。
  */
 import { computed, ref, watch } from 'vue'
 import { useMessage } from 'naive-ui'
@@ -14,6 +17,7 @@ import { ApiError } from '@/api/http'
 import { DB_CONN_MODE } from '@/types/enums'
 import type { DbConnMode } from '@/types/enums'
 import type { CredentialsResult, DbInstanceItem } from '@/types/database'
+import { dbmAuthRejectedTips, reasonOf } from '@/types/database'
 
 const show = defineModel<boolean>('show', { default: false })
 
@@ -32,6 +36,10 @@ const formRef = ref<FormInst | null>(null)
 const saving = ref(false)
 /** 内联错误（DBM_005/006/020——不落库语义：弹窗保持打开，PageSpec 5.1） */
 const inlineError = ref<string | null>(null)
+/** 服务器原文原因（DBM_005/006 data.reason 如实呈现，v0.1.7） */
+const inlineReason = ref<string | null>(null)
+/** 可操作排查指引（DBM_005 按引擎族，v0.1.7） */
+const inlineTips = ref<string[]>([])
 
 interface CredForm {
   connMode: DbConnMode
@@ -67,6 +75,8 @@ watch(show, (v) => {
     password: ''
   }
   inlineError.value = null
+  inlineReason.value = null
+  inlineTips.value = []
   formRef.value?.restoreValidation()
 })
 
@@ -110,6 +120,8 @@ async function onSubmit(): Promise<void> {
   const valid = await formRef.value?.validate().then(() => true).catch(() => false)
   if (valid !== true) return
   inlineError.value = null
+  inlineReason.value = null
+  inlineTips.value = []
   saving.value = true
   try {
     const result = await instanceCredentials({
@@ -128,11 +140,14 @@ async function onSubmit(): Promise<void> {
     // DBM_005/006：不落库语义 → 内联提示、弹窗保持打开（PageSpec 5.1）
     if (e instanceof ApiError) {
       if (e.is('DBM_005')) {
-        inlineError.value = '认证失败：用户名或密码错误（未保存）'
+        inlineError.value = '认证被拒（未保存）：服务器拒绝了该账户的登录'
+        inlineReason.value = reasonOf(e.data)
+        inlineTips.value = dbmAuthRejectedTips(props.instance.engine)
         return
       }
       if (e.is('DBM_006')) {
-        inlineError.value = '连接失败：网络或 socket 不可达（未保存）'
+        inlineError.value = '连接失败（未保存）：网络或 socket 不可达'
+        inlineReason.value = reasonOf(e.data)
         return
       }
       if (e.is('DBM_021')) {
@@ -197,9 +212,14 @@ async function onSubmit(): Promise<void> {
           placeholder="密码不回显（仅验证后密文保存）"
         />
       </n-form-item>
-      <!-- DBM_005/006/020/021 内联错误（不落库语义，弹窗保持打开） -->
+      <!-- DBM_005/006/020/021 内联错误（不落库语义，弹窗保持打开）；
+           v0.1.7：DBM_005/006 追加服务器原文 + DBM_005 可操作排查指引 -->
       <n-alert v-if="inlineError !== null" type="error" :show-icon="false">
-        {{ inlineError }}
+        <div>{{ inlineError }}</div>
+        <div v-if="inlineReason !== null" class="inline-reason">服务器原文：{{ inlineReason }}</div>
+        <ul v-if="inlineTips.length > 0" class="inline-tips">
+          <li v-for="tip in inlineTips" :key="tip">{{ tip }}</li>
+        </ul>
       </n-alert>
     </n-form>
     <template #footer>
@@ -216,5 +236,19 @@ async function onSubmit(): Promise<void> {
   display: flex;
   justify-content: flex-end;
   gap: 12px;
+}
+.inline-reason {
+  margin-top: 6px;
+  font-size: 12px;
+  word-break: break-all;
+  opacity: 0.85;
+}
+.inline-tips {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+}
+.inline-tips li {
+  margin-top: 2px;
 }
 </style>

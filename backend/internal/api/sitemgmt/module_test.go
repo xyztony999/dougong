@@ -209,7 +209,8 @@ func newTestApp(t *testing.T) *testApp {
 		Issuer: "R11", AccountURI: "acct:1",
 	}}
 	svc := sitesvc.New(gw, &fakePhp{pools: []phpfpm.Pool{{Name: "www", Socket: "unix:/run/php/www.sock"}}},
-		acmeGw, storesitemgmt.New(db), auditSvc, sitesvc.Options{DataDir: dataDir})
+		acmeGw, storesitemgmt.New(db), auditSvc, sitesvc.Options{DataDir: dataDir,
+			WebrootDir: filepath.Join(dataDir, "acme-webroot")}) // CI 非 root 写不了 /var/www
 	server := api.NewServer()
 	server.RegisterModules(
 		authapi.NewModule(authSvcObj, auditSvc, false),

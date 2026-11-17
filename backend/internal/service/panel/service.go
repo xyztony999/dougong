@@ -108,6 +108,16 @@ func WithAcmeChannel(acmeGw AcmeIssuer, nginxGw NginxChannel, dataDir string) Op
 	}
 }
 
+// WithAcmeWebrootDir 覆盖 http-01 挑战目录（测试隔离用——CI runner 非 root
+// 写不了 /var/www；生产缺省 acme.DefaultWebrootDir）。
+func WithAcmeWebrootDir(dir string) Option {
+	return func(s *Service) {
+		if dir != "" {
+			s.webrootDir = dir
+		}
+	}
+}
+
 // New 构造服务（会话策略零值时 12h/2h 兜底，与 config 默认一致）。
 func New(st Store, opts ...Option) *Service {
 	s := &Service{

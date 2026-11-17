@@ -11,13 +11,13 @@
  */
 import { computed, h, onMounted, onUnmounted, ref } from 'vue'
 import { useDialog, useMessage } from 'naive-ui'
-import { NButton, NTag } from 'naive-ui'
+import { NButton, NTag, NTooltip } from 'naive-ui'
 import type { DataTableColumns, SelectOption } from 'naive-ui'
 import { envInstall, envServiceOp, envUninstall } from '@/api/env'
 import { ApiError } from '@/api/http'
 import { useAuthStore } from '@/stores/auth'
 import { useEnvStore } from '@/stores/env'
-import { ENV_TASK_ACTION, ENV_TASK_STATUS, ENV_TYPE, PACKAGE_MANAGER_FAMILY, dictItem } from '@/types/enums'
+import { BOOTSTRAP_STATUS, ENV_TASK_ACTION, ENV_TASK_STATUS, ENV_TYPE, PACKAGE_MANAGER_FAMILY, dictItem } from '@/types/enums'
 import type { EnvItem } from '@/types/env'
 import type { EnvServiceOp, EnvTaskItem } from '@/types/env'
 import type { EnvTaskStatus, EnvType } from '@/types/enums'
@@ -206,6 +206,19 @@ const taskColumns = computed<DataTableColumns<EnvTaskItem>>(() => [
         { type: dictItem(ENV_TASK_STATUS, row.status).tag, size: 'small', bordered: false },
         { default: () => dictItem(ENV_TASK_STATUS, row.status).label }
       )
+  },
+  {
+    title: '引导',
+    key: 'bootstrapStatus',
+    width: 90,
+    render: (row) => {
+      // null=无引导步骤（非数据库环境/卸载）→「—」不渲染角标（D-18）。
+      if (!row.bootstrapStatus) return '—'
+      const d = dictItem(BOOTSTRAP_STATUS, row.bootstrapStatus)
+      const tag = h(NTag, { type: d.tag, size: 'small', bordered: false }, { default: () => d.label })
+      if (!row.bootstrapNote) return tag
+      return h(NTooltip, { trigger: 'hover' }, { trigger: () => tag, default: () => row.bootstrapNote })
+    }
   },
   { title: '发起者', key: 'requestedBy', width: 100 },
   { title: '发起时间', key: 'createdAt', width: 170, render: (row) => formatDateTime(row.createdAt) },

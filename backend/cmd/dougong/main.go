@@ -407,7 +407,10 @@ func run(args []string) error {
 	// goroutine（无长驻循环，G-06）。菜单对齐 PageSpec 路由 /env 两角色可见
 	//（查看类全可看 ADR-018）。
 	envStore := storeenv.New(db)
-	envSvc := envsvc.New(envpack.NewGateway(), sysdGateway, envStore, envsvc.Options{})
+	// 安装后配置就绪（v1.2）：db-mgmt 引导窄接口注入（与治理网关同一适配器实例）
+	// + env-mgmt 消费 db-mgmt BootstrapAfterInstall OHS（单向依赖，D-15）。
+	dbSvc.SetBootstrapAdapters(mysqlGw, redisGw, mongoGw)
+	envSvc := envsvc.New(envpack.NewGateway(), sysdGateway, envStore, envsvc.Options{Bootstrap: dbSvc})
 	envSvc.RecoverInFlight(ctx)
 	panelSvc.Menus().Register(
 		panelsvc.MenuItem{Key: "env", Title: "环境管理", Path: "/env",

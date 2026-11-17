@@ -2,11 +2,11 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v1.2 |
+| 版本 | v1.3 |
 | 状态 | 稳定 |
-| 最后更新 | 2026-11-17（v1.1 W1 实机冒烟缺陷修复轮增量） |
+| 最后更新 | 2026-11-17（v1.3 安装后配置就绪引导结果呈现增量） |
 | 用户类型 | readonly |
-| 唯一数据源 | 02-detailed/api/api-env-mgmt.md v1.1（本文件为 admin 视角 v1.1 的只读负空间标注文档） |
+| 唯一数据源 | 02-detailed/api/api-env-mgmt.md v1.2（本文件为 admin 视角 v1.3 的只读负空间标注文档） |
 
 ## 第 1 节 模块元信息
 
@@ -24,7 +24,7 @@
 
 ## 第 3 节 字典 Key 清单
 
-同 admin 第 3 节 5 Key（env_type/env_task_action/env_task_status/package_manager_family/panel_role）；状态颜色方案同。
+同 admin 第 3 节 6 Key（env_type/env_task_action/env_task_status/package_manager_family/**bootstrap_status〔v1.3〕**/panel_role）；状态颜色方案同（含 bootstrap_status succeeded green/failed orange/skipped gray）。
 
 ## 第 4 节 列表页
 
@@ -35,7 +35,8 @@
 
 ### 4.2 任务列表与详情（只读视图）
 
-- 任务 Drawer 同 admin 视角（筛选/列表列/详情区块一致）；行点击查看详情同等可用；
+- 任务 Drawer 同 admin 视角（筛选/列表列/详情区块一致，**含「引导」列与引导结果横幅，v1.3**）；行点击查看详情同等可用；
+- **引导结果只读呈现（v1.3）**：bootstrapStatus 角标（列表）与详情横幅（succeeded=已就绪/failed=已安装·引导失败+原因/skipped=保守跳过）同等可看（ADR-018 全可看）；「前往数据库管理」链接 readonly 可达（数据库清单两角色可看）；**无「重新安装/升级」操作入口**（变更类负空间，恢复指引文案呈现但按钮不渲染）；
 - 详情刷新按钮可用（含 running 态 5s 轮询——观测轮询非变更操作；终态跃迁触发全景/清单重拉，v1.2 同 admin 4.3）。
 
 ## 第 5 节 表单页
@@ -60,8 +61,8 @@
 |---|------|------|
 | 1 | Action ↔ api 接口：3 只读 Action 全映射 + 7 负空间逐项对应（10 接口全集） | ✅ 第 2 节 |
 | 2 | 负空间 7 个 Action 与 ADR-018 边界矩阵逐项对应 | ✅ 第 2 节 |
-| 3 | 字典 Key 与池定稿同值（5 项） | ✅ 第 3 节 |
-| 4 | 实况与任务观测能力与 admin 同等（ADR-018 全可看） | ✅ 4.1/4.2 |
+| 3 | 字典 Key 与池定稿同值（6 项，v1.3 +bootstrap_status） | ✅ 第 3 节 |
+| 4 | 实况与任务观测能力与 admin 同等（ADR-018 全可看，含引导结果只读呈现） | ✅ 4.1/4.2 |
 
 ## 第 9 节 文档版本与变更记录
 
@@ -70,3 +71,4 @@
 | v1.0 | 2026-11-16 | initial | 首次生成：只读视角 1 页面（环境卡片只读 + 任务 Drawer）+ 3 只读 Action + 7 负空间标注 |
 | v1.1 | 2026-11-17 | content_changed | 数据源升 api v1.1（admin v1.1 同步）：卡片七条目（+MongoDB）+ 实况三态只读语义同 admin（⚠️A9）；字典 env_type 七值（第 3 节引用 admin 第 3 节自动同步） |
 | v1.2 | 2026-11-17 | content_changed | v0.1.4 反馈第 1 项同步：任务详情终态跃迁触发环境全景与任务清单重拉（readonly 观测语义同 admin v1.2 4.3，无新增 Action/路由） |
+| v1.3 | 2026-11-17 | dict_changed + content_changed | 安装后配置就绪增量同步（数据源升 api v1.2，admin v1.3）：字典 +bootstrap_status（6 Key，第 3 节引用 admin 自动同步）；任务列表「引导」列与详情引导结果横幅只读呈现（ADR-018 全可看）；「前往数据库管理」链接可达（清单两角色可看）；「重新安装/升级」恢复按钮负空间不渲染（变更类）；3 只读 Action + 7 负空间不变（引导无新 HTTP Action） |

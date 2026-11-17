@@ -276,7 +276,7 @@ export const DBM_ERROR_TEXT: Readonly<Record<string, string>> = {
   DBM_002: '实例档案不存在（可能已移除）',
   DBM_003: '实例不可达——治理操作无法执行（实例启停请前往服务管理）',
   DBM_004: '实例未配置凭据，暂不可治理（请先配置凭据）',
-  DBM_005: '认证失败：用户名或密码错误',
+  DBM_005: '认证被拒：账户、host 或密码未通过服务器验证',
   DBM_006: '连接失败：网络或 socket 不可达',
   DBM_007: '目标库不存在',
   DBM_008: '同名库已存在',
@@ -305,15 +305,48 @@ export function reasonOf(data: unknown): string | null {
   return null
 }
 
-/** DBM 错误 → toast 文案（含 reason 的码：003/012/013 追加服务端原因；未知码返回 null 不提示） */
+/**
+ * DBM 错误 → toast 文案（含 reason 的码：003/005/006/012/013/021/022 追加服务端原因；
+ * 未知码返回 null 不提示）。DBM_005/006 追加 reason 为 v0.1.7 UX 增强——治理操作
+ * 因凭据失效被拒时，服务器原文（如 1045 含 host 形态）随 toast 如实呈现辅助诊断。
+ */
 export function dbmErrorText(code: string, data: unknown): string | null {
   const base = DBM_ERROR_TEXT[code]
   if (base === undefined) return null
-  if (code === 'DBM_003' || code === 'DBM_012' || code === 'DBM_013' || code === 'DBM_021' || code === 'DBM_022') {
+  if (
+    code === 'DBM_003' || code === 'DBM_005' || code === 'DBM_006' ||
+    code === 'DBM_012' || code === 'DBM_013' || code === 'DBM_021' || code === 'DBM_022'
+  ) {
     const reason = reasonOf(data)
     if (reason !== null) return `${base}：${reason}`
   }
   return base
+}
+
+/**
+ * DBM_005 认证被拒的可操作排查指引（v0.1.7 UX 增强，凭据弹窗内联呈现）。
+ * 按引擎族给出——MySQL 族 1045 不区分账户不存在/host 落空/密码不符，指引覆盖
+ * 全部可能而非断言密码错；纯函数（弹窗与单测共用，CI 无引擎依赖）。
+ */
+export function dbmAuthRejectedTips(engine: string): string[] {
+  if (engine === 'mysql' || engine === 'mariadb') {
+    return [
+      '确认账户已创建：MySQL 对不存在的账户同样返回 Access denied——可在服务器执行 sudo mysql -e "SELECT user,host,plugin FROM mysql.user;" 核查',
+      '确认账户 host 覆盖连接来源：TCP 连 localhost 时账户 host 须为 localhost / 127.0.0.1 / %（面板「用户管理」建用户默认 host=localhost）',
+      '确认密码与创建时一致：@ 等特殊字符面板原样传递；遗忘可在服务器经 ALTER USER 重置，或经面板「用户管理」删除重建（需实例已有有效凭据）'
+    ]
+  }
+  if (engine === 'redis') {
+    return [
+      '确认密码与服务器 requirepass（或 ACL 用户密码）一致；Redis 6+ ACL 账户需用户名与密码同时匹配'
+    ]
+  }
+  if (engine === 'mongodb') {
+    return [
+      '确认账户存在于 admin 库（面板固定 authSource=admin 验证）且密码正确；可经「用户治理」核查或重建'
+    ]
+  }
+  return ['确认账户已创建且密码正确；认证被拒的具体原因见上方服务器原文']
 }
 
 /** ---- 观测白名单展示常量（D-08 REDIS_INFO_FIELDS/MYSQL_STATUS_FIELDS 前端标签映射） ---- */

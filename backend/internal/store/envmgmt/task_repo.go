@@ -14,7 +14,7 @@ import (
 type TaskRepo struct{ x Executor }
 
 const taskCols = `id, env_type, action, status, output_tail, error, requested_by,
-	created_at, updated_at, started_at, finished_at`
+	created_at, updated_at, started_at, finished_at, bootstrap_status, bootstrap_note`
 
 // Create 插入 pending 任务（SQL #1；与发起审计同事务由 TxStore 保证 I-03）。
 func (r *TaskRepo) Create(ctx context.Context, t Task) (int64, error) {
@@ -132,13 +132,15 @@ func (r *TaskRepo) AppendOutput(ctx context.Context, id int64, tail string) erro
 	return wrapErr("task append output", err)
 }
 
-// Finish 终态回写（SQL #7：succeeded/failed + error + finished_at；与终态审计
-// 同事务）。
-func (r *TaskRepo) Finish(ctx context.Context, id int64, status string, taskErr *string) error {
+// Finish 终态回写（SQL #7：succeeded/failed + error + finished_at + 引导结果
+// bootstrap_status/note 同事务定格，v1.2 D-18/I-09；与终态审计同事务）。
+// bootstrapStatus/bootstrapNote 为 nil 时无引导步骤（两列落 NULL）。
+func (r *TaskRepo) Finish(ctx context.Context, id int64, status string, taskErr, bootstrapStatus, bootstrapNote *string) error {
 	_, err := r.x.ExecContext(ctx,
-		`UPDATE env_install_task SET status = ?, error = ?, finished_at = ?, updated_at = ?
-		 WHERE id = ?`, status, strPtrArg(taskErr), formatTime(time.Now().UTC()),
-		formatTime(time.Now().UTC()), id)
+		`UPDATE env_install_task SET status = ?, error = ?, bootstrap_status = ?, bootstrap_note = ?,
+		 finished_at = ?, updated_at = ? WHERE id = ?`,
+		status, strPtrArg(taskErr), strPtrArg(bootstrapStatus), strPtrArg(bootstrapNote),
+		formatTime(time.Now().UTC()), formatTime(time.Now().UTC()), id)
 	return wrapErr("task finish", err)
 }
 
@@ -163,16 +165,25 @@ func (t *TxStore) Audit() *storeauth.AuditRepo { return storeauth.NewAuditRepo(t
 
 func scanTask(row interface{ Scan(...any) error }) (Task, error) {
 	var t Task
-	var taskErr sql.NullString
+	var taskErr, bootstrapStatus, bootstrapNote sql.NullString
 	var createdAt, updatedAt any
 	var startedAt, finishedAt any
 	if err := row.Scan(&t.ID, &t.EnvType, &t.Action, &t.Status, &t.OutputTail, &taskErr,
-		&t.RequestedBy, &createdAt, &updatedAt, &startedAt, &finishedAt); err != nil {
+		&t.RequestedBy, &createdAt, &updatedAt, &startedAt, &finishedAt,
+		&bootstrapStatus, &bootstrapNote); err != nil {
 		return Task{}, err
 	}
 	if taskErr.Valid {
 		v := taskErr.String
 		t.Error = &v
+	}
+	if bootstrapStatus.Valid {
+		v := bootstrapStatus.String
+		t.BootstrapStatus = &v
+	}
+	if bootstrapNote.Valid {
+		v := bootstrapNote.String
+		t.BootstrapNote = &v
 	}
 	var err error
 	if t.CreatedAt, err = scanTime(createdAt); err != nil {

@@ -27,6 +27,7 @@ const (
 	AuditActionEnvUninstallStarted = "env_uninstall_started"
 	AuditActionEnvTaskFinished     = "env_task_finished"
 	AuditActionEnvRepoConfigured   = "env_repo_configured"
+	AuditActionEnvBootstrap        = "env_bootstrap" // v1.2 安装后配置就绪引导（detail 不含密码）
 	AuditActionEnvServiceStarted   = "env_service_started"
 	AuditActionEnvServiceStopped   = "env_service_stopped"
 	AuditActionEnvServiceRestarted = "env_service_restarted"
@@ -81,6 +82,9 @@ type TaskItem struct {
 	StartedAt   *string `json:"startedAt"`
 	FinishedAt  *string `json:"finishedAt"`
 	Error       *string `json:"error"`
+	// 引导结果（v1.2 安装后配置就绪，D-18）：null=无引导步骤；与 status 独立。
+	BootstrapStatus *string `json:"bootstrapStatus"`
+	BootstrapNote   *string `json:"bootstrapNote"`
 }
 
 // TaskListData GET /env/task/list 响应。
@@ -145,7 +149,7 @@ func taskItemOf(r storeenv.Task) TaskItem {
 		ID: r.ID, EnvType: r.EnvType, Action: r.Action, Status: r.Status,
 		RequestedBy: r.RequestedBy, CreatedAt: formatTS(r.CreatedAt),
 		StartedAt: timePtrStr(r.StartedAt), FinishedAt: timePtrStr(r.FinishedAt),
-		Error: r.Error,
+		Error: r.Error, BootstrapStatus: r.BootstrapStatus, BootstrapNote: r.BootstrapNote,
 	}
 }
 

@@ -26,18 +26,21 @@ type Service struct {
 	sysd       *sysd.Gateway
 	store      *storeenv.Store
 	clock      func() time.Time
-	taskOutput *outputRing // 采集回调（worker 内存态 ring 挂钩，D-08）
+	taskOutput *outputRing      // 采集回调（worker 内存态 ring 挂钩，D-08）
+	bootstrap  BootstrapGateway // db-mgmt 安装后配置就绪 OHS（v1.2，D-15；nil=未装配）
 }
 
-// Options 构造选项（taskOutput 为测试注入钩子，生产用默认内存 ring）。
+// Options 构造选项（taskOutput 为测试注入钩子，生产用默认内存 ring；Bootstrap
+// 为 db-mgmt OHS 消费注入，v1.2）。
 type Options struct {
 	Clock      func() time.Time
 	TaskOutput *outputRing
+	Bootstrap  BootstrapGateway
 }
 
 // New 构造服务。
 func New(pack *envpack.Gateway, sysdGw *sysd.Gateway, store *storeenv.Store, opts Options) *Service {
-	s := &Service{pack: pack, sysd: sysdGw, store: store, clock: time.Now, taskOutput: opts.TaskOutput}
+	s := &Service{pack: pack, sysd: sysdGw, store: store, clock: time.Now, taskOutput: opts.TaskOutput, bootstrap: opts.Bootstrap}
 	if s.clock == nil {
 		s.clock = time.Now
 	}

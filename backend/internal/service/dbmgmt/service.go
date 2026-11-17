@@ -31,6 +31,13 @@ type Service struct {
 	busy   *BusyTable
 	clock  clockNow
 
+	// 引擎引导窄接口（v2.2 安装后配置就绪 OHS，§4.6；SetBootstrapAdapters 注入，
+	// 与治理网关同一适配器实例；测试注入替身）。
+	mysqlBoot        MySQLBootstrap
+	redisBoot        RedisBootstrap
+	mongoBoot        MongoBootstrap
+	bootReadyTimeout time.Duration // 引导就绪等待上限（0=默认 BootstrapReadyTimeout；测试可缩短）
+
 	discoverOnce sync.Once // 进程内首次探测触发器（D-07：任一角色首次 list）
 }
 

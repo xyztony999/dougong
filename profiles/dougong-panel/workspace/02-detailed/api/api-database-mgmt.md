@@ -2,10 +2,10 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v2.0 |
+| 版本 | v2.2 |
 | 状态 | 稳定 |
-| 最后更新 | 2026-11-17（v2.0） |
-| 输入 | prd-database-mgmt.md v1.0（完备性检查通过 G5/5·T4/4·N4/4）、domain-model.md v1.9、d0-clarification-database-mgmt.md、D1 三文档 v1.0 |
+| 最后更新 | 2026-11-17（v2.2 安装后配置就绪 OHS 增量） |
+| 输入 | prd-database-mgmt.md v1.1、domain-model.md v1.22、d0-clarification-database-mgmt.md、D1 三文档 v1.0；**v2.2 安装后配置就绪联动**：d0-clarification-2026-11-17-bootstrap.md（env-mgmt 主导轮拍板 Q1~Q4）、api-env-mgmt.md v1.2（BootstrapAfterInstall OHS 消费方）、prd-env-mgmt.md v1.2 FR-07 |
 | 接口规约 | 无激活技术栈（ACTIVE_STACKS 为空）——按通用 REST/JSON 契约设计；认证=HttpOnly Cookie 会话 + CSRF token（R-02）；鉴权=RBAC 两角色边界矩阵（ADR-018）；与 api-account-auth.md 同一响应/错误码契约 |
 
 ## 1. 模块设计概述
@@ -45,6 +45,7 @@
 | D-17 | **探测集扩展 +2 目标**：{engine=mongodb, socket, /tmp/mongodb-27017.sock} 与 {engine=mongodb, tcp, localhost:27017}（mongod 默认 socket 路径与端口；D-07 探测时机/审计口径不变） | R-15 发现哲学同构：env-mgmt 已可装 mongodb-org（mongod.service），端口/socket 探测即纳管；socket 路径=官方默认 unixSocketPath（可配置面不追——探测不到即未按默认装，如实） |
 | D-18 | **MongoDB 库清单=只读投影（名称/大小/集合数，ListDatabases 实况）**：不提供建库/删库接口（无 mysql 族 database/create、delete 对应物） | MongoDB 隐式建库语义（库随首集合/首文档写入产生，显式 DDL 无对应物）；与 MySQL 面的差异如实裁剪不虚构等价动作；零库台账 D-04 口径同构 |
 | D-19 | **MongoDB 用户治理=admin 库 users + 三档库级角色 mongo_role ∈ {read, readWrite, dbAdmin}**（原生角色名直用）：创建=db.createUser（用户名/密码/首库+首角色）；删除=db.dropUser（连带回收全部角色，引擎语义）；授予/回收=grantRolesToUser/revokeRolesFromUser；用户清单=users 实况投影（用户名/mechanisms/角色概况 {db, role}）；重名冲突 DBM_010/不存在 DBM_009/授权关系不存在 DBM_011 语义复用 | v0.1.4 用户拍板 Q1=A：对齐 MySQL 用户管理面（创建/删除/授权/回收三档）；mongo_role 与 grant_level 平行不合并（角色 vs 权限集合语义不同构）；密码只写不读（⚠️A18 同构）；mongod 未开鉴权时面板建连即 localhost exception 语境——操作成败如实返回 |
+| D-20 | **安装后配置就绪 OHS（v2.2，BootstrapAfterInstall）**：本模块提供进程内 OHS `BootstrapAfterInstall(ctx, engine, actorName) → BootstrapOutcome{Status(succeeded\|failed\|skipped), Note, InstanceID}` 供 env-mgmt worker 消费（数据库类环境安装成功后，装完即可管）。编排：①幂等前置——本机默认 identity（mysql tcp localhost:3306 / redis tcp localhost:6379 / mongodb tcp localhost:27017）已 credentialsSet → skipped；②引导通道建账户/设密码（**MySQL** dbmysql 经 unix socket root auth_socket 免密〔DISCOVERY_PROBE_SET socket 候选逐一尝试〕CREATE USER dougong@localhost + GRANT ALL ON *.* WITH GRANT OPTION，账户已存在→skipped；**Redis** dbredis CONFIG GET requirepass 判未设→CONFIG SET 随机密码 + CONFIG REWRITE + bind 本机校验，已设→skipped；**MongoDB** dbmongo 免认证 localhost exception 建 admin 库 dougong root 角色，已有用户/已开鉴权→skipped）；③治理通道 TCP Ping 验证新凭据（失败→failed，不写未验证凭据，沿 D-03 哲学）；④CredentialVault 加密 UPSERT db_instance + conn_state=reachable + version 刷新 + 审计 instance_bootstrapped（同事务，脱敏）。随机强密码 crypto/rand（24B→base64url 32 字符）；**密码明文仅引导建连与加密内存态，零回显**（BootstrapOutcome.Note/审计/日志均不含密码）；引擎侧引导方法经窄接口注入（测试替身，零 runner 实况依赖）；服务就绪（start/等待）归 env-mgmt，本模块不操作进程 | env-mgmt 安装后配置就绪增量联动（d0-clarification-2026-11-17-bootstrap.md 拍板 Q1~Q4）；实例与凭据生命周期归本模块（四层分界），故引导建账户/注册归本模块 OHS 而非 env-mgmt 自持；与 D-03 先验证后落库/D-02 密文零出口同哲学 |
 
 ### 1.4 领域对象总览
 
@@ -63,7 +64,8 @@
 | account-auth | 消费方 | 遵奉者：Cookie+CSRF 协议（R-02）、只读边界（ADR-018）；OHS 消费：AuditService.Record（R-03，同事务，凭据脱敏 D-13） |
 | MySQL/MariaDB/Redis 引擎（本机系统组件） | 数据源与动作通道 | dbmysql/dbredis 适配器（idea.md §5.3）承载连接/查询/命令，经 **DbGateway 网关契约**（4.1.5）收敛——引擎协议概念止步于此（非外部业务系统，无 ACL 必要，domain-model v1.9 第六部分） |
 | cron-backup（M8，后续模块） | 被依赖（预期） | 数据库备份源拟复用 DbGateway.DumpDatabase（4.1.5）；契约口径由该模块 D2/D3 定义，本模块不预先建模 |
-| service-mgmt | 边界互斥 | 实例进程启停/自启经 systemd 归 service-mgmt；本模块对 unreachable 实例只如实呈现与报错（DBM_003），不操作进程 |
+| **env-mgmt（v2.2 安装后配置就绪）** | **被消费（进程内 OHS 提供）** | **本模块提供 BootstrapAfterInstall OHS（§5.1/§4.6）：env-mgmt worker 数据库类环境安装成功后消费——建管理账户/设随机强密码 + 注册 db_instance 与凭据密文（装完即可管）；单向依赖 env-mgmt→db-mgmt（与 cron-backup 消费 DumpStream 同构）；引导通道（MySQL socket root auth_socket / Redis 免认证 / MongoDB localhost exception）区别于 TCP+密码治理通道；幂等保守不覆盖用户已有配置；引导结果 BootstrapOutcome 回传（不含密码）** |
+| service-mgmt | 边界互斥 | 实例进程启停/自启经 systemd 归 service-mgmt；本模块对 unreachable 实例只如实呈现与报错（DBM_003），不操作进程（**安装后配置就绪的服务启动归 env-mgmt 经 SysdGateway，本模块不操作进程**） |
 
 ## 2. 跨聚合根设计
 
@@ -168,8 +170,8 @@ database/db_user 不落库：事实源在引擎实况，恒经 DbGateway 实时�
 | DBM_002 | INSTANCE_NOT_FOUND | 拒绝 | 实例档案不存在（已移除/从未纳管） |
 | DBM_003 | INSTANCE_UNREACHABLE | 拒绝 | 连接状态 unreachable，治理/观测前置拒绝（data.reason；启停实例归 service-mgmt） |
 | DBM_004 | CREDENTIALS_NOT_SET | 拒绝 | 实例未配置凭据（仅探测到，不可治理；data.hint=credentials） |
-| DBM_005 | CREDENTIALS_INVALID | 拒绝 | 凭据验证失败=认证被拒（用户名/密码错误，data.reason；不落库，D-03） |
-| DBM_006 | CONN_TEST_FAILED | 操作失败 | 凭据验证失败=网络/socket 层（连不上，区别于 DBM_005；不落库） |
+| DBM_005 | CREDENTIALS_INVALID | 拒绝 | 凭据验证失败=认证被拒（账户不存在/host 匹配落空/密码不符等——MySQL 1045 不区分诸因统一拒绝；data.reason=服务器原文；不落库，D-03。v2.1：前端凭据弹窗内联呈现 reason+按引擎族可操作排查指引，文案不再断言「用户名或密码错误」） |
+| DBM_006 | CONN_TEST_FAILED | 操作失败 | 凭据验证失败=网络/socket 层（连不上，区别于 DBM_005；data.reason=服务器原文，v2.1 前端内联呈现；不落库） |
 | DBM_007 | DATABASE_NOT_FOUND | 拒绝 | 目标库不存在（实况校验） |
 | DBM_008 | DATABASE_EXISTS | 参数冲突 | 同名库已存在（实况，PRD N2） |
 | DBM_009 | DBUSER_NOT_FOUND | 拒绝 | 目标用户不存在（实况） |
@@ -196,7 +198,7 @@ database/db_user 不落库：事实源在引擎实况，恒经 DbGateway 实时�
 | grant_level | readonly \| write \| all | 库级授权三档（D-10；**本次入池**） |
 | audit_result（复用） | success \| failure | 审计结果（OHS 契约） |
 
-**业务常量**：审计动作码 13 个（D-13，action 列存码、category=change）；DISCOVERY_PROBE_SET（D-07 探测集）；MYSQL_STATUS_FIELDS / REDIS_INFO_FIELDS（D-08 白名单）；KEY_SCAN_COUNT=200、SLOWLOG_LIMIT 默认 50 上限 200（D-09）；DUMP_SIZE_LIMIT=512MiB、mysqldump 参数模板 `--single-transaction --routines --triggers --hex-blob`（D-06）；grant_level→权限映射表（D-10：readonly→SELECT、write→SELECT,INSERT,UPDATE,DELETE、all→ALL PRIVILEGES，库级 `db.*`）；建库默认 charset=utf8mb4（D-11）。
+**业务常量**：审计动作码（D-13 基础 13 个 + v2.0 mongo_user_created/deleted/granted/revoked 4 个 + **v2.2 instance_bootstrapped**，action 列存码、category=change；instance_bootstrapped detail={engine, connMode, status}，**不含密码**，安装后配置就绪注册审计 §4.6）；DISCOVERY_PROBE_SET（D-07 探测集）；MYSQL_STATUS_FIELDS / REDIS_INFO_FIELDS（D-08 白名单）；KEY_SCAN_COUNT=200、SLOWLOG_LIMIT 默认 50 上限 200（D-09）；DUMP_SIZE_LIMIT=512MiB、mysqldump 参数模板 `--single-transaction --routines --triggers --hex-blob`（D-06）；grant_level→权限映射表（D-10：readonly→SELECT、write→SELECT,INSERT,UPDATE,DELETE、all→ALL PRIVILEGES，库级 `db.*`）；建库默认 charset=utf8mb4（D-11）。
 
 ## 4. 聚合根与领域对象详细设计
 
@@ -426,6 +428,58 @@ InstanceProber 组合 DISCOVERY_PROBE_SET 探测 + InstanceRepository 归并登�
 
 无（实况投影链路；mongo-driver 为进程内库非外部集成——R-09 口径，ACL 不适用）。
 
+### 4.6 安装后配置就绪 OHS（v2.2 新增，BootstrapAfterInstall）
+
+**定位**：本模块对 env-mgmt 提供的进程内 OHS（非 HTTP 接口，无权限矩阵/CSRF——调用方 env-mgmt worker 已在 admin 发起的安装任务上下文内）。数据库类环境安装成功后，env-mgmt 消费本 OHS 完成「建管理账户/设随机强密码 + 注册实例与凭据」，使面板装完即可治理（D-20）。**无新领域对象/无新表**——复用 db_instance 聚合与 cred_cipher 密文列、CredentialVault、InstanceRepository；引导结果为 env-mgmt 任务台账字段（bootstrap_status/note），本模块仅回传 BootstrapOutcome。
+
+**OHS 签名**：
+
+```
+BootstrapAfterInstall(ctx context.Context, engine string, actorName string) (BootstrapOutcome, error)
+  engine ∈ {mysql, redis, mongodb}（其余值返回错误，调用方 env-mgmt 仅对 BOOTSTRAP_ENV_TYPES 触发）
+  actorName = 安装任务发起者用户名（审计 actor；env_install_task.requested_by）
+BootstrapOutcome {
+  Status     string   // succeeded | failed | skipped（与 env-mgmt bootstrap_status 同值域）
+  Note       string   // 人类可读摘要/原因（**不含密码/密文/密钥**）
+  InstanceID *int64   // 注册成功时指向 db_instance.id（succeeded）；skipped 已有档案时亦返回；failed 为 nil
+}
+```
+
+**编排（每引擎，幂等保守）**：
+
+| 步 | 动作 | 失败/跳过语义 |
+|----|------|--------------|
+| 1 | 本机默认 identity 归并：GetByIdentity（mysql tcp localhost:3306 / redis tcp localhost:6379 / mongodb tcp localhost:27017）；已 credentialsSet → **skipped**（Note=已配置凭据，不覆盖） | 保护用户已有凭据（D-03 哲学） |
+| 2 | 引导通道建账户/设密码（引擎窄接口，见下）：MySQL socket root auth_socket 免密建 dougong@localhost（ALL WITH GRANT OPTION）/ Redis CONFIG SET requirepass+REWRITE / MongoDB localhost exception 建 admin root；随机强密码 crypto/rand | 账户已存在/requirepass 已设/已有用户 → **skipped**（不覆盖）；建连失败/CREATE 被拒/超时 → **failed**（Note 如实原因） |
+| 3 | 治理通道 TCP Ping 验证新凭据（mysql/redis/mongo.Ping，复用既有网关） | 验证失败 → **failed**（不写未验证凭据，Note 含排查指引） |
+| 4 | CredentialVault.Encrypt → 同事务 UPSERT db_instance（identity 不存在则创建）+ cred_username/cred_cipher + conn_state=reachable + version 刷新 + 审计 instance_bootstrapped（脱敏） | 加密/落库失败 → **failed**；成功 → **succeeded**（InstanceID 返回） |
+
+**引擎引导窄接口**（适配器实现，main 注入；与治理接口分离——既有治理测试不受影响，引导测试用替身，零 runner 实况依赖）：
+
+```
+MySQLBootstrap {
+  // 经 unix socket 以 root auth_socket 免密建连（socketPath 候选由调用方逐一尝试）；
+  // 账户已存在返回 exists=true（不创建）；否则 CREATE USER + GRANT ALL WITH GRANT OPTION
+  BootstrapAdminUser(ctx, socketPath, username, password string) (exists bool, err error)
+}
+RedisBootstrap {
+  // 免认证连 localhost:port；CONFIG GET requirepass 已设返回 alreadySet=true；
+  // 否则 CONFIG SET requirepass newPassword + CONFIG REWRITE（新密码认证）；bind 经 CONFIG GET 校验本机
+  BootstrapRequirepass(ctx, host string, port int, newPassword string) (alreadySet bool, bindLoopback bool, err error)
+}
+MongoBootstrap {
+  // 免认证连 localhost:port（localhost exception）；已有用户/已开鉴权返回 exists=true；
+  // 否则 admin 库 createUser username root 角色
+  BootstrapAdminUser(ctx, host string, port int, username, password string) (exists bool, err error)
+}
+```
+
+**约束**：引导通道命令一律参数数组（R-08，MySQL/Redis CLI）/ mongo-driver 结构化凭据（D-15）；密码经 MYSQL_PWD/REDISCLI_AUTH env 注入不进 argv（G-03）；密码明文仅引导建连与加密内存态使用，**BootstrapOutcome.Note/审计 detail/运行日志均不含密码**（I-02 零出口）；服务就绪（start/等待引擎）归 env-mgmt（SysdGateway），本 OHS 不操作进程（service-mgmt 边界）；本 OHS 不占 busy 互斥（D-12 为交互导出/导入 UX 互斥，引导为安装后置机制）。
+
+#### 4.6.1 领域事件与集成
+
+无 MQ、无领域事件。出站：AuditService.Record（instance_bootstrapped，同事务脱敏）。消费方：env-mgmt BootstrapTrigger（进程内 OHS，单向）。仓储复用 InstanceRepository（UpsertDiscovered/UpdateCredentials/GetByIdentity）+ CredentialVault。
+
 ## 5. 模块清单汇总
 
 ### 5.1 对外服务清单（进程内 OHS/内部服务）
@@ -435,6 +489,7 @@ InstanceProber 组合 DISCOVERY_PROBE_SET 探测 + InstanceRepository 归并登�
 | AuditService.Record(entry)（account-auth OHS，消费） | 本模块 → account-auth | R-03 四要素；同事务；凭据脱敏（D-13）；见 api-account-auth.md 4.3.4 |
 | DbGateway.DumpDatabase（预期暴露） | cron-backup（M8，待其 D2/D3 定义） | 数据库备份源复用方向（1.5）；本模块内为唯一实例——导出接口与未来备份任务共用同一网关方法与参数模板（D-06），届时按其模块契约正式登记 |
 | InstanceProber / CredentialVault / BackupService | 本模块内部 | 4.1.1 领域服务；busy 任务表 D-12 |
+| **BootstrapAfterInstall(ctx, engine, actorName) → BootstrapOutcome（v2.2 提供）** | **env-mgmt（安装后配置就绪 worker 消费）** | **进程内 OHS（§4.6/D-20）：建管理账户/设随机强密码 + 注册 db_instance 与凭据密文（装完即可管）；幂等保守（已配置/已存在跳过不覆盖）；治理通道 TCP 验证后落库（D-03 哲学）；BootstrapOutcome{Status,Note,InstanceID} 回传（Note 不含密码）；审计 instance_bootstrapped 同事务脱敏；引擎引导窄接口注入（零 runner 实况依赖）** |
 | 中间件 AuthRequired / CsrfGuard / RoleRequired | 复用 account-auth | 顺序见 3.1 |
 
 ### 5.2 SQL 清单（SQLite 侧，全部参数绑定，D-13）
@@ -513,6 +568,8 @@ CREATE INDEX IF NOT EXISTS idx_dbinst_engine ON db_instance(engine);
 
 | v2.0 | 2026-11-17 | interface_added / enum_value_added / table_changed | v0.1.4 用户反馈第 3 项 MongoDB 管理增量（拍板 Q1=A 范围/Q2=A 通道）：+7 接口（mongo/status、mdb/list、muser/{list,create,delete,grant,revoke}——三段式 G1-08；GET 3 两角色+POST 4 admin+CSRF，总 30）；db_engine +mongodb（迁移 011 表重建）；新枚举 mongo_role{read,readWrite,dbAdmin} 入池；D-15~D-19（driver 通道/authSource=admin/探测集 +2/库清单只读/用户三档角色）；复用 DBM_001~021 错误族与既有审计结构（+mongo_user_* 4 动作码）；+dbmongo 适配器（mongo-driver v2 新直接依赖，3.2 登记） | 1.3 / 3.1 / 3.2 / 3.3 / 4.5 / 5.3 / 6.1 |
 | v1.2 | 2026-11-17 | rule_added | v0.1.4 用户反馈 bug 修复轮（凭据验证返回裸 INTERNAL）：①错误映射补齐——ErrUnavailable（客户端二进制未检出）新增 DBM_021 承载；credentials Ping 语境未分类引擎失败（ErrQueryFailed/ErrCommandFailed）归 DBM_006（D-03 契约「连接类失败一律业务码」落实）；②tcp 模式连接参数显式 --protocol=TCP（mysql 客户端对 -h localhost 特例走 Unix socket 忽略 -P，tcp 语义被静默改道）；接口无增删改 | 3.4 / 4.1 / 6.1 |
+| v2.1 | 2026-11-17 | rule_changed | v0.1.6 后实测反馈 DBM_005 诊断轮（d0-clarification-2026-11-17-dbm005.md）：读码复核确认面板验证链路无缺陷（传参/MYSQL_PWD env 注入/错误映射逐环核验），DBM_005 为服务器真实 1045 拒绝的如实呈现；UX 规则增强——①DBM_005/006 凭据弹窗内联追加 data.reason 服务器原文（此前固定文案丢弃 reason）；②DBM_005 按引擎族呈现可操作排查指引（MySQL 族：账户存在性/host 形态覆盖连接来源/密码一致三则；redis：requirepass/ACL；mongodb：admin 库 authSource）；③DBM_005 文案订正——不再断言「用户名或密码错误」（1045 不区分账户不存在/host 落空/密码不符）；④dbmErrorText toast 路径 DBM_005/006 追加 reason。接口/DTO/错误码语义零变更（D-03 先验证后落库不动）；根因归属待服务器取证裁决 | 3.4 / 6.1 |
+| v2.2 | 2026-11-17 | rule_added + event_added（OHS） | 安装后配置就绪联动增量（env-mgmt 主导轮，d0-clarification-2026-11-17-bootstrap.md 拍板 Q1~Q4，api-env-mgmt.md v1.2 消费方）：**新增进程内 OHS BootstrapAfterInstall（§4.6/D-20）供 env-mgmt worker 消费**——建管理账户/设随机强密码 + 注册 db_instance 与凭据密文（装完即可管）；①D-20 引导编排（幂等前置 credentialsSet→skipped / 引导通道建账户〔MySQL socket root auth_socket→dougong@localhost ALL WITH GRANT OPTION、Redis CONFIG SET requirepass+REWRITE、MongoDB localhost exception admin root〕/ 治理通道 TCP 验证 / 加密 UPSERT+审计）；②引擎引导窄接口 MySQLBootstrap/RedisBootstrap/MongoBootstrap（与治理接口分离，注入替身零 runner 实况依赖）；③审计动作码 +instance_bootstrapped（脱敏）；④1.5 上下文映射 +env-mgmt 被消费行；⑤5.1 OHS 清单 +BootstrapAfterInstall。**HTTP 接口/DTO/错误码/DDL 零变更**（复用 db_instance 聚合与 cred_cipher 密文列、CredentialVault、InstanceRepository；无新表无新聚合根）；服务就绪归 env-mgmt（本模块不操作进程）；密码零回显（I-02） | 1.3（D-20）/ 1.5 / 3.4（审计动作码）/ 4.6（新增）/ 5.1 / 6.1 |
 
 ### 6.2 变更类型词汇表
 

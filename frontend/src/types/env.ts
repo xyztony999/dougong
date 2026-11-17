@@ -8,7 +8,7 @@
  *   为 JSON null——TS 类型如实 `T[] | null`，消费侧判空。
  */
 import type { DnsProvider } from './enums'
-import type { EnvTaskAction, EnvTaskStatus, EnvType, PackageManagerFamily } from './enums'
+import type { BootstrapStatus, EnvTaskAction, EnvTaskStatus, EnvType, PackageManagerFamily } from './enums'
 
 /** 通道状态（D-03 探测结论；family=null 呈现「探测不可用」） */
 export interface EnvChannel {
@@ -53,6 +53,9 @@ export interface EnvTaskItem {
   startedAt: string | null
   finishedAt: string | null
   error: string | null
+  /** 引导结果（v1.2 安装后配置就绪，D-18）：null=无引导步骤；与 status 独立。 */
+  bootstrapStatus: BootstrapStatus | null
+  bootstrapNote: string | null
 }
 
 /** GET /env/task/list 响应 data */

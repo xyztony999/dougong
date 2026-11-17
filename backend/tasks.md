@@ -1015,3 +1015,21 @@
 - [x] T07 · 合规复扫（增量面）：G-01 exec 全 CommandContext 参数数组+LookPath（envpack/acme dns 零 shell）；G-02/G-03 零命中；G-04 SQL 层外命中均注释；G-06 增量 goroutine 唯一（dispatchWorker 有限时）；gofmt 0 文件
 - 自验（2026-11-17 实跑 cwd=backend/）：go build ./...=0、go vet ./...=0、go test -race -count=1 ./... 全 ok 0 FAIL（新增测试：sitemgmt dns_inc_test 3 用例〔聚合/凭证生命周期含 D-18 分流断言/replace〕+ store envmgmt 4 用例〔生命周期/互斥/恢复/分页〕+ api envmgmt 3 用例〔两角色矩阵/ENV_001 退化/AUTH_008+ENV_002+ENV_005〕+ sitemgmt module_test 扩 CERT_009/007 断言）；GOOS=linux 交叉编译=0；迁移 008/009 经 store.Migrate 全量重放验证（migrate_test 动态计数）
   - 环境绑定如实声明：envpack 包操作（apt/dnf/yum 实机）与 sysd 单元操作归 Linux 目标环境冒烟（Windows 开发机 DetectChannel 退化 ENV_001 如实呈现，测试断言退化路径）；acme IssueDNS 三 provider 实联归 Linux 冒烟（fake 网关测试覆盖编排分支）
+
+# 增量轮 · 安装后配置就绪（2026-11-17，/pipeline session 轨，env-mgmt 主导 + db-mgmt OHS 联动）
+
+> 基线 api-env-mgmt.md v1.2（D-15~D-19）/ api-database-mgmt.md v2.2（§4.6/D-20）；D0 拍板 Q1~Q4（dougong@localhost / ALL WITH GRANT OPTION / bootstrap_status 独立维度 / Redis CONFIG SET+REWRITE）；Gate 1 WARN 用户经主会话确认 W1~W5 全过。
+- [x] T-ENV5 · env-mgmt 安装后配置就绪引导消费（api-env-mgmt v1.2）
+  - 迁移 012_env_bootstrap.sql：env_install_task +bootstrap_status TEXT CHECK(succeeded,failed,skipped) +bootstrap_note TEXT（ADD COLUMN 可空列，既有行 NULL，无表重建）
+  - store/envmgmt：Task +BootstrapStatus/BootstrapNote；taskCols/scanTask +两列；Finish 扩展（status/error/bootstrap_status/bootstrap_note 同事务定格 I-09）；BootstrapSucceeded/Failed/Skipped 常量
+  - service/envmgmt/bootstrap.go：BootstrapGateway 消费契约（dbmgmtsvc.BootstrapOutcome）+bootstrapEnvTypes{mysql,redis,mongodb}+runBootstrap（服务就绪 SysdGateway 幂等 start ⚠️A15→消费 OHS→结果定格）+recordBootstrapAudit（env_bootstrap，detail 不含密码）；worker runTask 包操作成功后后置引导（finish/finishTask 扩展引导参数，引导失败不改包安装 succeeded ⚠️A14）；dto TaskItem +bootstrapStatus/bootstrapNote；Options.Bootstrap 注入
+  - main 装配：dbSvc.SetBootstrapAdapters(mysqlGw,redisGw,mongoGw) + envSvc Options.Bootstrap=dbSvc（单向依赖 env-mgmt→db-mgmt）
+- [x] T-DBM-B1 · db-mgmt BootstrapAfterInstall OHS 提供（api-database-mgmt v2.2 §4.6/D-20）
+  - service/dbmgmt/bootstrap.go：BootstrapAfterInstall（幂等前置 credentialsSet→skipped→引导通道建账户设密码〔有界重试 BOOTSTRAP_READY_TIMEOUT=60s/2s〕→治理通道 TCP Ping 验证〔失败不写未验证凭据 D-03〕→加密 UPSERT db_instance+reachable+version+审计 instance_bootstrapped 同事务脱敏）；BootstrapOutcome{Status,Note,InstanceID}（Note 不含密码 I-02）；genBootstrapPassword（crypto/rand 24B→base64url 32 字符）；引擎引导窄接口 MySQLBootstrap/RedisBootstrap/MongoBootstrap + SetBootstrapAdapters（与治理接口分离，既有治理测试零影响）；bootReadyTimeout 测试可缩短
+  - 适配器 bootstrap.go×3：dbmysql BootstrapAdminUser（socket root auth_socket 免密引导通道，COUNT 判存在→CREATE USER dougong@localhost+GRANT ALL WITH GRANT OPTION+FLUSH，quoteUser/quoteString A-DB3）；dbredis BootstrapRequirepass（CONFIG GET requirepass 判已设→CONFIG SET+REWRITE 新密码认证+bind 校验；configGetValue/isLoopbackBind 纯函数）；dbmongo BootstrapAdminUser（localhost exception 免认证 createUser admin root；Unauthorized/AuthRejected/UserExists→exists 跳过）
+  - ActionInstanceBootstrapped 审计常量；HTTP/DTO/DDL 零变更（复用 db_instance 聚合/CredentialVault/InstanceRepository，无新表新聚合根）
+- [x] T07 · 合规复扫（增量面）：G-01 bootstrap.go×5 零 exec/sh -c（经 g.query/g.run/withClient 参数数组 R-08）；G-02/G-04 service 层零直接 SQL（经仓储参数绑定；引擎侧 quoteString A-DB10）；G-03 零硬编码凭据（crypto/rand；root 空密码=auth_socket 非秘密；MYSQL_PWD/REDISCLI_AUTH env 不进 argv）；G-05 零 panic；G-06 零新增 goroutine（引导运行于既有 worker 有限时 goroutine）；gofmt 0 文件
+- 自验（2026-11-17 实跑 cwd=backend/）：go build ./...=0、go vet（本轮 9 包）=0、go test -race -count=1 本轮 9 包全 ok 0 FAIL（新增：store TestBootstrapResultRoundTrip〔012 两列定格/独立维度/NULL/CHECK 拒绝〕+ service/dbmgmt bootstrap_test 11 用例〔succeeded/skipped×3/verifyFailed/connRetryThenFail/unsupported/notConfigured/password 强度，fake 替身〕+ service/envmgmt bootstrap_test 5 用例〔succeeded/nonDB/failed/nilGateway/OHSError〕+ dbredis 纯函数 2 用例）；GOOS=linux 交叉=0；dist 同步后 build=0；service/dbmgmt 覆盖 86.4% 超 80% 目标，runBootstrap 100%
+  - CI 环境耦合预防第 7 起：引导类测试全注入化（fakeMySQLBoot/fakeRedisBoot/fakeMongoBoot/fakeBoot 替身 + dbredis 纯函数），零 runner 实况引擎依赖
+  - 环境绑定如实声明：dbmysql/dbmongo BootstrapAdminUser、dbredis BootstrapRequirepass 需实况引擎（Windows 无 mysql socket/mongod/redis-cli），0% 归 Linux 目标环境冒烟（service 层编排全注入覆盖）；实机冒烟清单见 gate2-env-bootstrap-inc-2026-11-17.md §7
+  - 工作区纪律：不触碰 ACME v2.4 轮（service/panel acme_test.go:490 env.dir 编译错误归属 ACME 轮，全仓 go test ./... 该包 FAIL 非本轮）与 DBM_005 UX 轮未提交改动；本轮 vet/test scoped 9 包；git 操作主会话统一

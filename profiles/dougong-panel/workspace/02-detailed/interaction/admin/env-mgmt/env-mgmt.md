@@ -2,13 +2,13 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v1.2 |
+| 版本 | v1.3 |
 | 状态 | 稳定 |
-| 最后更新 | 2026-11-17（v1.2 v0.1.4 反馈第 1 项刷新语义修复） |
+| 最后更新 | 2026-11-17（v1.3 安装后配置就绪引导结果呈现增量） |
 | 用户类型 | admin |
-| 唯一数据源 | 02-detailed/api/api-env-mgmt.md v1.1 |
+| 唯一数据源 | 02-detailed/api/api-env-mgmt.md v1.2 |
 | 组件体系 | Vue 3 + Naive UI（NGrid/NCard/NTag/NButton/NModal/NPopconfirm/NDrawer/NAlert/NSwitch/NSpin） |
-| 确认方式 | headless run：7 项交互确认依据 D3 契约（api-env-mgmt.md D-01~D-12）+ ⚠️A1~A7 + FL v1.0 + PRD FR-01~06 推导，标注于各节 |
+| 确认方式 | headless run：7 项交互确认依据 D3 契约（api-env-mgmt.md D-01~D-19）+ ⚠️A1~A15 + FL v1.1 + PRD FR-01~07 推导，标注于各节 |
 
 ## 第 1 节 模块元信息
 
@@ -48,9 +48,10 @@
 | env_task_action | install / upgrade / uninstall | 任务动作 Tag（Drawer） |
 | env_task_status | pending / running / succeeded / failed | 任务状态 Tag（colorTag）+筛选 |
 | package_manager_family | apt / dnf / yum | 通道状态呈现 |
+| bootstrap_status | succeeded / failed / skipped（v1.3，与池/DDL CHECK/api 三方 S8 同值；NULL=无引导步骤非枚举值，不渲染角标） | 任务引导结果角标（列表）+ 详情横幅（4.2/4.3） |
 | panel_role | admin / readonly | 角色判断（按钮可见性） |
 
-**数据源规范偏差声明**：不实现 `POST /{domain}/dict/batch`（分册 3.6）——5 枚举全部固定值，字典由前端 TS 常量提供（单一事实源 04-business-enum.md；全仓既有偏差先例）。
+**数据源规范偏差声明**：不实现 `POST /{domain}/dict/batch`（分册 3.6）——6 枚举全部固定值，字典由前端 TS 常量提供（单一事实源 04-business-enum.md；全仓既有偏差先例）。
 
 **状态颜色方案**（分册 3.1 语义映射）：
 
@@ -60,6 +61,9 @@
 | env_task_status::running | blue（进行中，Spin 图标伴随） |
 | env_task_status::succeeded | green |
 | env_task_status::failed | red |
+| bootstrap_status::succeeded | green（已就绪） |
+| bootstrap_status::failed | orange（已安装·引导失败——区别任务 failed 红，包已装故非红） |
+| bootstrap_status::skipped | gray（保守跳过） |
 | 服务运行 running / 自启 on | green |
 | 服务停止 / 自启 off | gray |
 | 通道 available=true | green；false=orange（变更不可用警示） |
@@ -111,6 +115,7 @@
 | 环境 | envType | dict env_type | 110 | displayName 渲染 |
 | 动作 | action | dict env_task_action | 90 | install=「安装」/upgrade=「升级」/uninstall=「卸载」 |
 | 状态 | status | dict env_task_status | 110 | colorTag；failed 行附 error NTooltip |
+| 引导 | bootstrapStatus | dict bootstrap_status | 90 | v1.3：非空→colorTag（succeeded=「已就绪」green/failed=「引导失败」orange/skipped=「跳过」gray）+ bootstrapNote NTooltip；NULL（无引导步骤）→「—」不渲染角标 |
 | 发起者 | requestedBy | text | 100 | — |
 | 发起时间 | createdAt | text | 170 | 本地时区 |
 | 结束时间 | finishedAt | text | 170 | 未结束「—」 |
@@ -127,7 +132,8 @@
 |------|------|
 | 概要 | envType（displayName）/action/status（colorTag）/requestedBy/createdAt/startedAt/finishedAt |
 | 失败原因 | error 非空 → NAlert error（含 timeout/面板重启中断如实呈现，D-04/I-04） |
-| 命令输出尾部 | outputTail 只读等宽文本块（≤200 行，D-08）；running 态伴随 Spin +「执行中」 |
+| 引导结果（v1.3，bootstrapStatus 非空时渲染） | **succeeded** → NAlert success「配置就绪：已创建管理账户并注册到数据库管理，可直接治理」+「前往数据库管理」链接（/databases）；**failed** → NAlert warning「已安装·引导失败」+ bootstrapNote 原因 + 恢复指引「可重新安装/升级以重试引导（幂等）」（任务 status 仍 succeeded——包已装，引导失败独立维度，D-18/⚠️A14）；**skipped** → NAlert info「保守跳过：」+ bootstrapNote（如「实例已配置凭据」/「管理账户已存在」，不覆盖用户已有配置，⚠️A13）；NULL（无引导步骤）→ 不渲染 |
+| 命令输出尾部 | outputTail 只读等宽文本块（≤200 行，D-08；含 [bootstrap] 引导步骤行）；running 态伴随 Spin +「执行中」 |
 | 刷新 | 手动刷新按钮；**running/pending 态自动轮询 5s**（终态即停，onUnmounted 清理——cron-backup 详情 Drawer 同构先例）；**终态跃迁触发环境全景与任务清单重拉**（v1.2：任务完成后 installed/version/service 态与在途标记落定——v0.1.4 反馈第 1 项；发起 install/upgrade/uninstall 成功后的写后刷新既有语义复核保持） |
 
 **readonly 视角差异**：任务列表与详情同等可看（ADR-018），无操作按钮。
@@ -154,8 +160,8 @@
 
 | # | 检查 | 结果 |
 |---|------|------|
-| 1 | Action ↔ api-env-mgmt.md 接口一一对应（S7） | ✅ 10/10 全映射，无虚构 |
-| 2 | 字典 Key ↔ 04-business-enum.md 定稿枚举一一对应（S8） | ✅ 5/5（env_type〔七值 v1.1〕/env_task_action/env_task_status/package_manager_family/panel_role，取值逐字对齐定稿） |
+| 1 | Action ↔ api-env-mgmt.md 接口一一对应（S7） | ✅ 10/10 全映射，无虚构（v1.3 引导为 worker 机制+OHS，无新 HTTP Action；task/list·detail 仅响应字段扩展） |
+| 2 | 字典 Key ↔ 04-business-enum.md 定稿枚举一一对应（S8） | ✅ 6/6（env_type〔七值 v1.1〕/env_task_action/env_task_status/package_manager_family/**bootstrap_status〔三值 v1.3〕**/panel_role，取值逐字对齐定稿） |
 | 3 | 所有 POST Action 均携带 X-CSRF-Token（拦截器统一注入） | ✅ |
 | 4 | ADR-018 边界：readonly 操作区/安装/卸载/服务操作不渲染 + 后端 AUTH_008 双保险 | ✅ 4.1 |
 | 5 | 错误文案与 api 3.4 错误码一一对应（ENV_001~006/AUTH 族） | ✅ 第 1 节错误处理 |
@@ -173,5 +179,6 @@
 | v1.1a | 2026-11-17 | content_changed | UI 轮用户拍板：卡片移除「安装后可配合「X」模块使用」软引导行（relatedModule 字段随 api v1.1a 移除）；描述行仅环境本体描述 |
 | v1.1 | 2026-11-17 | dict_changed + content_changed | W1 实机冒烟缺陷修复轮（数据源升 api v1.1）：①字典 env_type 六值→七值（+mongodb，S8 与池/DDL/api 同值）；②4.1 卡片网格六→七条目（+MongoDB 卡片：displayName=MongoDB/relatedModule=数据库管理）；③实况三态呈现精确化（⚠️A9：null=条目级真错误角标，通道级不可用归页头横幅不重复渲染；false=未安装含包名不在数据库形态）；④安装确认文案提及 MongoDB/Docker CE 第三方源代配；卸载警示二补 MongoDB、提交文案补源文件保留说明；⑤第 8 节检查 2/8 同步修订 |
 | v1.2 | 2026-11-17 | content_changed | v0.1.4 用户反馈第 1 项（环境页刷新机制缺陷修复）：任务详情在途→终态跃迁时触发环境全景（loadList）与任务清单（loadTasks）重拉——修复「任务完成后环境列表不重拉、用户看到旧 installed/版本/服务态」；轮询纪律不变（running 5s/终态即停/无 SSE/WS，D 阶段口径保持）；readonly 同步（任务 Drawer 两角色可看） | 4.3 |
+| v1.3 | 2026-11-17 | dict_changed + content_changed | 安装后配置就绪增量（数据源升 api v1.2，D-15~D-19/⚠️A11~A15）：①字典 +bootstrap_status（三值 succeeded/failed/skipped，S8 6/6 与池/DDL/api 同值；NULL=无引导步骤不渲染）+颜色方案（succeeded green/failed orange〔包已装故非红〕/skipped gray）；②4.2 任务列表 +「引导」列（bootstrapStatus colorTag + bootstrapNote NTooltip）；③4.3 任务详情 +引导结果横幅（succeeded=已就绪+前往数据库管理链接 / failed=已安装·引导失败+原因+重新安装/升级重试指引 / skipped=保守跳过说明；任务 status 仍包操作结果，引导失败独立维度 D-18）；④outputTail 含 [bootstrap] 行注记；⑤第 8 节检查 1/2 同步（S7 10/10 不变——引导无新 HTTP Action）。**Action/路由/表单零变更**（引导由 worker 自动触发，结果经既有 task/detail 呈现）；readonly 同步（引导结果两角色可看） | 3 / 4.2 / 4.3 / 8 |
 
 > FX 质量清单说明：FX-001~FX-141 逐条清单文件未随引擎 payload 发布，本节按分册 9 节结构逐节落实，并以第 8 节 10 项全局一致性自查替代可机械执行部分（全仓先例）；全量 141 项留待 Gate 1 validation 执行。

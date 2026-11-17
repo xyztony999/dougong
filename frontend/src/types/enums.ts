@@ -624,3 +624,13 @@ export const PACKAGE_MANAGER_FAMILY: Record<PackageManagerFamily, DictItem> = {
   dnf: { label: 'dnf', tag: 'success' },
   yum: { label: 'yum', tag: 'success' }
 }
+
+/** bootstrap_status（v1.2 安装后配置就绪，⚠️A14 独立结果维度）：succeeded green/
+ * failed orange（包已装故非红）/skipped gray；NULL=无引导步骤非枚举值不渲染。
+ * 与 env_task_status 独立——任务 status 仍包操作四态，引导失败不改 succeeded。 */
+export type BootstrapStatus = 'succeeded' | 'failed' | 'skipped'
+export const BOOTSTRAP_STATUS: Record<BootstrapStatus, DictItem> = {
+  succeeded: { label: '已就绪', tag: 'success' },
+  failed: { label: '引导失败', tag: 'warning' },
+  skipped: { label: '跳过', tag: 'default' }
+}

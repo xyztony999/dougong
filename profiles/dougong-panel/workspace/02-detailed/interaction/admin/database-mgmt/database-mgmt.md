@@ -2,11 +2,11 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v1.2 |
+| 版本 | v1.3 |
 | 状态 | 稳定 |
 | 最后更新 | 2026-11-17 |
 | 用户类型 | admin |
-| 唯一数据源 | 02-detailed/api/api-database-mgmt.md v2.0 |
+| 唯一数据源 | 02-detailed/api/api-database-mgmt.md v2.1 |
 | 组件体系 | Vue 3 + Naive UI（knowledge/architecture-choices 栈版本表；无激活栈 profile，不使用 vue3-engine 栈 Scm* 组件） |
 | 确认方式 | headless run：7 项交互确认依据 D3 契约（api-database-mgmt.md）+ ADR-018 + FL v1.0 推导，标注于各节 |
 
@@ -144,7 +144,7 @@
 | 用户名 | NInput | 必填 | — |
 | 密码 | NInput type=password | 必填；**不回显**（无任何读出口，⚠️A18/api I-02） | — |
 
-**交互**：提交即验证（D-03）——DBM_005 内联「认证失败：用户名或密码错误」、DBM_006 内联「连接失败：网络或 socket 不可达」（均不落库语义，弹窗保持打开）；成功 toast「凭据已验证并保存」+ 行状态刷新（connState=reachable、credentialsSet=true）。连接目标纠正字段变更触发 DBM_020 时提示「该连接目标已存在其他实例档案」。
+**交互**：提交即验证（D-03）——DBM_005 内联「认证被拒（未保存）：服务器拒绝了该账户的登录」+ **data.reason 服务器原文**（v1.3）+ **按引擎族可操作排查指引**（v1.3，dbmAuthRejectedTips：MySQL/MariaDB 三则=账户存在性[MySQL 对不存在账户同样回 Access denied]/host 形态覆盖连接来源[TCP 连 localhost 须 localhost/127.0.0.1/%，建用户默认 host=localhost]/密码一致[@ 等特殊字符原样传递，ALTER USER 重置或用户管理删除重建]；Redis=requirepass/ACL；MongoDB=admin 库 authSource=admin）；DBM_006 内联「连接失败（未保存）：网络或 socket 不可达」+ data.reason 服务器原文（v1.3）（均不落库语义，弹窗保持打开；文案不再断言「用户名或密码错误」——1045 不区分账户不存在/host 落空/密码不符）；成功 toast「凭据已验证并保存」+ 行状态刷新（connState=reachable、credentialsSet=true）。连接目标纠正字段变更触发 DBM_020 时提示「该连接目标已存在其他实例档案」。
 
 ### 5.2 建库弹窗（databaseCreate，mysql-manage 库 Tab 工具栏）
 
@@ -315,5 +315,6 @@
 | v1.0 | 2026-11-12 | initial | 首次生成：3 页面（db-list config + mysql-manage hybrid 三 Tab + redis-manage hybrid 三 Tab[含 admin 专属 key Tab]）、23 Action、4 字典 Key、8 个表单弹窗/行内动作 |
 | v1.1 | 2026-11-12 | interface_changed | Gate 1 F-1 同步：redisKeyList/redisKeyTtl 路径随 API v1.1 由四段式 /db/redis/key/{list,ttl} 改为三段式 /db/key/{list,ttl}（Action 名/页面归属/权限不变，S7 映射 23/23 保持） | 2 |
 | v1.2 | 2026-11-17 | interface_added / enum_added | v0.1.4 反馈第 3 项 MongoDB 增量（API v2.0 同步）：+7 Action（S7 30/30）——mongoStatus/mongoDatabaseList/mongoUserList（两角色）+mongoUserCreate/Delete/Grant/Revoke（admin+CSRF）；新页面 6.3 mongo-manage（三 Tab：状态概览白名单/数据库只读投影（名称/大小/集合数，无建删库 D-18）/用户治理（三档库级角色 D-19））；表单 5.9 建用户/5.10 角色管理/5.11 删除行内；字典 +mongo_role 三值 + db_engine +mongodb（S8 5/5 同值）；路由 +/databases/mongo/:instanceId（engineGuard mongodb）；配色 mongodb=green、mongo_role 三色 | 2/3/5/6/7/8 |
+| v1.3 | 2026-11-17 | rule_changed | v0.1.6 后 DBM_005 诊断轮 UX 增强（API v2.1 同步，d0-clarification-2026-11-17-dbm005.md）：5.1 凭据弹窗 DBM_005/006 内联追加 data.reason 服务器原文；DBM_005 另按引擎族呈现可操作排查指引（dbmAuthRejectedTips 纯函数）；DBM_005 文案订正不再断言「用户名或密码错误」；Action/接口/字典零变更（S7 30/30 保持）；readonly 无凭据配置面（负空间）无需同步 | 5.1 |
 
 > FX 质量清单说明：FX-001~FX-141 逐条清单文件未随引擎 0.5.2 payload 发布（find 验证无 checklist.md，与 account-auth PageSpec 同判），本节按分册 9 节结构逐节落实，并以第 8 节 10 项全局一致性自查替代可机械执行部分；全量 141 项留待 Gate 1 validation 执行。
