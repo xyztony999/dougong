@@ -93,8 +93,8 @@ func (g *Gateway) EnsureVendorRepo(ctx context.Context, envType, family string) 
 
 // ensureMongoApt：Debian 系 mongodb-org 源（Ubuntu：focal/jammy/noble +
 // multiverse 组件；Debian：bullseye/bookworm + main）。signed-by 引用面板
-// 下载的官方公钥 .asc（Go net/http，不依赖 curl/gpg 外部命令；apt ≥2.2
-// 支持 armored key 直接作 signed-by）。
+// 下载的官方公钥 .asc（Go net/http，不依赖 curl/gpg 外部命令；armored
+// .asc 作 signed-by 在 noble（apt 2.7/3.2）实测可用——前提是选项分隔正确）。
 func (g *Gateway) ensureMongoApt(ctx context.Context, rel osRelease) (string, error) {
 	suite, component := "", ""
 	switch rel.ID {
@@ -115,13 +115,17 @@ func (g *Gateway) ensureMongoApt(ctx context.Context, rel osRelease) (string, er
 	default:
 		return unsupportedMsg("mongodb", rel)
 	}
+	// v0.1.3b 实机修正：单行源格式多个选项以空格分隔——逗号会被并入 arch
+	// 值、signed-by 被静默吞掉 → apt 退回默认信任库 → NO_PUBKEY（实机教训，
+	// WSL noble 复现：gpgv 手验 Good signature 而 apt 报公钥不可用）。
+	// 组件仅发行版对应组件（ubuntu=multiverse / debian=main），无附加 main。
 	opts := "signed-by=" + mongodbKeyPath
 	switch runtime.GOARCH { // MongoDB 仅 amd64/arm64；其余架构不限定（apt 自行解析，失败如实）
 	case "amd64", "arm64":
-		opts = "arch=" + runtime.GOARCH + "," + opts
+		opts = "arch=" + runtime.GOARCH + " " + opts
 	}
 	content := fmt.Sprintf(
-		"deb [%s] https://repo.mongodb.org/apt/%s %s/mongodb-org/%s %s main\n",
+		"deb [%s] https://repo.mongodb.org/apt/%s %s/mongodb-org/%s %s\n",
 		opts, rel.ID, suite, mongodbTrack, component)
 	listPart, err := g.writeKeyAndList(ctx, content, mongodbAptList, rel.ID+" "+suite)
 	if err != nil {

@@ -9,6 +9,7 @@
 ### 变更内容
 
 - **修复环境升级在 conffile 冲突时失败**：升级中若新包携带的配置文件（如 `/etc/nginx/nginx.conf`）与本地已修改版本冲突，dpkg 会弹出交互式 Y/N 提示——无人值守环境下无 stdin 可读，直接失败（实机案例：Ubuntu 原生 nginx 1.24 经 nginx.org 源升 1.30 时卡死）。现采用无人值守标准三保险：`DEBIAN_FRONTEND=noninteractive` + `--force-confdef` + `--force-confold`——**本地已修改的配置保持现版不被覆盖**，发行版新版落 `.dpkg-dist` 旁置文件供事后对比
+- **修复 MongoDB 源代配后签名验证失败（NO_PUBKEY）**：生成的 apt 单行源里 `arch` 与 `signed-by` 两个选项误用逗号分隔——apt 把整串并入 arch 值，`signed-by` 被静默丢弃，退回默认信任库后无法验证 MongoDB 官方源签名。已改为空格分隔并修正组件名（Ubuntu 用 `multiverse`、Debian 用 `main`，不再附加多余 `main`）；密钥本身无误（armored `.asc` 在 Ubuntu 24.04 实测可用）
 - 包操作命令由 `apt` 改为 `apt-get`（脚本场景稳定接口，消除 apt 自身的 WARNING 噪音）
 
 ### 安装与升级

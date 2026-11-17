@@ -64,11 +64,12 @@ ID_LIKE=debian
 	archOpt := "signed-by=/usr/share/keyrings/mongodb-server-8.0.asc"
 	switch runtime.GOARCH { // 与实现同源：仅 amd64/arm64 限定 arch，其余不限定
 	case "amd64", "arm64":
-		archOpt = "arch=" + runtime.GOARCH + "," + archOpt
+		// v0.1.3b：多选项空格分隔（逗号会把 signed-by 并入 arch 值被 apt 静默丢弃）
+		archOpt = "arch=" + runtime.GOARCH + " " + archOpt
 	}
 	for _, want := range []string{
 		"deb [" + archOpt + "]",
-		"https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/8.0 multiverse main",
+		"https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/8.0 multiverse",
 	} {
 		if !strings.Contains(list, want) {
 			t.Fatalf("list missing %q: %s", want, list)
@@ -91,11 +92,14 @@ VERSION_CODENAME=bookworm
 		t.Fatalf("err: %v", err)
 	}
 	list := d.written[mongodbAptList]
-	if !strings.Contains(list, "https://repo.mongodb.org/apt/debian bookworm/mongodb-org/8.0 main") {
+	if !strings.Contains(list, "https://repo.mongodb.org/apt/debian bookworm/mongodb-org/8.0 main\n") {
 		t.Fatalf("debian line wrong: %s", list)
 	}
 	if strings.Contains(list, "multiverse") {
 		t.Fatalf("debian must not use multiverse component: %s", list)
+	}
+	if strings.Contains(list, "main main") {
+		t.Fatalf("debian must not append a second main component: %s", list)
 	}
 }
 
