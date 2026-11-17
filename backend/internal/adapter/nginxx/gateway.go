@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -331,7 +332,19 @@ func (g *Gateway) Reload(ctx context.Context) (string, error) {
 	if err := cmd.Run(); err != nil {
 		var ee *exec.ExitError
 		if cctx.Err() == nil && errors.As(err, &ee) { // 命令本身失败（D-05：配置保留 + 输出报错）
-			return buf.String(), fmt.Errorf("nginxx: reload exit: %w: %s", err, buf.String())
+			out := buf.String()
+			// v2.7 存量坑回退：pid 文件空/缺失使 -s reload 失败而 master 仍存活
+			// （实机：/run/nginx.pid 空文件，systemd ExecReload 同败）——解析
+			// master PID 直接 SIGHUP（同平滑重载语义）；解析/发信号失败则保留原错误。
+			if isPidFileErr(out) {
+				if pid, perr := masterPid(cctx); perr == nil {
+					if kerr := signalHup(pid); kerr == nil {
+						return out + "\n(nginx -s reload 因 pid 文件无效失败；已回退 SIGHUP master pid " +
+							strconv.Itoa(pid) + ")", nil
+					}
+				}
+			}
+			return out, fmt.Errorf("nginxx: reload exit: %w: %s", err, out)
 		}
 		return "", fmt.Errorf("%w: %s -s reload: %v", ErrUnavailable, g.binName, err)
 	}
