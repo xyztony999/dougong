@@ -162,11 +162,12 @@ func (g *Gateway) QueryInstalled(ctx context.Context, family, pkgName string) (s
 	return v, true, nil
 }
 
-// RefreshIndex 刷新包索引（D-05：apt update / dnf makecache / yum makecache）。
+// RefreshIndex 刷新包索引（D-05：apt-get update / dnf makecache / yum makecache；
+// 脚本场景用 apt-get——apt 自警无稳定 CLI 接口）。
 func (g *Gateway) RefreshIndex(ctx context.Context, family string) (string, error) {
 	switch family {
 	case "apt":
-		return g.run(ctx, "apt", "update")
+		return g.run(ctx, "apt-get", "update")
 	case "dnf":
 		return g.run(ctx, "dnf", "makecache")
 	case "yum":
@@ -175,13 +176,23 @@ func (g *Gateway) RefreshIndex(ctx context.Context, family string) (string, erro
 	return "", errors.New("envpack: channel unavailable")
 }
 
-// Install 安装包（-y 非交互；D-10 超时）。
+// Install 安装/升级包（脚本场景用 apt-get；D-10 超时）。
+//
+// apt 系无人值守三保险（v0.1.3 实机教训：升级 nginx.org 1.30 时 dpkg 对
+// /etc/nginx/nginx.conf 弹交互式 conffile Y/N 提示，-y 与 DEBIAN_FRONTEND 均
+// 不代答 → EOF on stdin → 包卡半配置）：
+//  1. DEBIAN_FRONTEND=noninteractive（Env 注入不进 argv）压掉大部分交互；
+//  2. --force-confdef：未被本地修改的 conffile 才取发行版新版；
+//  3. --force-confold：本地已改的 conffile 保持现版，新版落 .dpkg-dist 旁置
+//     供管理员事后 diff——无人值守升级绝不静默覆盖生产配置。
 func (g *Gateway) Install(ctx context.Context, family, pkgName string) (string, error) {
 	switch family {
 	case "apt":
-		// env DEBIAN_FRONTEND=noninteractive 经命令 Env 注入（不进 argv）。
 		return g.runEnv(ctx, map[string]string{"DEBIAN_FRONTEND": "noninteractive"},
-			"apt", "install", "-y", pkgName)
+			"apt-get", "-y",
+			"-o", "Dpkg::Options::=--force-confdef",
+			"-o", "Dpkg::Options::=--force-confold",
+			"install", pkgName)
 	case "dnf":
 		return g.run(ctx, "dnf", "install", "-y", pkgName)
 	case "yum":
@@ -195,7 +206,7 @@ func (g *Gateway) Remove(ctx context.Context, family, pkgName string) (string, e
 	switch family {
 	case "apt":
 		return g.runEnv(ctx, map[string]string{"DEBIAN_FRONTEND": "noninteractive"},
-			"apt", "remove", "-y", pkgName)
+			"apt-get", "remove", "-y", pkgName)
 	case "dnf":
 		return g.run(ctx, "dnf", "remove", "-y", pkgName)
 	case "yum":

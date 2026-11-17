@@ -121,3 +121,55 @@ func TestQueryInstalledArgvShape(t *testing.T) {
 		t.Fatalf("argv shape = %s %v", gotName, gotArgs)
 	}
 }
+
+// TestInstallAptUnattendedShape 无人值守升级命令形态（v0.1.3 实机教训回归：
+// dpkg conffile 交互提示打崩无 stdin 的面板进程）——apt-get + DEBIAN_FRONTEND
+// + --force-confdef/--force-confold（本地已改配置保持现版，新版落 .dpkg-dist）。
+func TestInstallAptUnattendedShape(t *testing.T) {
+	var gotName string
+	var gotArgs []string
+	var gotEnv map[string]string
+	fr := func(_ context.Context, env map[string]string, name string, args []string) (string, error) {
+		gotEnv, gotName, gotArgs = env, name, args
+		return "", nil
+	}
+	g := NewGatewayWithRunners(nil, fr)
+	if _, err := g.Install(context.Background(), "apt", "nginx"); err != nil {
+		t.Fatal(err)
+	}
+	if gotName != "apt-get" {
+		t.Fatalf("bin = %s, want apt-get", gotName)
+	}
+	if gotEnv["DEBIAN_FRONTEND"] != "noninteractive" {
+		t.Fatalf("env = %v, want DEBIAN_FRONTEND=noninteractive", gotEnv)
+	}
+	joined := strings.Join(gotArgs, " ")
+	for _, want := range []string{
+		"-o Dpkg::Options::=--force-confdef",
+		"-o Dpkg::Options::=--force-confold",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("args %q missing %q", joined, want)
+		}
+	}
+	if !strings.Contains(joined, "install nginx") {
+		t.Fatalf("args %q missing 'install nginx'", joined)
+	}
+}
+
+// TestRefreshIndexUsesAptGet 脚本场景用 apt-get（apt 自警无稳定 CLI 接口）。
+func TestRefreshIndexUsesAptGet(t *testing.T) {
+	var gotName string
+	var gotArgs []string
+	fr := func(_ context.Context, _ map[string]string, name string, args []string) (string, error) {
+		gotName, gotArgs = name, args
+		return "", nil
+	}
+	g := NewGatewayWithRunners(nil, fr)
+	if _, err := g.RefreshIndex(context.Background(), "apt"); err != nil {
+		t.Fatal(err)
+	}
+	if gotName != "apt-get" || len(gotArgs) != 1 || gotArgs[0] != "update" {
+		t.Fatalf("refresh = %s %v, want apt-get [update]", gotName, gotArgs)
+	}
+}

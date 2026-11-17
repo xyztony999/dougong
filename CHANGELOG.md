@@ -2,6 +2,22 @@
 
 发布说明按版本倒序排列；每个版本的完整说明也会作为 GitHub Release 正文发布。
 
+## v0.1.4 - 2026-11-17
+
+环境管理升级链路热修（v0.1.3 服务器实测反馈）。
+
+### 变更内容
+
+- **修复环境升级在 conffile 冲突时失败**：升级中若新包携带的配置文件（如 `/etc/nginx/nginx.conf`）与本地已修改版本冲突，dpkg 会弹出交互式 Y/N 提示——无人值守环境下无 stdin 可读，直接失败（实机案例：Ubuntu 原生 nginx 1.24 经 nginx.org 源升 1.30 时卡死）。现采用无人值守标准三保险：`DEBIAN_FRONTEND=noninteractive` + `--force-confdef` + `--force-confold`——**本地已修改的配置保持现版不被覆盖**，发行版新版落 `.dpkg-dist` 旁置文件供事后对比
+- 包操作命令由 `apt` 改为 `apt-get`（脚本场景稳定接口，消除 apt 自身的 WARNING 噪音）
+
+### 安装与升级
+
+- 服务器重跑安装命令即可（同 v0.1.3 方式；数据不动）
+- **若你的服务器已卡在半配置状态**（升级报 `end of file on stdin at conffile prompt`），先手动解卡再升级面板：
+  `sudo DEBIAN_FRONTEND=noninteractive apt-get -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -f install`
+  然后在面板重新发起升级，即可带新策略完成
+
 ## v0.1.3 - 2026-11-17
 
 环境管理实机缺陷修复轮（v0.1.2 上线后的第一批服务器实测反馈）+ 面板 UI 打磨轮。
