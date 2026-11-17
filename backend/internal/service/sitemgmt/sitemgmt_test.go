@@ -1196,6 +1196,11 @@ func TestCertRequestHTTP01ServerLevelRedirect(t *testing.T) {
 	if got := readConf(t, p); strings.Contains(got, "acme-challenge") || got != conf {
 		t.Fatalf("cleanup 应整文件恢复原字节:\n%s", got)
 	}
+	// v2.5 回归锁：注入后与复原后各至少一次 reload——运行中 nginx 必须真正
+	// 加载/移除挑战 location（v0.1.4~v0.1.7 实机 404 根因=缺 reload）。
+	if env.gw.reloadCalls < 2 {
+		t.Fatalf("reload 调用 = %d, want >= 2（注入+复原各一次）", env.gw.reloadCalls)
+	}
 }
 
 // TestCertRequestHTTP01CrossFile v2.3：80 与 443 块分属不同文件——两文件均

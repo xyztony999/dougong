@@ -354,6 +354,13 @@ func (s *Service) prepareHTTP01(ctx context.Context, entry *SiteEntry) (func(), 
 		if err := s.applyPipeline(ctx, entry.File, content, false); err != nil {
 			return nil, err
 		}
+		// v2.5：注入后必须 reload——applyPipeline 不含 reload（D-05 语义由
+		// 调用方呈现），缺 reload 则运行中 nginx 永远看不到挑战 location
+		// （v0.1.4~v0.1.7 实机 HTTP-01 全 404 的根因）。
+		if _, rerr := s.gw.Reload(ctx); rerr != nil {
+			s.restoreCleanup(ctx, entry.File, orig)()
+			return nil, fmt.Errorf("site-mgmt: reload after challenge inject: %w", rerr)
+		}
 		return s.restoreCleanup(ctx, entry.File, orig), nil
 	}
 	// 跨文件分组：匹配块按文件聚合；无 80 匹配块时补默认兜底块。
@@ -393,11 +400,18 @@ func (s *Service) prepareHTTP01(ctx context.Context, entry *SiteEntry) (func(), 
 	}
 	written := make([]struct{ file, orig string }, 0, len(order))
 	restore := func() { // 逆序逐文件复原（失败记日志——保持注入态可服务可排障）
+		rctx := context.WithoutCancel(ctx)
 		for i := len(written) - 1; i >= 0; i-- {
 			w := written[i]
-			if rerr := s.applyPipeline(context.WithoutCancel(ctx), w.file, w.orig, false); rerr != nil {
+			if rerr := s.applyPipeline(rctx, w.file, w.orig, false); rerr != nil {
 				slog.ErrorContext(ctx, "site-mgmt: challenge restore failed",
 					"file", w.file, "err", rerr)
+			}
+		}
+		if len(written) > 0 { // v2.5：复原后 reload 使运行中 nginx 移除挑战 location
+			if _, rerr := s.gw.Reload(rctx); rerr != nil {
+				slog.WarnContext(ctx, "site-mgmt: reload after challenge restore",
+					"err", rerr) // D-05：配置保留，日志呈现
 			}
 		}
 	}
@@ -423,14 +437,26 @@ func (s *Service) prepareHTTP01(ctx context.Context, entry *SiteEntry) (func(), 
 		}
 		written = append(written, struct{ file, orig string }{f, orig})
 	}
+	// v2.5：注入写回后 reload——运行中 nginx 加载挑战 location（缺此步则
+	// LE 校验永远 404：v0.1.4~v0.1.7 实机根因）。失败=复原并报错（挑战前提
+	// 不成立，签发必败，不留半注入态）。
+	if _, rerr := s.gw.Reload(ctx); rerr != nil {
+		restore()
+		return nil, fmt.Errorf("site-mgmt: reload after challenge inject: %w", rerr)
+	}
 	return func() { restore() }, nil
 }
 
-// restoreCleanup 单文件复原闭包（dormant 路径）。
+// restoreCleanup 单文件复原闭包（dormant 路径；v2.5 复原后 reload）。
 func (s *Service) restoreCleanup(ctx context.Context, file, orig string) func() {
 	return func() {
-		if rerr := s.applyPipeline(context.WithoutCancel(ctx), file, orig, false); rerr != nil {
+		rctx := context.WithoutCancel(ctx)
+		if rerr := s.applyPipeline(rctx, file, orig, false); rerr != nil {
 			slog.ErrorContext(ctx, "site-mgmt: challenge location restore failed",
+				"file", file, "err", rerr)
+		}
+		if _, rerr := s.gw.Reload(rctx); rerr != nil {
+			slog.WarnContext(ctx, "site-mgmt: reload after challenge restore",
 				"file", file, "err", rerr)
 		}
 	}
