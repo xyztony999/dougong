@@ -303,64 +303,175 @@ func (s *Service) findActiveByDomains(ctx context.Context, domains []string) *st
 	return fallback
 }
 
-// prepareHTTP01 A-SM10（v2.2 修正）：已有 /.well-known/acme-challenge/ location
-// → 复用其 root 为 webroot（零写回；复用判定扩至全部相关 server 块）；无 →
-// 经 WritePipeline 在**同文件全部相关 server 块**（server_name 与申请域名
-// 精确/泛域名匹配，含 80 与 443 块）注入临时 location，并对块内 server 级
-// 301/302 跳转做 location / 临时包裹（见 wrapServerRedirect 注释）→ 返回
-// cleanup（恢复原字节，同管线）。
-// 修正动机（实机 bug）：原实现只注入 siteId 指向的单块——存量站点常见
-// server 级 `return 301 https://…`（先于 location 匹配执行）把挑战请求整体
-// 重定向到 443 块，443 块无挑战入口 → LE 校验 404。
+// prepareHTTP01 A-SM10（v2.2 多块注入；**v2.3 跨文件+默认兜底**）：已有
+// /.well-known/acme-challenge/ location → 复用其 root（零写回；判定扩至全扫描
+// 相关块）；无 → 经 WritePipeline 注入临时挑战 location 到**全部承载该域名的
+// server 块**（跨文件：80 与 443 块可能分属不同 conf），并对块内 server 级
+// 301/302 跳转做 location / 临时包裹（wrapServerRedirect）；若匹配块中**无 80
+// 端口块**（域名仅 443 在服），追加注入 **80 默认兜底块**（default_server 优先、
+// 否则扫描序首个 80 块——LE 首跳 http 请求实际落点，常见为全局 `return 301
+// https://$host…` catch-all）→ cleanup 逐文件字节级复原（逆序，同管线）。
+// 修正动机（两次实机 404）：v2.2 只覆盖 entry 所在单文件——全局 catch-all
+// 重定向块/跨文件 443 块仍使 LE 首跳或跟随跳落空。
 func (s *Service) prepareHTTP01(ctx context.Context, entry *SiteEntry) (func(), error) {
 	domains := entry.Block.ServerNames
-	if !entry.Block.Dormant && reusableChallengeRoot(entry.Tree, domains) != "" {
-		return func() {}, nil // 复用既有 location（其 root 即挑战文件落点，零写回）
-	}
-	orig, _, err := s.gw.ReadFile(entry.File)
+	domSet := domainSet(domains)
+	scan, err := s.scanSites(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("site-mgmt: read for challenge: %w", err)
+		return nil, fmt.Errorf("site-mgmt: scan for challenge: %w", err)
+	}
+	for i := range scan.Entries { // 复用判定：全扫描相关块
+		e := &scan.Entries[i]
+		if e.Block.Dormant || !serverBlockMatches(e.Block.Node, domSet) {
+			continue
+		}
+		if loc := findAcmeLocation(e.Block.Node); loc != nil {
+			if root := directiveArgIn(loc, "root"); root != "" {
+				return func() {}, nil
+			}
+		}
 	}
 	webroot := s.panelWebroot()
 	if err := s.gw.MkdirAll(webroot); err != nil {
 		return nil, fmt.Errorf("site-mgmt: webroot mkdir: %w", err)
 	}
-	var content string
-	if entry.Block.Dormant { // 注释块：子树单块注入（原路径；域未在服务，签发
-		// 成败由 LE 侧自然判定）
-		tgt, _, err := s.openEdit(ctx, entry.SiteID)
-		if err != nil {
-			return nil, err
+	if entry.Block.Dormant { // 注释块：子树单块注入（域未在服务，签发成败由 LE 判定）
+		orig, _, rerr := s.gw.ReadFile(entry.File)
+		if rerr != nil {
+			return nil, fmt.Errorf("site-mgmt: read for challenge: %w", rerr)
 		}
-		indent := indentOfBlock(tgt.tree, tgt.block)
-		loc := indent + "location ^~ /.well-known/acme-challenge/ {\n" +
-			indent + "    root " + webroot + ";\n" +
-			indent + "}"
-		pos := insertPos(tgt.tree, tgt.block)
-		if err := tgt.tree.Apply(pos, pos, loc+"\n"+indent); err != nil {
+		tgt, _, oerr := s.openEdit(ctx, entry.SiteID)
+		if oerr != nil {
+			return nil, oerr
+		}
+		if err := injectChallengeBlocks(tgt.tree, []*nginxx.Node{tgt.block}, webroot); err != nil {
 			return nil, fmt.Errorf("site-mgmt: inject challenge location: %w", err)
 		}
-		content, err = tgt.serialize()
-		if err != nil {
+		content, serr := tgt.serialize()
+		if serr != nil {
+			return nil, serr
+		}
+		if err := s.applyPipeline(ctx, entry.File, content, false); err != nil {
 			return nil, err
 		}
-	} else {
-		if err := prepareChallengeBlocks(entry.Tree, domains, webroot); err != nil {
-			return nil, fmt.Errorf("site-mgmt: inject challenge locations: %w", err)
+		return s.restoreCleanup(ctx, entry.File, orig), nil
+	}
+	// 跨文件分组：匹配块按文件聚合；无 80 匹配块时补默认兜底块。
+	type fileEdit struct {
+		tree   *nginxx.Tree
+		blocks []*nginxx.Node
+	}
+	byFile := map[string]*fileEdit{}
+	order := make([]string, 0, 2)
+	has80 := false
+	for i := range scan.Entries {
+		e := &scan.Entries[i]
+		if e.Block.Dormant || !serverBlockMatches(e.Block.Node, domSet) {
+			continue
 		}
-		if content, err = entry.Tree.Serialize(); err != nil {
+		if listenPort80(e.Block) {
+			has80 = true
+		}
+		fe, ok := byFile[e.File]
+		if !ok {
+			fe = &fileEdit{tree: e.Tree}
+			byFile[e.File] = fe
+			order = append(order, e.File)
+		}
+		fe.blocks = append(fe.blocks, e.Block.Node)
+	}
+	if !has80 {
+		if fb := default80Block(scan); fb != nil {
+			fe, ok := byFile[fb.File]
+			if !ok {
+				fe = &fileEdit{tree: fb.Tree}
+				byFile[fb.File] = fe
+				order = append(order, fb.File)
+			}
+			fe.blocks = append(fe.blocks, fb.Block.Node)
+		}
+	}
+	written := make([]struct{ file, orig string }, 0, len(order))
+	restore := func() { // 逆序逐文件复原（失败记日志——保持注入态可服务可排障）
+		for i := len(written) - 1; i >= 0; i-- {
+			w := written[i]
+			if rerr := s.applyPipeline(context.WithoutCancel(ctx), w.file, w.orig, false); rerr != nil {
+				slog.ErrorContext(ctx, "site-mgmt: challenge restore failed",
+					"file", w.file, "err", rerr)
+			}
+		}
+	}
+	for _, f := range order {
+		fe := byFile[f]
+		orig, _, rerr := s.gw.ReadFile(f)
+		if rerr != nil {
+			restore()
+			return nil, fmt.Errorf("site-mgmt: read for challenge %s: %w", f, rerr)
+		}
+		if err := injectChallengeBlocks(fe.tree, fe.blocks, webroot); err != nil {
+			restore()
+			return nil, fmt.Errorf("site-mgmt: inject challenge locations %s: %w", f, err)
+		}
+		content, serr := fe.tree.Serialize()
+		if serr != nil {
+			restore()
+			return nil, serr
+		}
+		if err := s.applyPipeline(ctx, f, content, false); err != nil {
+			restore()
 			return nil, err
 		}
+		written = append(written, struct{ file, orig string }{f, orig})
 	}
-	if err := s.applyPipeline(ctx, entry.File, content, false); err != nil {
-		return nil, err
-	}
-	return func() { // 恢复原字节（同管线；失败记日志——配置保持注入态可服务，排障可辨）
-		if rerr := s.applyPipeline(context.WithoutCancel(ctx), entry.File, orig, false); rerr != nil {
+	return func() { restore() }, nil
+}
+
+// restoreCleanup 单文件复原闭包（dormant 路径）。
+func (s *Service) restoreCleanup(ctx context.Context, file, orig string) func() {
+	return func() {
+		if rerr := s.applyPipeline(context.WithoutCancel(ctx), file, orig, false); rerr != nil {
 			slog.ErrorContext(ctx, "site-mgmt: challenge location restore failed",
-				"file", entry.File, "err", rerr)
+				"file", file, "err", rerr)
 		}
-	}, nil
+	}
+}
+
+// listenPort80 块是否承载 80 端口（无 listen 声明=nginx 隐式 80）。
+func listenPort80(b *nginxx.ServerBlock) bool {
+	if len(b.Listen) == 0 {
+		return true
+	}
+	for _, l := range b.Listen {
+		first := strings.Fields(l)
+		if len(first) == 0 {
+			continue
+		}
+		if first[0] == "80" || strings.HasSuffix(first[0], ":80") {
+			return true
+		}
+	}
+	return false
+}
+
+// default80Block LE 首跳 http 请求的实际落点：显式 default_server 的 80 块
+// 优先，否则扫描序首个 80 块（nginx 无 default_server 时取配置序首个）。
+func default80Block(scan *ScanResult) *SiteEntry {
+	var first80 *SiteEntry
+	for i := range scan.Entries {
+		e := &scan.Entries[i]
+		if e.Block.Dormant || !listenPort80(e.Block) {
+			continue
+		}
+		if first80 == nil {
+			first80 = e
+		}
+		for _, l := range e.Block.Listen {
+			if strings.Contains(l, "default_server") {
+				return e
+			}
+		}
+	}
+	return first80
 }
 
 // reusableChallengeRoot 整文件内任一相关 server 块已有挑战 location 时返回
@@ -380,14 +491,23 @@ func reusableChallengeRoot(t *nginxx.Tree, domains []string) string {
 	return ""
 }
 
-// prepareChallengeBlocks 在整文件树内为全部相关 server 块注入挑战 location，
-// 并包裹 server 级跳转（纯树变换，单测锁定）。幂等：已有挑战入口的块跳过。
+// prepareChallengeBlocks 在整文件树内为全部相关 server 块注入（包装
+// injectChallengeBlocks；单测锁定）。
 func prepareChallengeBlocks(t *nginxx.Tree, domains []string, webroot string) error {
 	domSet := domainSet(domains)
+	var blocks []*nginxx.Node
 	for _, top := range t.Nodes {
-		if !isServerNode(top) || !serverBlockMatches(top, domSet) {
-			continue
+		if isServerNode(top) && serverBlockMatches(top, domSet) {
+			blocks = append(blocks, top)
 		}
+	}
+	return injectChallengeBlocks(t, blocks, webroot)
+}
+
+// injectChallengeBlocks 对指定 server 块注入挑战 location 并包裹块内 server 级
+// 跳转（纯树变换，单测锁定）。幂等：已有挑战入口的块跳过。
+func injectChallengeBlocks(t *nginxx.Tree, blocks []*nginxx.Node, webroot string) error {
+	for _, top := range blocks {
 		if findAcmeLocation(top) != nil {
 			continue
 		}

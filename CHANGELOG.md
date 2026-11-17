@@ -2,6 +2,25 @@
 
 发布说明按版本倒序排列；每个版本的完整说明也会作为 GitHub Release 正文发布。
 
+## v0.1.6 - 2026-11-17
+
+修复存量 nginx 拓扑下 ACME HTTP-01 签发 404（v0.1.5 修复未覆盖的两类拓扑，二次实机反馈）。
+
+### 变更内容
+
+**修复：HTTP-01 挑战注入覆盖全部存量拓扑（api-site-mgmt v2.3，D-19）**
+- 实机报错：`Invalid response from https://<域名>/.well-known/acme-challenge/…: 404`——v0.1.5 的多块注入只覆盖 siteId 所在**单个文件**；两类常见存量拓扑仍落空：①80 与 443 server 块**分属不同 conf 文件**；②域名仅 443 在服、http 首跳落在**全局 catch-all 重定向块**（`listen 80 default_server; server_name _; return 301 https://…`，server_name 不匹配域名故被 v0.1.5 跳过）
+- v2.3：注入范围扩至**全扫描跨文件**的所有匹配 server_name 块；匹配块中无 80 端口时追加注入 **80 默认兜底块**（default_server 优先、否则扫描序首个 80 块——LE 首跳实际落点）并包裹其 server 级跳转；逐文件经 R-06 安全管线写回、cleanup 逆序逐文件字节级复原
+- 回归锁：TestCertRequestHTTP01CrossFile 与 TestCertRequestHTTP01DefaultCatchAll（onIssue 钩子快照注入态 + 复原断言）
+
+### 安装与升级
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/xyztony999/dougong/main/install.sh | sudo bash   # 重复执行即升级
+```
+
+升级后对 renew_failed 证书点「更新证书」重试，或重新「申请证书」。国内服务器见 README「国内服务器安装」三通道（镜像前缀/指定版本/本地二进制）。
+
 ## v0.1.5 - 2026-11-17
 
 数据库管理 MongoDB 支持轮 + 两项 v0.1.4 实测反馈修复（环境页刷新 / 凭据验证 INTERNAL）。

@@ -170,6 +170,7 @@ type fakeAcme struct {
 	domains   []string
 	challenge string
 	webroot   string
+	onIssue   func() // 签发瞬间钩子（可空）
 }
 
 func (f *fakeAcme) IssueDNS(ctx context.Context, domains []string, provider string, cred acme.DnsCredential) (*acme.IssueResult, error) {
@@ -181,6 +182,9 @@ func (f *fakeAcme) Issue(_ context.Context, domains []string, challenge, webroot
 	defer f.mu.Unlock()
 	f.calls++
 	f.domains, f.challenge, f.webroot = domains, challenge, webroot
+	if f.onIssue != nil { // 签发瞬间钩子：快照配置注入态（v2.3 跨文件断言用）
+		f.onIssue()
+	}
 	return f.res, f.err
 }
 
@@ -1189,6 +1193,69 @@ func TestCertRequestHTTP01ServerLevelRedirect(t *testing.T) {
 	}
 	if got := readConf(t, p); strings.Contains(got, "acme-challenge") || got != conf {
 		t.Fatalf("cleanup 应整文件恢复原字节:\n%s", got)
+	}
+}
+
+// TestCertRequestHTTP01CrossFile v2.3：80 与 443 块分属不同文件——两文件均
+// 注入挑战入口，签发后均字节级复原（onIssue 钩子快照注入态断言）。
+func TestCertRequestHTTP01CrossFile(t *testing.T) {
+	env := newEnv(t)
+	ctx := context.Background()
+	c80 := "server {\n    listen 80;\n    server_name xf.example.com;\n    return 301 https://$host$request_uri;\n}\n"
+	c443 := "server {\n    listen 443 ssl;\n    server_name xf.example.com;\n    location / { proxy_pass http://127.0.0.1:8080; }\n}\n"
+	p80 := env.writeConf(t, "sites-enabled", "xf80.conf", c80)
+	p443 := env.writeConf(t, "sites-enabled", "xf443.conf", c443)
+	var snap80, snap443 string
+	env.acmeGw.res = issueResult(env.now.Add(90 * 24 * time.Hour))
+	env.acmeGw.onIssue = func() {
+		snap80, snap443 = readConf(t, p80), readConf(t, p443)
+	}
+	if _, err := env.svc.CertRequest(ctx, adminActor(), CertRequestRequest{
+		SiteID: p443 + "#0", Challenge: storesitemgmt.ChallengeHTTP01}); err != nil {
+		t.Fatalf("跨文件拓扑签发应成功: %v", err)
+	}
+	if !strings.Contains(snap80, "acme-challenge") ||
+		!strings.Contains(snap80, "location / {\n        return 301 https://$host$request_uri;") {
+		t.Fatalf("80 文件应注入挑战+包裹跳转:\n%s", snap80)
+	}
+	if !strings.Contains(snap443, "acme-challenge") {
+		t.Fatalf("443 文件应注入挑战:\n%s", snap443)
+	}
+	if got := readConf(t, p80); got != c80 {
+		t.Fatalf("80 文件应字节级复原:\n%s", got)
+	}
+	if got := readConf(t, p443); got != c443 {
+		t.Fatalf("443 文件应字节级复原:\n%s", got)
+	}
+}
+
+// TestCertRequestHTTP01DefaultCatchAll v2.3：域名仅 443 在服、http 首跳落全局
+// catch-all 重定向块（server_name _）——兜底注入该块并包裹其跳转。
+func TestCertRequestHTTP01DefaultCatchAll(t *testing.T) {
+	env := newEnv(t)
+	ctx := context.Background()
+	c443 := "server {\n    listen 443 ssl;\n    server_name dc.example.com;\n    location / { proxy_pass http://127.0.0.1:8080; }\n}\n"
+	cdef := "server {\n    listen 80 default_server;\n    server_name _;\n    return 301 https://$host$request_uri;\n}\n"
+	p443 := env.writeConf(t, "sites-enabled", "dc443.conf", c443)
+	pdef := env.writeConf(t, "conf.d", "dc-default.conf", cdef)
+	var snapDef, snap443 string
+	env.acmeGw.res = issueResult(env.now.Add(90 * 24 * time.Hour))
+	env.acmeGw.onIssue = func() {
+		snapDef, snap443 = readConf(t, pdef), readConf(t, p443)
+	}
+	if _, err := env.svc.CertRequest(ctx, adminActor(), CertRequestRequest{
+		SiteID: p443 + "#0", Challenge: storesitemgmt.ChallengeHTTP01}); err != nil {
+		t.Fatalf("catch-all 拓扑签发应成功: %v", err)
+	}
+	if !strings.Contains(snapDef, "acme-challenge") ||
+		!strings.Contains(snapDef, "location / {\n        return 301 https://$host$request_uri;") {
+		t.Fatalf("默认兜底块应注入挑战+包裹跳转:\n%s", snapDef)
+	}
+	if !strings.Contains(snap443, "acme-challenge") {
+		t.Fatalf("443 块应注入挑战:\n%s", snap443)
+	}
+	if got := readConf(t, pdef); got != cdef {
+		t.Fatalf("兜底块文件应字节级复原:\n%s", got)
 	}
 }
 
