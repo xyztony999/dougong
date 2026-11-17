@@ -130,6 +130,7 @@ async function onSubmit(): Promise<void> {
 
 <template>
   <div class="page">
+    <img class="login-logo" src="/favicon.svg" alt="斗拱 Dougong" />
     <n-card class="card" title="登录斗拱面板">
       <n-form
         ref="formRef"
@@ -182,8 +183,14 @@ async function onSubmit(): Promise<void> {
 .page {
   min-height: 100vh;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 18px;
+}
+.login-logo {
+  width: 64px;
+  height: 64px;
 }
 .card {
   width: 380px;

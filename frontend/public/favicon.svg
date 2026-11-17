@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="斗拱 Dougong">
+  <title>斗拱 Dougong</title>
+  <!-- 梁（屋顶/流量） -->
+  <rect x="4" y="4" width="56" height="7" rx="2" fill="#D9482B"/>
+  <!-- 斗（第一跳三斗） -->
+  <rect x="11.5" y="11" width="9" height="8" rx="1.5" fill="#2E3742"/>
+  <rect x="27.5" y="11" width="9" height="8" rx="1.5" fill="#2E3742"/>
+  <rect x="43.5" y="11" width="9" height="8" rx="1.5" fill="#2E3742"/>
+  <!-- 拱（第一跳横拱） -->
+  <rect x="7" y="19" width="50" height="6" rx="2" fill="#D9482B"/>
+  <!-- 斗（第二跳两斗） -->
+  <rect x="17.5" y="25" width="9" height="8" rx="1.5" fill="#2E3742"/>
+  <rect x="37.5" y="25" width="9" height="8" rx="1.5" fill="#2E3742"/>
+  <!-- 拱（第二跳横拱） -->
+  <rect x="13" y="33" width="38" height="6" rx="2" fill="#D9482B"/>
+  <!-- 栌斗 -->
+  <rect x="25" y="39" width="14" height="8" rx="1.5" fill="#2E3742"/>
+  <!-- 柱（服务器：机架槽线） -->
+  <rect x="27" y="47" width="10" height="13" rx="2" fill="#2E3742"/>
+  <rect x="29.5" y="50.5" width="5" height="1.8" rx="0.9" fill="#D9482B"/>
+  <rect x="29.5" y="54.5" width="5" height="1.8" rx="0.9" fill="#D9482B"/>
+</svg>

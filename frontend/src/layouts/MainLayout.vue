@@ -122,6 +122,9 @@ function toMenuOptions(items: PanelMenuItem[]): MenuOption[] {
 
 const menuOptions = computed<MenuOption[]>(() => toMenuOptions(panelStore.menuItems))
 
+/** 侧栏折叠态（品牌区折叠时仅留 logo）。 */
+const siderCollapsed = ref(false)
+
 /** 顶栏标题（D-P18）：路由 meta.title 优先；兜底按当前 path 在菜单树（含分组
  * children 遍历）中取 title；再兜底「斗拱面板」。 */
 const headerTitle = computed<string>(() => {
@@ -191,8 +194,12 @@ async function onLogout(): Promise<void> {
         :collapsed-width="64"
         :width="220"
         show-trigger
+        v-model:collapsed="siderCollapsed"
       >
-        <div class="brand">斗拱面板</div>
+        <div class="brand" :class="{ 'brand-collapsed': siderCollapsed }">
+          <img class="brand-logo" src="/favicon.svg" alt="斗拱 Dougong" />
+          <span v-show="!siderCollapsed">斗拱面板</span>
+        </div>
         <n-spin v-if="panelStore.menuLoading" size="small" class="menu-state" />
         <div v-else-if="panelStore.menuError" class="menu-state menu-error">
           <span>菜单加载失败</span>
@@ -231,9 +238,21 @@ async function onLogout(): Promise<void> {
   height: 100vh;
 }
 .brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-weight: 600;
   font-size: 16px;
-  padding: 18px 24px;
+  padding: 14px 24px;
+}
+.brand-collapsed {
+  justify-content: center;
+  padding: 14px 0;
+}
+.brand-logo {
+  width: 26px;
+  height: 26px;
+  flex: none;
 }
 .menu-state {
   display: flex;

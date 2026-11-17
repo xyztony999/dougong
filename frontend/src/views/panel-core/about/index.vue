@@ -40,6 +40,7 @@ onMounted(() => {
 <template>
   <div class="page">
     <n-card title="版本信息" :loading="loading">
+      <img class="about-logo" src="/favicon.svg" alt="斗拱 Dougong" />
       <template v-if="version !== null">
         <div class="version">{{ version.version }}</div>
         <n-descriptions label-placement="left" :column="1" bordered size="small" class="desc">
@@ -69,6 +70,12 @@ onMounted(() => {
 <style scoped>
 .page {
   max-width: 560px;
+}
+.about-logo {
+  width: 44px;
+  height: 44px;
+  display: block;
+  margin-bottom: 12px;
 }
 .version {
   font-size: 28px;

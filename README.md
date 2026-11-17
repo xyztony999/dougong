@@ -1,6 +1,19 @@
-# 斗拱 Dougong
+<p align="center">
+  <img src="docs/assets/logo.svg" alt="斗拱 Dougong logo" width="120" />
+</p>
 
-**嵌入你的服务器，而不是重装它。** / *Embed into your server, not reinstall it.*
+<h1 align="center">斗拱 Dougong</h1>
+
+<p align="center">
+  <a href="https://github.com/xyztony999/dougong/releases/latest"><img src="https://img.shields.io/github/v/release/xyztony999/dougong?sort=semver&label=release" alt="Release" /></a>
+  <a href="https://github.com/xyztony999/dougong/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/xyztony999/dougong/ci.yml?branch=main&label=CI" alt="CI" /></a>
+  <a href="https://github.com/xyztony999/dougong/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-GPL--3.0-blue.svg" alt="License: GPL-3.0" /></a>
+  <a href="https://github.com/xyztony999/dougong/blob/main/backend/go.mod"><img src="https://img.shields.io/github/go-mod/go-version/xyztony999/dougong?filename=backend%2Fgo.mod" alt="Go version" /></a>
+  <a href="https://github.com/xyztony999/dougong/releases"><img src="https://img.shields.io/github/downloads/xyztony999/dougong/total?label=downloads" alt="Downloads" /></a>
+  <a href="https://github.com/xyztony999/dougong/commits/main"><img src="https://img.shields.io/github/last-commit/xyztony999/dougong" alt="Last commit" /></a>
+</p>
+
+<p align="center"><b>嵌入你的服务器，而不是重装它。</b><br /><i>Embed into your server, not reinstall it.</i></p>
 
 轻量级、开源、可接管存量环境的服务器运维面板——装上就能管理已有的 nginx、MySQL/MariaDB、Redis、systemd 服务与 Docker 容器，不需要重装任何东西。
 
