@@ -171,6 +171,12 @@ func (s *Service) importExistingCerts(ctx context.Context, scan *ScanResult) {
 		if r.Source == storesitemgmt.SourceImported && r.OriginPath != nil {
 			seen[filepath.Clean(*r.OriginPath)] = true
 		}
+		// v2.6：面板托管路径（ACME 签发/部署落点）同样入判重集——否则部署后
+		// 站点 ssl_certificate 指向托管文件，会被存量纳管再导入一行（实机 bug：
+		// 证书列表出现与 ACME 行同到期日的「存量导入」影子行）。
+		if r.StoragePath != nil {
+			seen[filepath.Clean(*r.StoragePath)] = true
+		}
 	}
 	now := s.clock()
 	for i := range scan.Entries {

@@ -1063,6 +1063,44 @@ func TestCertRequestFlowAndDup(t *testing.T) {
 // TestCertRequestTakeoverImported v2.1 接管语义回归锁（用户实测死路反馈）：
 // imported 源 active 同域名集合**不拦** CERT_003——ACME 重新签发即接管续期
 // 入口；接管后同集合存在 acme 源 active，再申请恢复拦截。
+// TestImportSkipsManagedStoragePath v2.6 回归锁：ACME 证书部署后站点
+// ssl_certificate 指向面板托管路径——存量纳管不得将其再导入为影子行
+// （实机 bug：证书列表出现与 ACME 行同到期日的「存量导入」行）。
+func TestImportSkipsManagedStoragePath(t *testing.T) {
+	env := newEnv(t)
+	ctx := context.Background()
+	managed := filepath.Join(env.dataDir, "certs", "proxy2.example.com", "fullchain.pem")
+	if err := os.MkdirAll(filepath.Dir(managed), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(managed, []byte(genCertPEM(t, "proxy2.example.com",
+		env.now.Add(-time.Hour), env.now.Add(90*24*time.Hour))), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sp := managed
+	if _, err := env.store.Cert().Create(ctx, storesitemgmt.Certificate{
+		PrimaryDomain: "proxy2.example.com", Domains: []string{"proxy2.example.com"},
+		Source: storesitemgmt.SourceAcme, Status: storesitemgmt.StatusValid,
+		StoragePath: &sp,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	env.writeConf(t, "sites-enabled", "managed.conf",
+		"server {\n    listen 443 ssl;\n    server_name proxy2.example.com;\n"+
+			"    ssl_certificate "+managed+";\n    ssl_certificate_key /dev/null;\n}\n")
+	// 扫描尾部触发存量纳管（A-SM5）。
+	if _, err := env.svc.CertList(ctx, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	list, err := env.svc.CertList(ctx, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Items) != 1 || list.Items[0].Source != storesitemgmt.SourceAcme {
+		t.Fatalf("托管路径被影子导入: %+v", list.Items)
+	}
+}
+
 func TestCertRequestTakeoverImported(t *testing.T) {
 	env := newEnv(t)
 	ctx := context.Background()

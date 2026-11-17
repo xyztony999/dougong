@@ -2,6 +2,24 @@
 
 发布说明按版本倒序排列；每个版本的完整说明也会作为 GitHub Release 正文发布。
 
+## v0.1.9 - 2026-11-17
+
+修复证书「存量导入」影子行：ACME 证书部署到站点后，存量自动纳管把面板托管证书文件又导入为一行「存量导入」（与 ACME 行同到期日）。
+
+### 变更内容
+
+**修复：存量纳管跳过面板托管路径（api-site-mgmt v2.6，A-SM5/FR-25 判重补全）**
+- 根因：`importExistingCerts` 判重集只含 imported 行的 OriginPath；部署使站点 `ssl_certificate` 指向面板托管路径（ACME 行 StoragePath），该路径不在判重集 → 每次扫描新增一行影子「存量导入」
+- 修复：判重集并入**全部证书行的 StoragePath**（托管路径一律不纳管）；回归锁 TestImportSkipsManagedStoragePath
+- 已产生的影子行：升级后在证书列表直接删除该行即可（imported 删除=仅解除管理关系，不触碰任何文件），不再复发
+
+### 安装与升级
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/xyztony999/dougong/main/install.sh | sudo bash
+dougong version   # 应为 v0.1.9
+```
+
 ## v0.1.8 - 2026-11-17
 
 修复 ACME HTTP-01 持续 404 的最终根因：挑战配置写盘后**未 reload nginx**（v0.1.4~v0.1.7 实机全部命中）。
