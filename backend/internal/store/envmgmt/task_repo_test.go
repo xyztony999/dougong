@@ -109,3 +109,21 @@ func TestListFilterAndPage(t *testing.T) {
 }
 
 func strp(s string) *string { return &s }
+
+// TestEnvTypeSevenValues 迁移 010（env_type CHECK 扩七值）回归：mongodb 可
+// 写入、非法值仍被 CHECK 拒绝、重建后既有行可读（I-04 台账保留）。
+func TestEnvTypeSevenValues(t *testing.T) {
+	s := openTestDB(t)
+	ctx := context.Background()
+	id, err := s.Task().Create(ctx, Task{EnvType: EnvMongoDB, Action: ActionInstall, RequestedBy: "admin"})
+	if err != nil || id == 0 {
+		t.Fatalf("mongodb create: id=%d err=%v（迁移 010 七值 CHECK 未生效？）", id, err)
+	}
+	row, err := s.Task().GetByID(ctx, id)
+	if err != nil || row.EnvType != EnvMongoDB {
+		t.Fatalf("get: %+v err=%v", row, err)
+	}
+	if _, err := s.Task().Create(ctx, Task{EnvType: "postgresql", Action: ActionInstall, RequestedBy: "admin"}); err == nil {
+		t.Fatal("非法 env_type 应被 CHECK 拒绝")
+	}
+}

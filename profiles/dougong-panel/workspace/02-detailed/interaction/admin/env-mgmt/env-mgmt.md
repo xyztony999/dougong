@@ -2,11 +2,11 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v1.0 |
+| 版本 | v1.1 |
 | 状态 | 稳定 |
-| 最后更新 | 2026-11-16 |
+| 最后更新 | 2026-11-17（v1.1 W1 实机冒烟缺陷修复轮增量） |
 | 用户类型 | admin |
-| 唯一数据源 | 02-detailed/api/api-env-mgmt.md v1.0 |
+| 唯一数据源 | 02-detailed/api/api-env-mgmt.md v1.1 |
 | 组件体系 | Vue 3 + Naive UI（NGrid/NCard/NTag/NButton/NModal/NPopconfirm/NDrawer/NAlert/NSwitch/NSpin） |
 | 确认方式 | headless run：7 项交互确认依据 D3 契约（api-env-mgmt.md D-01~D-12）+ ⚠️A1~A7 + FL v1.0 + PRD FR-01~06 推导，标注于各节 |
 
@@ -44,7 +44,7 @@
 
 | Key | 取值（=01-solution/04-business-enum.md 定稿） | 用途 |
 |-----|--------------------------------------------|------|
-| env_type | nginx / apache / docker / mysql / redis / php_fpm | 环境卡片标识与任务筛选 |
+| env_type | nginx / apache / docker / mysql / redis / php_fpm / mongodb（v1.1 七值，与池/DLL CHECK/api 三方 S8 同值） | 环境卡片标识与任务筛选 |
 | env_task_action | install / upgrade / uninstall | 任务动作 Tag（Drawer） |
 | env_task_status | pending / running / succeeded / failed | 任务状态 Tag（colorTag）+筛选 |
 | package_manager_family | apt / dnf / yum | 通道状态呈现 |
@@ -72,26 +72,26 @@
 
 **页头**：通道状态条（channel.available=true → NTag green「包管理通道：{family}」；false → NTag orange「包管理通道不可用（变更功能已禁用）」+ 说明 tooltip）+ 刷新按钮（重新 envList，D-01 实时探测）+ generatedAt「探测于 HH:mm:ss」。
 
-**环境卡片网格**（NGrid 响应式 3 列 × NCard，六条目 D-02）：
+**环境卡片网格**（NGrid 响应式 3 列 × NCard，七条目 D-02，v1.1 六→七 +MongoDB〔displayName=MongoDB〕；v1.1a 移除 relatedModule 软引导行）：
 
 每卡片字段与操作（数据源 envList items[]）：
 
 | 区块 | 内容 | 呈现 |
 |------|------|------|
 | 标题 | displayName + env_type NTag | — |
-| 描述 | description + relatedModule（「安装后可配合 网站管理 模块使用」类提示，软引导文案） | text |
-| 实况 | installed：null →「探测不可用」orange（通道不可用）；true → 版本 version + 服务状态（serviceRunning→NTag green「运行中」/gray「已停止」）+ 自启（serviceEnabled）；false →「未安装」gray | D-01 实时投影 |
+| 描述 | description（v1.1a 起：仅环境本体描述，无模块引导文案） | text |
+| 实况 | installed 三态（v1.1 ⚠️A9 精确化）：null →「探测不可用」orange（**仅条目级真错误**——查询超时/通道异常；通道级不可用时整列 null 并由页头横幅承载语义，角标不再重复渲染通道语义）；true → 版本 version + 服务状态（serviceRunning→NTag green「运行中」/gray「已停止」）+ 自启（serviceEnabled）；false →「未安装」gray（**含包名不在包数据库形态**——多候选全未装即未装，非探测失败） | D-01 实时投影三态 |
 | 在途标记 | runningTaskId 非空 → NTag blue「任务进行中」+「查看」链接（跳任务 Drawer 定位该任务） | I-01 |
 | 操作区（admin only；readonly 整区不渲染） | 未装：`安装`（primary）；已装：`升级` + `卸载`（error 色）+ 服务操作组（启动/停止/重启 NPopconfirm + 自启 NSwitch） | ENV_001 时安装/升级/卸载禁用；服务操作不受通道限制（systemd 通道） |
 
-**安装/升级确认**（NPopconfirm）：文案「将通过 {family} 安装/升级 {displayName} 到仓库最新版（先刷新包索引，可能需要数分钟）；需配置官方仓库源的环境将自动写入源配置并留痕」。提交 envInstall → 成功 toast「任务已创建」+ 打开任务 Drawer 定位新任务（taskId 响应）；ENV_003 → 「该环境有任务进行中」+ 查看引导。
+**安装/升级确认**（NPopconfirm）：文案「将通过 {family} 安装/升级 {displayName} 到仓库最新版（先刷新包索引，可能需要数分钟）；需配置官方仓库源的环境将自动写入源配置并留痕（MongoDB/Docker CE〔RHEL 系〕需第三方官方源，面板代配）」。提交 envInstall → 成功 toast「任务已创建」+ 打开任务 Drawer 定位新任务（taskId 响应）；ENV_003 → 「该环境有任务进行中」+ 查看引导。
 
 **卸载强确认**（NModal，两段警示 ⚠️A6/D-07）：
 
 - 警示一（本域实况）：服务运行中 → NAlert warning「{displayName} 服务当前正在运行」；
-- 警示二（关联模块静态影响）：NAlert error「卸载后对应功能将失去运行环境——Docker：容器管理；MySQL：数据库管理；nginx/PHP-FPM：网站管理；请先到对应模块确认数据已处置」；
+- 警示二（关联模块静态影响）：NAlert error「卸载后对应功能将失去运行环境——Docker：容器管理；MySQL/MongoDB：数据库管理；nginx/PHP-FPM：网站管理；请先到对应模块确认数据已处置」（v1.1 补 MongoDB）；
 - 操作锁定：NInput 输入环境显示名确认（与 certDelete 类强确认先例对齐：高危双因子）；
-- 提交文案明示「将执行包卸载（保留系统配置与数据目录）」→ envUninstall。
+- 提交文案明示「将执行包卸载（保留系统配置与数据目录；已配第三方源文件保留不回收）」→ envUninstall。
 
 ### 4.2 任务列表（env-list 任务 Drawer「历史」Tab）
 
@@ -155,13 +155,13 @@
 | # | 检查 | 结果 |
 |---|------|------|
 | 1 | Action ↔ api-env-mgmt.md 接口一一对应（S7） | ✅ 10/10 全映射，无虚构 |
-| 2 | 字典 Key ↔ 04-business-enum.md 定稿枚举一一对应（S8） | ✅ 5/5（env_type/env_task_action/env_task_status/package_manager_family/panel_role，取值逐字对齐定稿） |
+| 2 | 字典 Key ↔ 04-business-enum.md 定稿枚举一一对应（S8） | ✅ 5/5（env_type〔七值 v1.1〕/env_task_action/env_task_status/package_manager_family/panel_role，取值逐字对齐定稿） |
 | 3 | 所有 POST Action 均携带 X-CSRF-Token（拦截器统一注入） | ✅ |
 | 4 | ADR-018 边界：readonly 操作区/安装/卸载/服务操作不渲染 + 后端 AUTH_008 双保险 | ✅ 4.1 |
 | 5 | 错误文案与 api 3.4 错误码一一对应（ENV_001~006/AUTH 族） | ✅ 第 1 节错误处理 |
 | 6 | 查询条件仅含 API 真实参数（任务列表 envType/status；环境全景无筛选）——不虚构 | ✅ 4.2 |
 | 7 | 字典数据源偏差（无 dict/batch，前端常量）已声明 | ✅ 第 3 节 |
-| 8 | 实况如实呈现：通道不可用 installed=null「探测不可用」≠「未安装」；面板重启中断任务如实展示 | ✅ 4.1/4.3（D-01/I-04） |
+| 8 | 实况如实呈现：三态区分（通道级不可用=页头横幅+整列 null；条目级真错误=「探测不可用」角标；未装=「未安装」含包名不在数据库形态）≠ 混同；面板重启中断任务如实展示 | ✅ 4.1/4.3（D-01/I-04，v1.1 ⚠️A9） |
 | 9 | ⚠️A6 卸载强确认两段警示 + 操作锁定；⚠️A5 安装后不强制启动（无「安装并启动」选项） | ✅ 4.1 |
 | 10 | 时间展示本地时区、提交 ISO UTC；generatedAt 投影时刻呈现（D-01） | ✅ 4.1 |
 
@@ -170,5 +170,7 @@
 | 版本 | 日期 | 变更类型 | 说明 |
 |------|------|---------|------|
 | v1.0 | 2026-11-16 | initial | 首次生成：1 hybrid 页面（环境卡片网格 + 任务 Drawer 双区）+ 10 Action、5 字典 Key、0 独立表单路由/0 独立详情路由；安装/升级 NPopconfirm、卸载强确认 NModal（两段警示+输入锁定）、服务操作组；任务详情 running 态 5s 轮询终态即停 |
+| v1.1a | 2026-11-17 | content_changed | UI 轮用户拍板：卡片移除「安装后可配合「X」模块使用」软引导行（relatedModule 字段随 api v1.1a 移除）；描述行仅环境本体描述 |
+| v1.1 | 2026-11-17 | dict_changed + content_changed | W1 实机冒烟缺陷修复轮（数据源升 api v1.1）：①字典 env_type 六值→七值（+mongodb，S8 与池/DDL/api 同值）；②4.1 卡片网格六→七条目（+MongoDB 卡片：displayName=MongoDB/relatedModule=数据库管理）；③实况三态呈现精确化（⚠️A9：null=条目级真错误角标，通道级不可用归页头横幅不重复渲染；false=未安装含包名不在数据库形态）；④安装确认文案提及 MongoDB/Docker CE 第三方源代配；卸载警示二补 MongoDB、提交文案补源文件保留说明；⑤第 8 节检查 2/8 同步修订 |
 
 > FX 质量清单说明：FX-001~FX-141 逐条清单文件未随引擎 payload 发布，本节按分册 9 节结构逐节落实，并以第 8 节 10 项全局一致性自查替代可机械执行部分（全仓先例）；全量 141 项留待 Gate 1 validation 执行。

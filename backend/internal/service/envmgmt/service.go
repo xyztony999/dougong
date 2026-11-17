@@ -10,6 +10,7 @@ package envmgmt
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"time"
 
 	"github.com/dougong/dougong/internal/adapter/envpack"
@@ -46,52 +47,60 @@ func New(pack *envpack.Gateway, sysdGw *sysd.Gateway, store *storeenv.Store, opt
 	return s
 }
 
-// ---- 目录（D-02 编译期常量，⚠️A1/A7）----
+// ---- 目录（D-02 编译期常量，⚠️A1/A7；v1.1 七环境+多候选+单元全名）----
 
 // CatalogEntry 是环境目录条目（显示元数据 + 发行版映射）。
 type CatalogEntry struct {
-	Type          string
-	DisplayName   string
-	Description   string
-	RelatedModule string            // 关联模块提示（软引导文案）
-	UnitByFamily  map[string]string // family → systemd 单元名
-	PkgByFamily   map[string]string // family → 包名
-	VendorRepo    map[string]bool   // family → 是否需官方仓库源（D-06）
+	Type                string
+	DisplayName         string
+	Description         string
+	UnitByFamily        map[string]string   // family → systemd 单元规范全名（⚠️A8/D-13：含 .service 后缀——EnableUnitFiles DBus 契约无后缀补全）
+	UnitPatternByFamily map[string]string   // family → 版本化单元解析正则（php-fpm apt 系 phpX.Y-fpm.service；空=无）
+	PkgByFamily         map[string][]string // family → 有序候选包名（D-02 v1.1：检测任一命中/安装取首选/卸载移除命中者）
+	VendorRepo          map[string]bool     // family → 是否需第三方官方源代配（D-06）
 }
 
-// Catalog 六环境静态目录（⚠️A1；扩展走面板版本迭代）。
+// Catalog 七环境静态目录（⚠️A1；v1.1 W1 修复轮六→七 +MongoDB；扩展走面板版本迭代）。
 var Catalog = []CatalogEntry{
 	{Type: storeenv.EnvNginx, DisplayName: "nginx",
-		Description:   "高性能 Web 服务器与反向代理（网站管理模块的运行环境）",
-		RelatedModule: "网站管理",
-		UnitByFamily:  map[string]string{"apt": "nginx", "dnf": "nginx", "yum": "nginx"},
-		PkgByFamily:   map[string]string{"apt": "nginx", "dnf": "nginx", "yum": "nginx"}},
+		Description:  "高性能 Web 服务器与反向代理",
+		UnitByFamily: map[string]string{"apt": "nginx.service", "dnf": "nginx.service", "yum": "nginx.service"},
+		PkgByFamily:  map[string][]string{"apt": {"nginx"}, "dnf": {"nginx"}, "yum": {"nginx"}}},
 	{Type: storeenv.EnvApache, DisplayName: "Apache",
-		Description:   "Apache HTTP 服务器（httpd）",
-		RelatedModule: "—",
-		UnitByFamily:  map[string]string{"apt": "apache2", "dnf": "httpd", "yum": "httpd"},
-		PkgByFamily:   map[string]string{"apt": "apache2", "dnf": "httpd", "yum": "httpd"}},
+		Description:  "Apache HTTP 服务器（httpd）",
+		UnitByFamily: map[string]string{"apt": "apache2.service", "dnf": "httpd.service", "yum": "httpd.service"},
+		PkgByFamily:  map[string][]string{"apt": {"apache2"}, "dnf": {"httpd"}, "yum": {"httpd"}}},
 	{Type: storeenv.EnvDocker, DisplayName: "Docker",
-		Description:   "容器运行时（容器管理模块的运行环境）",
-		RelatedModule: "容器管理",
-		UnitByFamily:  map[string]string{"apt": "docker", "dnf": "docker", "yum": "docker"},
-		PkgByFamily:   map[string]string{"apt": "docker.io", "dnf": "docker-ce", "yum": "docker-ce"},
-		VendorRepo:    map[string]bool{"apt": false, "dnf": true, "yum": true}},
+		Description:  "容器运行时",
+		UnitByFamily: map[string]string{"apt": "docker.service", "dnf": "docker.service", "yum": "docker.service"},
+		PkgByFamily: map[string][]string{
+			// 首选发行版原生 docker.io（W4 拍板）；检测兼容官方源自装 docker-ce 形态（D-02）。
+			"apt": {"docker.io", "docker-ce"}, "dnf": {"docker-ce", "docker"}, "yum": {"docker-ce", "docker"}},
+		VendorRepo: map[string]bool{"apt": false, "dnf": true, "yum": true}},
 	{Type: storeenv.EnvMySQL, DisplayName: "MySQL",
-		Description:   "MySQL 数据库服务器（数据库管理模块的运行环境）",
-		RelatedModule: "数据库管理",
-		UnitByFamily:  map[string]string{"apt": "mysql", "dnf": "mysqld", "yum": "mysqld"},
-		PkgByFamily:   map[string]string{"apt": "mysql-server", "dnf": "mysql-server", "yum": "mysql-server"}},
+		Description:  "MySQL 数据库服务器",
+		UnitByFamily: map[string]string{"apt": "mysql.service", "dnf": "mysqld.service", "yum": "mysqld.service"},
+		PkgByFamily: map[string][]string{
+			// W3 拍板：MySQL 官方源不代配；检测兼容 mysql-community-server 自装形态。
+			"apt": {"mysql-server", "mysql-community-server"},
+			"dnf": {"mysql-server", "mysql-community-server"}, "yum": {"mysql-server", "mysql-community-server"}}},
 	{Type: storeenv.EnvRedis, DisplayName: "Redis",
-		Description:   "Redis 内存数据库（数据库管理模块的运行环境）",
-		RelatedModule: "数据库管理",
-		UnitByFamily:  map[string]string{"apt": "redis-server", "dnf": "redis", "yum": "redis"},
-		PkgByFamily:   map[string]string{"apt": "redis-server", "dnf": "redis", "yum": "redis"}},
+		Description:  "Redis 内存数据库",
+		UnitByFamily: map[string]string{"apt": "redis-server.service", "dnf": "redis.service", "yum": "redis.service"},
+		PkgByFamily:  map[string][]string{"apt": {"redis-server"}, "dnf": {"redis"}, "yum": {"redis"}}},
 	{Type: storeenv.EnvPHPFPM, DisplayName: "PHP-FPM",
-		Description:   "PHP FastCGI 进程管理器（网站管理 PHP 站点的运行环境）",
-		RelatedModule: "网站管理",
-		UnitByFamily:  map[string]string{"apt": "php-fpm", "dnf": "php-fpm", "yum": "php-fpm"},
-		PkgByFamily:   map[string]string{"apt": "php-fpm", "dnf": "php-fpm", "yum": "php-fpm"}},
+		Description:  "PHP FastCGI 进程管理器",
+		UnitByFamily: map[string]string{"apt": "php-fpm.service", "dnf": "php-fpm.service", "yum": "php-fpm.service"},
+		// Ubuntu/Debian 实际单元带主版本号（php8.1-fpm.service 等）——GetUnit 落空时按
+		// 前缀扫描 systemd ListUnits 全集解析（D-02 v1.1）。
+		UnitPatternByFamily: map[string]string{"apt": `^php[0-9][0-9.]*-fpm\.service$`},
+		PkgByFamily:         map[string][]string{"apt": {"php-fpm"}, "dnf": {"php-fpm"}, "yum": {"php-fpm"}}},
+	{Type: storeenv.EnvMongoDB, DisplayName: "MongoDB",
+		Description:  "MongoDB 文档数据库",
+		UnitByFamily: map[string]string{"apt": "mongod.service", "dnf": "mongod.service", "yum": "mongod.service"},
+		PkgByFamily:  map[string][]string{"apt": {"mongodb-org"}, "dnf": {"mongodb-org"}, "yum": {"mongodb-org"}},
+		// mongodb-org 不在任何发行版官方源——三系均需第三方官方仓库代配（⚠️A10，W1/W2 拍板）。
+		VendorRepo: map[string]bool{"apt": true, "dnf": true, "yum": true}},
 }
 
 // CatalogByType 目录索引。
@@ -104,10 +113,64 @@ func CatalogByType(envType string) *CatalogEntry {
 	return nil
 }
 
-// ---- EnvList（D-01 实时探测投影）----
+// installedPkg 多候选已装探测（D-02/D-14）：逐候选查询，任一命中返回该候选
+// 包名与版本（found=true）；全部候选确定性未装 found=false/probeOK=true；
+// 任一候选探测真错误且无命中 probeOK=false（条目级「探测不可用」，非未装）。
+func (s *Service) installedPkg(ctx context.Context, e *CatalogEntry, family string) (pkg, version string, found, probeOK bool) {
+	anyErr := false
+	for _, p := range e.PkgByFamily[family] {
+		v, inst, err := s.pack.QueryInstalled(ctx, family, p)
+		if err != nil {
+			anyErr = true // 真错误（超时/通道异常）——不与「未装」混同（W1 缺陷 2）
+			continue
+		}
+		if inst {
+			return p, v, true, true
+		}
+	}
+	return "", "", false, !anyErr
+}
+
+// probeInstalled installedPkg 的布尔投影（EnvList/Install/ServiceOp 用）。
+func (s *Service) probeInstalled(ctx context.Context, e *CatalogEntry, family string) (version string, installed, ok bool) {
+	_, v, found, probeOK := s.installedPkg(ctx, e, family)
+	return v, found, probeOK
+}
+
+// unitFor 解析环境在目标族的实际 systemd 单元（规范全名）：字面映射名 GetUnit
+// 命中即用；php-fpm apt 系版本化单元经 ListUnits 正则扫描解析；解析失败仍
+// 返回映射全名（下发供呈现，操作时 systemd 如实报 ENV_006）。
+func (s *Service) unitFor(ctx context.Context, e *CatalogEntry, family string) (unit string, detail sysd.UnitDetail, ok bool) {
+	lit := e.UnitByFamily[family]
+	if lit != "" {
+		if d, err := s.sysd.GetUnit(ctx, lit); err == nil {
+			return lit, d, true
+		}
+	}
+	if p := e.UnitPatternByFamily[family]; p != "" {
+		if units, err := s.sysd.ListUnits(ctx); err == nil {
+			if re, cerr := regexp.Compile(p); cerr == nil {
+				for _, un := range units {
+					if re.MatchString(un.Name) {
+						name := un.Name
+						if d, err := s.sysd.GetUnit(ctx, name); err == nil {
+							return name, d, true
+						}
+						return name, sysd.UnitDetail{}, false
+					}
+				}
+			}
+		}
+	}
+	return lit, sysd.UnitDetail{}, false
+}
+
+// ---- EnvList（D-01 实时探测投影；v1.1 三态如实）----
 
 // EnvList GET /env/env/list：通道探测 → 逐条目实况探测（版本/服务状态）→
-// 在途任务标记（I-01 查询）。通道不可用时 installed/version=null「探测不可用」。
+// 在途任务标记（I-01 查询）。三态（D-01/⚠️A9）：通道不可用=全条目
+// installed/version=null（页头横幅承载语义）；条目级探测真错误=该条目 null；
+// 未装（含包名不在包数据库形态）=installed=false。
 func (s *Service) EnvList(ctx context.Context) (*EnvListData, error) {
 	ch := s.pack.DetectChannel()
 	inFlight := map[string]int64{}
@@ -121,34 +184,34 @@ func (s *Service) EnvList(ctx context.Context) (*EnvListData, error) {
 		e := &Catalog[i]
 		item := EnvItem{
 			EnvType: e.Type, DisplayName: e.DisplayName, Description: e.Description,
-			RelatedModule: e.RelatedModule,
-			Installed:     nil, Version: nil, ServiceRunning: nil, ServiceEnabled: nil,
-			UnitName: e.UnitByFamily[ch.Family],
+			Installed: nil, Version: nil, ServiceRunning: nil, ServiceEnabled: nil,
 		}
 		if id, ok := inFlight[e.Type]; ok {
 			v := id
 			item.RunningTaskID = &v
 		}
 		if ch.Available {
-			pkg := e.PkgByFamily[ch.Family]
-			if ver, ok, err := s.pack.QueryInstalled(ctx, ch.Family, pkg); err == nil && ok {
+			if ver, inst, ok := s.probeInstalled(ctx, e, ch.Family); !ok {
+				// 探测真错误：保持 nil（条目级「探测不可用」，D-14/I-06）。
+			} else if inst {
 				installed := true
 				item.Installed = &installed
 				item.Version = &ver
-			} else if err == nil {
+			} else {
 				installed := false
 				item.Installed = &installed
 			}
-			// 查询失败保持 nil（探测不可用如实降级，D-01/I-06）。
 		}
-		if item.UnitName != "" {
-			if u, err := s.sysd.GetUnit(ctx, item.UnitName); err == nil {
-				running := u.ActiveState == "active"
-				enabled := u.EnabledState == "enabled"
+		if unit, d, ok := s.unitFor(ctx, e, ch.Family); unit != "" {
+			item.UnitName = unit
+			if ok {
+				running := d.ActiveState == "active"
+				enabled := d.EnabledState == "enabled"
 				item.ServiceRunning = &running
 				item.ServiceEnabled = &enabled
 			}
-			// 单元不存在（未装/非 service）：保持 nil——探测失败≠false（如实区分）。
+			// 单元不存在（未装/非 service）：ServiceRunning/Enabled 保持 nil——
+			// 探测失败≠false（如实区分）。
 		}
 		items = append(items, item)
 	}
@@ -173,8 +236,8 @@ func (s *Service) Install(ctx context.Context, actor *authsvc.Identity, envType 
 		return nil, errcodeChannelUnavailable("包管理器通道不可用（apt/dnf·yum 均未检出）")
 	}
 	action := storeenv.ActionInstall
-	if ver, ok, err := s.pack.QueryInstalled(ctx, ch.Family, entry.PkgByFamily[ch.Family]); err == nil && ok && ver != "" {
-		action = storeenv.ActionUpgrade // D-05：已装=升级
+	if _, inst, ok := s.probeInstalled(ctx, entry, ch.Family); ok && inst {
+		action = storeenv.ActionUpgrade // D-05：已装（多候选任一命中）=升级
 	}
 	taskID, err := s.createTask(ctx, actor, envType, action,
 		auditActionFor(action, false), map[string]any{"envType": envType, "action": action})
@@ -185,8 +248,9 @@ func (s *Service) Install(ctx context.Context, actor *authsvc.Identity, envType 
 	return &TaskCreatedData{TaskID: taskID, Action: action}, nil
 }
 
-// Uninstall POST /env/env/uninstall：已装前置（ENV_004）→ 创建任务（强确认
-// 归前端 D-07；服务端知情决策不硬阻断）。
+// Uninstall POST /env/env/uninstall：已装前置（ENV_004，多候选任一命中；探测
+// 失败同样拒绝——破坏性操作保守）→ 创建任务（强确认归前端 D-07；服务端知情
+// 决策不硬阻断）。
 func (s *Service) Uninstall(ctx context.Context, actor *authsvc.Identity, envType string) (*TaskCreatedData, error) {
 	entry := CatalogByType(envType)
 	if entry == nil {
@@ -196,7 +260,7 @@ func (s *Service) Uninstall(ctx context.Context, actor *authsvc.Identity, envTyp
 	if !ch.Available {
 		return nil, errcodeChannelUnavailable("包管理器通道不可用（apt/dnf·yum 均未检出）")
 	}
-	if _, ok, err := s.pack.QueryInstalled(ctx, ch.Family, entry.PkgByFamily[ch.Family]); err != nil || !ok {
+	if _, _, found, ok := s.installedPkg(ctx, entry, ch.Family); !ok || !found {
 		return nil, errcodeNotInstalled()
 	}
 	taskID, err := s.createTask(ctx, actor, envType, storeenv.ActionUninstall,

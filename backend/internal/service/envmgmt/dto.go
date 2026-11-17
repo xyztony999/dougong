@@ -20,12 +20,13 @@ const (
 	TaskListPageSize = 50
 )
 
-// 审计动作码与对象类型（api §3.4 业务常量）。
+// 审计动作码与对象类型（api §3.4 业务常量；v1.1 补 env_repo_configured 实现）。
 const (
 	AuditActionEnvInstallStarted   = "env_install_started"
 	AuditActionEnvUpgradeStarted   = "env_upgrade_started"
 	AuditActionEnvUninstallStarted = "env_uninstall_started"
 	AuditActionEnvTaskFinished     = "env_task_finished"
+	AuditActionEnvRepoConfigured   = "env_repo_configured"
 	AuditActionEnvServiceStarted   = "env_service_started"
 	AuditActionEnvServiceStopped   = "env_service_stopped"
 	AuditActionEnvServiceRestarted = "env_service_restarted"
@@ -48,7 +49,6 @@ type EnvItem struct {
 	EnvType        string  `json:"envType"`
 	DisplayName    string  `json:"displayName"`
 	Description    string  `json:"description"`
-	RelatedModule  string  `json:"relatedModule"`
 	Installed      *bool   `json:"installed"`
 	Version        *string `json:"version"`
 	ServiceRunning *bool   `json:"serviceRunning"`
@@ -150,21 +150,22 @@ func taskItemOf(r storeenv.Task) TaskItem {
 }
 
 // ServiceOp service/{start,stop,restart,enable,disable}（D-09：目录单元限定、
-// 已装前置、SysdGateway 复用；结果如实 ENV_006）。
+// 已装前置、SysdGateway 复用；结果如实 ENV_006）。单元经 unitFor 解析（php-fpm
+// apt 版本化单元 D-02；规范全名 ⚠️A8/D-13——EnableUnitFiles 无后缀补全）。
 func (s *Service) ServiceOp(ctx context.Context, actor *authsvc.Identity, envType, op string) (*ServiceOpData, error) {
 	entry := CatalogByType(envType)
 	if entry == nil {
 		return nil, errcodeInvalidEnvType()
 	}
 	ch := s.pack.DetectChannel()
-	unit := entry.UnitByFamily[ch.Family]
-	if unit == "" {
-		return nil, errcodeNotInstalled()
-	}
 	if ch.Available {
-		if _, ok, err := s.pack.QueryInstalled(ctx, ch.Family, entry.PkgByFamily[ch.Family]); err == nil && !ok {
+		if _, _, found, ok := s.installedPkg(ctx, entry, ch.Family); ok && !found {
 			return nil, errcodeNotInstalled()
 		}
+	}
+	unit, _, _ := s.unitFor(ctx, entry, ch.Family)
+	if unit == "" {
+		return nil, errcodeNotInstalled()
 	}
 	var opErr error
 	switch op {

@@ -517,3 +517,13 @@ W1/W2 维持报告原判（WARN 非本轮 FAIL 修复项）：views/monitoring �
   - settings/index.vue：四分组重排（常规[语言]/网络与访问[监听·入口·域名]/安全与证书[HTTPS·证书·会话]/关于[更新检查]，Card 语义编号不变+分组标题视觉层级——PageSpec panel-core v1.2）
   - account-auth 三列表页 loadError 错误态（user-list/session-list/audit-log-list：NAlert+重试，不呈现裸空表格——反馈第 5 项「正文空白」修复，PageSpec account-auth v1.3 规范）
 - [x] 门禁自验（2026-11-17 实跑 cwd=frontend/）：vue-tsc --noEmit=0、npm run build exit 0（30.0s）、vitest 15 文件 174 用例全过（+env store 4 用例：loadList 成败流/taskFilter/clearTaskDetail 幂等）、产物同步 backend/web/dist（make web）+ 同步后 go build ./...=0；F-01~F-05 禁项 grep 0 命中（any/原生 alert·confirm/views 层 fetch/定时器不配对清理/Options API——增量代码未引入）
+
+# 增量轮 · W1 实机冒烟缺陷修复（2026-11-17，/pipeline session 轨）
+
+> 设计输入：PageSpec env-mgmt admin/readonly v1.1；数据源 api-env-mgmt.md v1.1（⚠️A8/A9/A10，用户确认 W1~W5）。
+
+- [x] T-ENV4 · env-mgmt 前端增量（三态+MongoDB）
+  - enums.ts：EnvType +mongodb（七值，S8 四方同值）+ ENV_TYPE 字典项
+  - views/env-mgmt/index.vue：installedText 三态精确化（null 且通道可用=「探测不可用」橙/通道不可用=「未探测」灰——页头横幅承载通道语义不重复/false=「未安装」）；安装·升级 Popconfirm 文案补第三方源代配说明（MongoDB/RHEL 系 Docker CE）；卸载警示二补 MongoDB、提交文案补源文件保留说明；七条目网格注释与页头注释 v1.1
+  - stores/__tests__/env.test.ts：载荷升七条目（+mongodb 卡片）与全名 unitName（nginx.service/mongod.service——D-13 回归）
+- [x] 门禁自验（2026-11-17 实跑 cwd=frontend/）：npm run build exit 0（vue-tsc --noEmit + vite build 24.8s）、npx vitest run 16 文件 174 用例全过（env store 载荷升七条目含 mongodb 卡片与全名 unitName）、产物同步 backend/web/dist（make web）+ 同步后 go build ./...=0；F-01~F-05 禁项 grep 0 命中（改动面未引入 any/原生 alert·confirm/views 层 fetch/Options API）

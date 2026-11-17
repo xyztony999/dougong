@@ -1,11 +1,13 @@
 <script setup lang="ts">
 /**
- * 环境管理页（PageSpec env-mgmt v1.0，hybrid；路由 /env；admin+readonly 同路由
+ * 环境管理页（PageSpec env-mgmt v1.1，hybrid；路由 /env；admin+readonly 同路由
  * 按角色渲染子集——操作区整区不渲染，ADR-018 负空间）。
- * 页头通道状态条 + 环境卡片网格（六条目 D-02：目录字段+实况+在途标记）+
- * 任务 Drawer（历史筛选列表 / 详情输出尾部 running 5s 轮询终态即停）。
- * 安装/升级 NPopconfirm（刷新索引+仓库代配提示）；卸载强确认 NModal 两段警示
- * （⚠️A6：本域服务实况+关联模块静态影响）+ 输入环境名锁定；服务操作组（D-09）。
+ * 页头通道状态条 + 环境卡片网格（七条目 D-02 v1.1 +MongoDB：目录字段+实况+
+ * 在途标记；实况三态 ⚠️A9——通道级不可用归页头横幅、条目级真错误才显
+ * 「探测不可用」角标、未装含包名不在包数据库形态）+ 任务 Drawer（历史筛选
+ * 列表 / 详情输出尾部 running 5s 轮询终态即停）。安装/升级 NPopconfirm（刷新
+ * 索引+第三方源代配提示 ⚠️A10）；卸载强确认 NModal 两段警示（⚠️A6：本域服务
+ * 实况+关联模块静态影响）+ 输入环境名锁定；服务操作组（D-09，单元全名 ⚠️A8）。
  */
 import { computed, h, onMounted, onUnmounted, ref } from 'vue'
 import { useDialog, useMessage } from 'naive-ui'
@@ -156,9 +158,15 @@ const channelTag = computed(() => {
   return { text: `包管理通道：${label}`, type: 'success' as const }
 })
 
-/** 卡片实况渲染辅助 */
+/** 卡片实况渲染辅助（v1.1 三态 ⚠️A9：installed=null 仅条目级真错误显橙——通道级
+ * 不可用由页头横幅承载语义，角标降级灰「未探测」不重复渲染；false=未安装含
+ * 包名不在包数据库形态） */
 function installedText(item: EnvItem): { text: string; type: 'default' | 'success' | 'warning' } {
-  if (item.installed === null) return { text: '探测不可用', type: 'warning' }
+  if (item.installed === null) {
+    return store.channel.available
+      ? { text: '探测不可用', type: 'warning' }
+      : { text: '未探测', type: 'default' }
+  }
   if (!item.installed) return { text: '未安装', type: 'default' }
   return { text: `已安装 · ${item.version ?? ''}`, type: 'success' }
 }
@@ -248,7 +256,7 @@ onUnmounted(() => {
       </n-alert>
     </n-card>
 
-    <!-- 环境卡片网格（六条目；readonly 操作区整区不渲染——ADR-018 负空间） -->
+    <!-- 环境卡片网格（七条目 v1.1 +MongoDB；readonly 操作区整区不渲染——ADR-018 负空间） -->
     <div class="grid">
       <n-card v-for="item in store.items" :key="item.envType" size="small" class="env-card">
         <template #header>
@@ -263,7 +271,6 @@ onUnmounted(() => {
           </n-tag>
         </template>
         <div class="env-desc">{{ item.description }}</div>
-        <div v-if="item.relatedModule !== '—'" class="env-module">安装后可配合「{{ item.relatedModule }}」模块使用</div>
         <div class="env-service">
           <template v-if="item.serviceRunning !== null">
             <n-tag :type="item.serviceRunning ? 'success' : 'default'" size="small" :bordered="false">
@@ -287,7 +294,7 @@ onUnmounted(() => {
                 <template #trigger>
                   <n-button size="small" :loading="installing === item.envType">升级</n-button>
                 </template>
-                将通过 {{ dictItem(PACKAGE_MANAGER_FAMILY, store.channel.family ?? 'apt').label }} 升级到仓库最新版（先刷新包索引，可能需要数分钟；需官方仓库源的环境将自动写入源配置并留痕）。
+                将通过 {{ dictItem(PACKAGE_MANAGER_FAMILY, store.channel.family ?? 'apt').label }} 升级到仓库最新版（先刷新包索引，可能需要数分钟；需第三方官方源的环境——MongoDB、RHEL 系 Docker CE——将自动写入源配置并留痕）。
               </n-popconfirm>
               <n-button size="small" type="error" ghost @click="openUninstall(item)">卸载</n-button>
               <n-popconfirm @positive-click="onServiceOp(item, 'start')">
@@ -313,7 +320,7 @@ onUnmounted(() => {
                 <template #trigger>
                   <n-button size="small" type="primary" :loading="installing === item.envType">安装</n-button>
                 </template>
-                将通过包管理器安装 {{ item.displayName }} 到仓库最新版（先刷新包索引，可能需要数分钟）。
+                将通过包管理器安装 {{ item.displayName }} 到仓库最新版（先刷新包索引，可能需要数分钟；需第三方官方源的环境——MongoDB、RHEL 系 Docker CE——将自动写入源配置并留痕）。
               </n-popconfirm>
             </template>
           </div>
@@ -348,7 +355,7 @@ onUnmounted(() => {
         {{ uninstallTarget.displayName }} 服务当前正在运行，卸载将使其立即不可用。
       </n-alert>
       <n-alert type="error" title="关联模块影响" style="margin-bottom: 10px">
-        卸载后对应功能将失去运行环境——Docker：容器管理；MySQL：数据库管理；nginx/PHP-FPM：网站管理。
+        卸载后对应功能将失去运行环境——Docker：容器管理；MySQL/MongoDB：数据库管理；nginx/PHP-FPM：网站管理。
         请先到对应模块确认数据已处置（面板不做跨模块数据检查）。
       </n-alert>
       <n-form label-placement="left" label-width="110">
@@ -360,7 +367,7 @@ onUnmounted(() => {
         </n-form-item>
       </n-form>
       <n-alert type="info" :show-icon="true">
-        将执行包卸载（保留系统配置与数据目录）；任务异步执行，输出可在任务记录中查看。
+        将执行包卸载（保留系统配置与数据目录；已配第三方官方源文件保留不回收——重装即用）；任务异步执行，输出可在任务记录中查看。
       </n-alert>
       <template #footer>
         <div class="footer">
@@ -409,11 +416,6 @@ onUnmounted(() => {
 .env-desc {
   font-size: 13px;
   opacity: 0.85;
-}
-.env-module {
-  font-size: 12px;
-  opacity: 0.6;
-  margin-top: 4px;
 }
 .env-service {
   margin-top: 10px;

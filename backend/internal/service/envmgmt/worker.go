@@ -74,17 +74,47 @@ func (s *Service) runTask(taskID int64) {
 		finish(storeenv.TaskFailed, &e, ring.String())
 		return
 	}
-	pkg := entry.PkgByFamily[ch.Family]
 	ring.append(fmt.Sprintf("[channel] %s", ch.Family))
+	// D-06 v1.1 次序：代配先于索引刷新（新写入源须参与本次 update/makecache）；
+	// 仅变更安装类动作（卸载不需要网络与第三方源）。
+	if task.Action != storeenv.ActionUninstall && entry.VendorRepo[ch.Family] {
+		summary, verr := s.pack.EnsureVendorRepo(ctx, task.EnvType, ch.Family)
+		if summary != "" {
+			ring.append("[vendor-repo] " + summary)
+		}
+		if verr != nil {
+			e := "第三方源代配失败: " + verr.Error()
+			finish(storeenv.TaskFailed, &e, ring.String())
+			return
+		}
+		s.recordRepoAudit(ctx, task, ch.Family, summary)
+	}
+	// 包名解析（D-02 多候选）：安装/升级=候选首选；卸载=实际命中（已装）候选，
+	// 命中丢失（创建后被外部卸载）→ 任务 failed 如实，不盲删首选。
+	var pkg string
+	if task.Action == storeenv.ActionUninstall {
+		p, _, found, _ := s.installedPkg(ctx, entry, ch.Family)
+		if !found {
+			e := "包数据库未检出已装候选（可能已被系统外部变更），卸载中止"
+			finish(storeenv.TaskFailed, &e, ring.String())
+			return
+		}
+		pkg = p
+	} else {
+		cands := entry.PkgByFamily[ch.Family]
+		if len(cands) == 0 {
+			e := "目录映射缺少候选包名（family=" + ch.Family + "）"
+			finish(storeenv.TaskFailed, &e, ring.String())
+			return
+		}
+		pkg = cands[0]
+	}
 	out, err := s.pack.RefreshIndex(ctx, ch.Family)
 	ring.append(out)
 	if err != nil {
 		e := "刷新包索引失败: " + err.Error()
 		finish(storeenv.TaskFailed, &e, ring.String())
 		return
-	}
-	if entry.VendorRepo[ch.Family] {
-		ring.append("[vendor-repo] 官方仓库源已由系统包管理器配置通道处理（docker-ce 等）")
 	}
 	if task.Action == storeenv.ActionUninstall {
 		out, err = s.pack.Remove(ctx, ch.Family, pkg)
@@ -98,6 +128,22 @@ func (s *Service) runTask(taskID int64) {
 		return
 	}
 	finish(storeenv.TaskSucceeded, nil, ring.String())
+}
+
+// recordRepoAudit 代配写入审计（env_repo_configured，D-06；失败重试一次后
+// 日志兜底——审计失败不阻断任务，与 recordAudit 同口径）。
+func (s *Service) recordRepoAudit(ctx context.Context, task storeenv.Task, family, summary string) {
+	e := audit.Entry{
+		ActorName: task.RequestedBy, Category: audit.CategoryChange,
+		Action: AuditActionEnvRepoConfigured, ObjectType: ObjectTypeEnv, ObjectID: task.EnvType,
+		Detail: map[string]any{"envType": task.EnvType, "family": family, "summary": summary},
+		Result: audit.ResultSuccess, Source: audit.SourceWeb,
+	}
+	if err := s.audit(ctx, e); err != nil {
+		if err := s.audit(ctx, e); err != nil {
+			slog.WarnContext(ctx, "envmgmt: repo-config audit degraded", "envType", task.EnvType, "err", err)
+		}
+	}
 }
 
 // finishTask 终态落库与终态审计同事务（I-03；succeeded/failed 均记）。

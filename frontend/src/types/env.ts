@@ -1,7 +1,8 @@
 /**
- * env-mgmt API 类型 —— 与 api-env-mgmt.md v1.0 4.1.4 对齐（唯一事实源）。
- * - 环境条目为实时探测投影（D-01/I-06）：通道不可用时 installed/version 为 null
- *   （「探测不可用」≠「未装」，如实区分）；服务状态经 systemd 单元查询；
+ * env-mgmt API 类型 —— 与 api-env-mgmt.md v1.1 4.1.4 对齐（唯一事实源）。
+ * - 环境条目为实时探测投影（D-01/I-06 v1.1 三态 ⚠️A9）：installed=null 仅条目级
+ *   探测真错误（通道级不可用由 channel.available=false 页头横幅承载）；
+ *   false=未装（含包名不在包数据库形态，D-14）；服务状态经 systemd 单元查询；
  * - env_install_task 四态任务台账（⚠️A3）：running 态详情 5s 轮询终态即停；
  * - children:null 契约（v0.1.1 教训）：菜单分组启用后 MenuNode.children 在叶节点
  *   为 JSON null——TS 类型如实 `T[] | null`，消费侧判空。
@@ -20,7 +21,6 @@ export interface EnvItem {
   envType: EnvType
   displayName: string
   description: string
-  relatedModule: string
   installed: boolean | null
   version: string | null
   serviceRunning: boolean | null

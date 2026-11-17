@@ -579,15 +579,16 @@ export const DNS_PROVIDER: Record<DnsProvider, DictItem> = {
   dnspod: { label: '腾讯云 DNSPod', tag: 'info' }
 }
 
-/** env_type（env-mgmt v1.0 ⚠️A1）：六环境目录 */
-export type EnvType = 'nginx' | 'apache' | 'docker' | 'mysql' | 'redis' | 'php_fpm'
+/** env_type（env-mgmt v1.1 ⚠️A1）：七环境目录（W1 修复轮 +mongodb；与池/DDL CHECK/api 四方 S8 同值） */
+export type EnvType = 'nginx' | 'apache' | 'docker' | 'mysql' | 'redis' | 'php_fpm' | 'mongodb'
 export const ENV_TYPE: Record<EnvType, DictItem> = {
   nginx: { label: 'nginx', tag: 'default' },
   apache: { label: 'Apache', tag: 'default' },
   docker: { label: 'Docker', tag: 'default' },
   mysql: { label: 'MySQL', tag: 'default' },
   redis: { label: 'Redis', tag: 'default' },
-  php_fpm: { label: 'PHP-FPM', tag: 'default' }
+  php_fpm: { label: 'PHP-FPM', tag: 'default' },
+  mongodb: { label: 'MongoDB', tag: 'default' }
 }
 
 /** env_task_action（⚠️A3/A5）：install=首装、upgrade=已装再装（升级幂等）、uninstall */

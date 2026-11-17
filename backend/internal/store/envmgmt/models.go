@@ -18,12 +18,13 @@ type Executor = store.Executor
 
 // env_type / env_task_action / env_task_status 取值域（DDL CHECK 兜底）。
 const (
-	EnvNginx  = "nginx"
-	EnvApache = "apache"
-	EnvDocker = "docker"
-	EnvMySQL  = "mysql"
-	EnvRedis  = "redis"
-	EnvPHPFPM = "php_fpm"
+	EnvNginx   = "nginx"
+	EnvApache  = "apache"
+	EnvDocker  = "docker"
+	EnvMySQL   = "mysql"
+	EnvRedis   = "redis"
+	EnvPHPFPM  = "php_fpm"
+	EnvMongoDB = "mongodb" // v1.1 W1 修复轮：七环境目录（⚠️A1/迁移 010）
 
 	ActionInstall   = "install"
 	ActionUpgrade   = "upgrade"

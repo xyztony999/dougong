@@ -1001,6 +1001,14 @@
   - service/envmgmt：EnvCatalog 六条目编译期映射（⚠️A1/A7：Debian/RHEL 包名与单元名；docker RHEL 系 VendorRepo 标记）/EnvList 实时探测（通道不可用 installed=null「探测不可用」≠未装；GetUnit 服务态）/Install（已装=升级 D-05）/Uninstall（已装前置 ENV_004）/createTask 互斥+审计同事务/dispatchWorker（go runTask 有限时 goroutine——链路 ≤3×OpTimeout 自然终止，G-06）/ServiceOp（sysd 复用 D-09，单元映射限定）/RecoverInFlight（I-04 running→failed「面板重启中断」）
   - api/envmgmt：10 接口（GET 3 两角色/POST 7 admin+CSRF）
   - errcode ENV_001~006
+- [x] T-ENV3 · env-mgmt W1 实机冒烟缺陷修复（api-env-mgmt.md v1.1：bug1 单元名全名 D-13 / bug2 三态+多候选 D-14·D-02 / MongoDB 七环境+D-06 代配补真 ⚠️A8~A10；用户经主会话确认 W1~W5 2026-11-17）
+  - store：EnvMongoDB 常量 + 迁移 010 env_type CHECK 扩七值（SQLite 表重建）
+  - adapter/envpack：QueryInstalled 重写（dpkg -f='${Status} ${Version}' 状态字段判定+LC_ALL=C 注入+「no packages found matching」=未装 D-14；rpm 退出码语义；runCmd 注入点）+ vendorrepo.go EnsureVendorRepo（os-release 判定/支持矩阵/apt keyring 下载 .asc+yum repo 文件写入/幂等/全依赖可注入）
+  - service/envmgmt：Catalog 七条目（UNIT 名规范全名+多候选包名数组+php-fpm apt 版本化单元正则解析 D-13/D-02）/probeInstalled 三态/resolveUnit/EnvList·Install·Uninstall·ServiceOp 多候选适配/worker 次序 代配→刷新索引→装卸+env_repo_configured 审计
+  - 测试：envpack QueryInstalled 表驱动（注入 runner，含 no-packages-found 回归）/vendorrepo 支持矩阵/catalog 机械断言/EnvList 三态回归（sqlite+注入网关）/store mongodb CHECK
+- [x] T07 · 合规复扫（T-ENV3 增量面）：G-01 exec 唯一站点 CommandContext 参数数组（vendorrepo 为 net/http+os.WriteFile 非命令拼接，R-08 语义保持）；G-02/G-03 零命中；G-06 无新增 goroutine（dispatchWorker 既有）；gofmt 0 文件
+- 自验（2026-11-17 实跑 cwd=backend/）：go build=0、go vet=0、go test -race -count=1 ./... 全 ok 0 FAIL（新增：envpack gateway_test 4 函数 14 用例〔apt 六分支含 W1 缺陷 2 no-packages-found 回归/rpm 三分支/通道不可用/argv 形状+LC_ALL=C 注入断言〕+ vendorrepo_test 7 用例〔ubuntu·debian 内容断言/支持矩阵外三形态零写入/yum 双 repo/幂等复用/公钥校验防错页/noop〕+ service catalog_env_test 3 用例〔七条目全名机械断言〔W1 缺陷 1 回归〕/三态回归〔docker 未装 false·mysql 第二候选命中·redis config-files 未装·mongodb 七环境〕/php-fpm 探测真错误条目级 null〕+ store TestEnvTypeSevenValues〔010 七值 CHECK 写入+非法拒绝〕）；GOOS=linux 交叉编译=0；dist 同步后 build=0；环境耦合预防第 5 起：envpack 新增 runCmd/readFile/writeFile/mkdirAll/httpGet 五注入点，DetectChannel 去 GOOS 短路改由探测承载（注入后 Windows/Linux 行为一致），CI runner 包数据库/systemd/网络状态零参与
+  - 实联归 Linux 冒烟（环境绑定如实声明）：enable/disable·start 全名单元、apt 三态 dpkg-query 实测、MongoDB 代配实装（repo.mongodb.org 出网）、mongod.service 启停
 - [x] T-IA1 · panel-core 菜单 IA（D-P18，v0.1.2 反馈 5/6 项）
   - main.go：account-auth「用户与安全」分组（MenuItem.children 四子项两角色，Order 150——实现回归 PageSpec account-auth 第 7 节既有设计）+ env-mgmt「环境管理」（Order 850 两角色）；menu.go 既有 children 支持直接生效（分组 path 空）
   - site-mgmt 装配注入 DnsVault（OpenDnsCredentialVault 失败=启动硬错误，不静默降级）

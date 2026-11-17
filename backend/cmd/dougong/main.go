@@ -211,13 +211,13 @@ func run(args []string) error {
 		panelsvc.MenuItem{Key: "user-security", Title: "用户与安全", Path: "",
 			Icon: "people", Order: 150, Visibility: []string{storeauth.RoleAdmin, storeauth.RoleReadonly},
 			Children: []panelsvc.MenuItem{
-				{Key: "users", Title: "用户管理", Path: "/users", Order: 10,
+				{Key: "users", Title: "用户管理", Path: "/users", Icon: "person", Order: 10,
 					Visibility: []string{storeauth.RoleAdmin, storeauth.RoleReadonly}},
-				{Key: "sessions", Title: "在线会话", Path: "/sessions", Order: 20,
+				{Key: "sessions", Title: "在线会话", Path: "/sessions", Icon: "time", Order: 20,
 					Visibility: []string{storeauth.RoleAdmin, storeauth.RoleReadonly}},
-				{Key: "audit-logs", Title: "审计日志", Path: "/audit-logs", Order: 30,
+				{Key: "audit-logs", Title: "审计日志", Path: "/audit-logs", Icon: "document", Order: 30,
 					Visibility: []string{storeauth.RoleAdmin, storeauth.RoleReadonly}},
-				{Key: "profile", Title: "个人安全设置", Path: "/profile", Order: 40,
+				{Key: "profile", Title: "个人安全设置", Path: "/profile", Icon: "person-circle", Order: 40,
 					Visibility: []string{storeauth.RoleAdmin, storeauth.RoleReadonly}},
 			}},
 	)

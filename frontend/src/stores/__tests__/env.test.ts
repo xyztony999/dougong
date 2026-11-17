@@ -1,7 +1,7 @@
 /**
- * envStore 测试（PageSpec env-mgmt v1.0）：loadList 成败流（失败→listError=true
- * 页面 NAlert+重试；成功→items/channel/generatedAt 投影）+ taskFilter 联动
- * + clearTaskDetail 轮询清理（stopPoll 幂等）。
+ * envStore 测试（PageSpec env-mgmt v1.1 第 1 节）：loadList 成败流（失败→listError=true
+ * 页面 NAlert+重试；成功→items/channel/generatedAt 投影，v1.1 七条目载荷含
+ * mongodb 与全名 unitName）+ taskFilter 联动 + clearTaskDetail 轮询清理（stopPoll 幂等）。
  */
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -14,25 +14,34 @@ const okPayload = {
       envType: 'nginx',
       displayName: 'nginx',
       description: 'Web 服务器',
-      relatedModule: '网站管理',
       installed: true,
       version: '1.24.0',
       serviceRunning: true,
       serviceEnabled: true,
-      unitName: 'nginx',
+      unitName: 'nginx.service',
       runningTaskId: null
     },
     {
       envType: 'docker',
       displayName: 'Docker',
       description: '容器运行时',
-      relatedModule: '容器管理',
       installed: null,
       version: null,
       serviceRunning: null,
       serviceEnabled: null,
-      unitName: 'docker',
+      unitName: 'docker.service',
       runningTaskId: 7
+    },
+    {
+      envType: 'mongodb',
+      displayName: 'MongoDB',
+      description: '文档数据库',
+      installed: false,
+      version: null,
+      serviceRunning: null,
+      serviceEnabled: null,
+      unitName: 'mongod.service',
+      runningTaskId: null
     }
   ],
   generatedAt: '2026-11-17T00:00:00Z'
@@ -53,7 +62,7 @@ describe('envStore', () => {
     const { useEnvStore: useFresh } = await import('../env')
     const store = useFresh()
     await store.loadList()
-    expect(store.items).toHaveLength(2)
+    expect(store.items).toHaveLength(3)
     expect(store.channel.available).toBe(true)
     expect(store.channel.family).toBe('apt')
     expect(store.generatedAt).toBe('2026-11-17T00:00:00Z')

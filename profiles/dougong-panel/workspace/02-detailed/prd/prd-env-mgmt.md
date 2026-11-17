@@ -2,15 +2,15 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v1.0 |
+| 版本 | v1.1 |
 | 状态 | 稳定 |
-| 最后更新 | 2026-11-16 |
+| 最后更新 | 2026-11-17（v1.1 W1 实机冒烟缺陷修复轮增量） |
 | 输入 | D0 增量澄清拍板（随 business-arch-env-mgmt.md ⚠️A1~A7 承载，2026-11-16）、D1 三文档（business-arch/application-arch/function-list-env-mgmt.md v1.0）、idea.md §3/§4.1/§7（R-02/R-03/R-08/R-14/ADR-018）、install.sh 支持矩阵（Debian 11+/Ubuntu 20.04+/RHEL 9 系） |
 | 下游 | D3 API 设计（02-detailed/api/api-env-mgmt.md）、D4 交互设计（02-detailed/interaction/{admin,readonly}/env-mgmt/） |
 
 ## 第一部分：业务目标（G1）
 
-为登录运维者提供**运行环境本体的供给与治理能力**：面板此前只能「接管已有环境」（site-mgmt 接管 nginx、database-mgmt 纳管已运行数据库实例、docker-mgmt 管理已有 daemon 的容器），缺失「从无到有安装环境本体」的能力（v0.1.2 用户反馈第 4 项）。本模块补位软件包层：经发行版包管理器（apt / dnf·yum 双系探测择一，⚠️A2）安装、升级、卸载六类常用运行环境（nginx、Apache、Docker、MySQL、Redis、PHP-FPM，⚠️A1），提供已装环境的版本/服务状态观测与服务启停自启入口（复用 systemd 通道，衔接 service-mgmt 通用单元治理）。安装/卸载为**异步任务**（包安装可达数分钟，⚠️A3），任务台账持久化（面板重启后可观测、在途互斥跨重启一致）。安全纪律贯穿：apt/yum 包操作最小权限、幂等（升级=重装，⚠️A4）、审计留痕（R-03）、外部命令一律字面量参数数组（R-08）、服务端校验（R-14），沿用 R-01~R-18 与 SEC-GATE 纪律。服务对象：管理员（admin）执行全部变更，只读用户（readonly）查看环境全景与任务状态输出（ADR-018）。
+为登录运维者提供**运行环境本体的供给与治理能力**：面板此前只能「接管已有环境」（site-mgmt 接管 nginx、database-mgmt 纳管已运行数据库实例、docker-mgmt 管理已有 daemon 的容器），缺失「从无到有安装环境本体」的能力（v0.1.2 用户反馈第 4 项）。本模块补位软件包层：经发行版包管理器（apt / dnf·yum 双系探测择一，⚠️A2）安装、升级、卸载七类常用运行环境（nginx、Apache、Docker、MySQL、Redis、PHP-FPM、MongoDB，⚠️A1——v1.1 扩 MongoDB〔数据库类用户点名缺失〕），提供已装环境的版本/服务状态观测与服务启停自启入口（复用 systemd 通道，衔接 service-mgmt 通用单元治理）。安装/卸载为**异步任务**（包安装可达数分钟，⚠️A3），任务台账持久化（面板重启后可观测、在途互斥跨重启一致）。安全纪律贯穿：apt/yum 包操作最小权限、幂等（升级=重装，⚠️A4）、审计留痕（R-03）、外部命令一律字面量参数数组（R-08）、服务端校验（R-14），沿用 R-01~R-18 与 SEC-GATE 纪律。服务对象：管理员（admin）执行全部变更，只读用户（readonly）查看环境全景与任务状态输出（ADR-018）。
 
 与既有模块的四层分界（AA 附录B）：环境本体（软件包层）=本模块；已运行数据库实例（实例层）=database-mgmt；容器（容器层）=docker-mgmt；全部 systemd 单元通用治理（通用单元层）=service-mgmt；nginx 站点配置与证书（站点层）=site-mgmt。
 
@@ -20,9 +20,9 @@
 
 | # | 能力 | 依据 |
 |---|------|------|
-| 1 | 环境列表查看：内置六环境目录条目（显示名/描述/关联模块提示）+ 实况（已装/版本/服务运行/自启/通道可用性/在途任务标记）合并呈现 | D1 AA S-53-01（⚠️A1/A2/A7） |
-| 2 | 环境实况探测（机制）：逐环境包管理器查询已装版本（⚠️A7 映射）+ systemd 单元状态查询 + 包管理器通道探测（apt/dnf·yum 择一）；纯读每请求实时探测不缓存 | D1 AA S-53-02 |
-| 3 | 环境安装与升级：通道可用性前置→先刷新包索引→安装（已装环境同动作为升级到仓库最新版，幂等 ⚠️A4）→需第三方官方仓库的环境先由面板写入仓库源配置（审计留痕，⚠️A2）→异步任务执行 | D1 AA C-14-01 |
+| 1 | 环境列表查看：内置七环境目录条目（v1.1 六→七：+MongoDB；显示名/描述/关联模块提示）+ 实况（已装/版本/服务运行/自启/通道可用性/在途任务标记）合并呈现 | D1 AA S-53-01（⚠️A1/A2/A7）+ v1.1 ⚠️A1/A10 |
+| 2 | 环境实况探测（机制）：逐环境包管理器查询已装版本（⚠️A7 映射，v1.1 起为有序候选包名数组——任一命中即已装，包名不在包数据库=未装而非探测失败，⚠️A9）+ systemd 单元状态查询（⚠️A8 规范全名）+ 包管理器通道探测（apt/dnf·yum 择一）；纯读每请求实时探测不缓存；三态如实（通道级不可用/条目级探测失败/未装，⚠️A9） | D1 AA S-53-02 + v1.1 ⚠️A9 |
+| 3 | 环境安装与升级：通道可用性前置→先刷新包索引→安装（已装环境同动作为升级到仓库最新版，幂等 ⚠️A4）→需第三方官方仓库的环境（v1.1 清单：MongoDB 三系 + RHEL 系 docker-ce，⚠️A10）先由面板写入仓库源配置（审计留痕，⚠️A2；v1.0 实现为空转日志，v1.1 补真实现）→异步任务执行 | D1 AA C-14-01 + v1.1 ⚠️A10 |
 | 4 | 环境卸载：强确认交互（风险提示：本域服务运行实况 + 关联模块影响静态警示）→包 remove（保留系统配置与数据目录，⚠️A6）→异步任务执行 | D1 AA C-14-02 |
 | 5 | 环境变更任务跟踪：任务状态（pending → running → succeeded/failed，⚠️A3）、动作、目标环境、命令输出尾部（排障）、失败原因；同环境在途互斥；任务台账跨重启留存 | D1 AA C-14-03 |
 | 6 | 环境服务启停与自启：对已装环境执行服务 start/stop/restart 与自启 enable/disable（经 systemd 通道，操作对象限定目录环境单元 ⚠️A7）；结果如实反馈 | D1 AA S-54-01 |
@@ -60,15 +60,15 @@
 
 | 编号 | 需求 | 主流程与规则 | 审计 |
 |------|------|-------------|------|
-| FR-01 | 环境列表查看（S-53-01） | 呈现内置六环境（⚠️A1）全景列表：显示名、描述、关联模块提示（Docker→docker-mgmt、MySQL→database-mgmt、nginx/PHP-FPM→site-mgmt 等）、已装版本（⚠️A7 映射查询）、服务运行/自启状态（systemd 单元查询）、包管理器通道可用性（apt/dnf·yum 探测择一，⚠️A2——通道不可用时变更能力如实标注不可用）、在途任务标记；实况每请求实时探测不缓存不虚构（nginx 未检出返回未安装，与 site-mgmt 投影真实性同哲学）；未装条目呈现安装入口、已装呈现升级/卸载/服务运维入口（admin；readonly 负空间）；两角色同等可看（ADR-018） | —（查看类） |
-| FR-02 | 环境实况探测（S-53-02，机制型） | 逐环境探测三路：①已装与版本——按发行版族包名映射（⚠️A7 编译期数据）经包管理器查询；②服务运行/自启——按单元名映射经 systemd 通道查询（复用 service-mgmt SysdGateway 适配层资产）；③通道可用性——apt/dnf/yum 二进制存在性探测择一（Debian 系 apt、RHEL 系 dnf 无则回退 yum）；纯读机制，被列表/安装/卸载/服务运维共同消费；探测失败如实呈现（不虚构已装/运行态） | —（查看类机制） |
+| FR-01 | 环境列表查看（S-53-01） | 呈现内置七环境（⚠️A1，v1.1 六→七 +MongoDB）全景列表：显示名、描述、关联模块提示（Docker→docker-mgmt、MySQL/MongoDB→database-mgmt、nginx/PHP-FPM→site-mgmt 等）、已装版本（⚠️A7 映射查询）、服务运行/自启状态（systemd 单元查询）、包管理器通道可用性（apt/dnf·yum 探测择一，⚠️A2——通道不可用时变更能力如实标注不可用）、在途任务标记；实况每请求实时探测不缓存不虚构（nginx 未检出返回未安装，与 site-mgmt 投影真实性同哲学）；未装条目呈现安装入口、已装呈现升级/卸载/服务运维入口（admin；readonly 负空间）；两角色同等可看（ADR-018） | —（查看类） |
+| FR-02 | 环境实况探测（S-53-02，机制型） | 逐环境探测三路：①已装与版本——按发行版族包名映射（⚠️A7 编译期数据；v1.1 起每环境为**有序候选包名数组**：任一命中即已装〔含用户经官方源自装的 docker-ce/mysql-community-server 等形态〕，全部候选均查无〔包名不在包数据库〕=未装而非探测错误；dpkg 侧按 Status 字段判定 install/hold ok installed——数据字段判定，不受 locale 本地化消息影响，⚠️A9）；②服务运行/自启——按单元名映射（⚠️A8 规范全名 .service 后缀）经 systemd 通道查询（复用 service-mgmt SysdGateway 适配层资产）；③通道可用性——apt/dnf/yum 二进制存在性探测择一（Debian 系 apt、RHEL 系 dnf 无则回退 yum）；纯读机制，被列表/安装/卸载/服务运维共同消费；探测失败如实呈现（不虚构已装/运行态；条目级探测失败 installed=null「探测不可用」与通道级不可用〔channel.available=false 页头横幅〕与未装〔installed=false〕三态如实区分，⚠️A9） | —（查看类机制） |
 
 ### 4.2 环境安装与变更（C-14）
 
 | 编号 | 需求 | 主流程与规则 | 审计 |
 |------|------|-------------|------|
-| FR-03 | 环境安装与升级（C-14-01） | 安装目录环境（已装环境同动作为升级，幂等 ⚠️A4）：通道可用性前置（不可用如实拒绝）；发起即创建异步任务（pending，⚠️A3）并立即返回 taskId；任务执行链：刷新包索引（apt update / dnf makecache）→ 需第三方官方仓库的环境（典型：RHEL 系 Docker CE）先由面板写入发行版仓库源配置（/etc/apt/sources.list.d/ 或 /etc/yum.repos.d/，写入审计留痕，⚠️A2）→ 包安装（最小权限、字面量参数数组 R-08）→ 终态落库；安装完成后不强制 start/enable（尊重包脚本默认行为，⚠️A5），实况经 FR-02 如实反映；任务输出尾部与失败原因经 FR-05 呈现，不虚构成功 | env_install_started（创建任务）+ 任务终态审计（change，detail 含动作/版本） |
-| FR-04 | 环境卸载（C-14-02） | 卸载已装环境：强确认交互——风险提示分两层（**落地口径，对 BA ⚠️A6「列出警示」的细化**）：①本域实况——目标环境服务单元正在运行时警示加重（systemd 实况，本模块通道）；②关联模块影响——静态警示文案（「卸载 Docker/Nginx/MySQL 后对应容器/站点/数据库模块将失去运行环境，请先自行到对应模块确认数据已处置」），**不做跨模块动态计数**（OUT-9，无跨模块硬调用）；知情决策不硬阻断；执行包 remove（保留系统配置与数据目录，⚠️A6）；异步任务执行（同 FR-03 通道）；卸载后环境条目回未装态 | env_uninstall_started + 任务终态审计（detail 含风险提示呈现记录） |
+| FR-03 | 环境安装与升级（C-14-01） | 安装目录环境（已装环境同动作为升级，幂等 ⚠️A4）：通道可用性前置（不可用如实拒绝）；发起即创建异步任务（pending，⚠️A3）并立即返回 taskId；任务执行链：仓库源代配（v1.1 次序前移至索引刷新**之前**——新写入源须参与本次 makecache/update；需第三方官方仓库的环境清单 v1.1 扩为：MongoDB〔mongodb-org，apt/dnf/yum 三系均需〕+ RHEL 系 docker-ce，⚠️A10；写入发行版仓库源配置并审计留痕 ⚠️A2；不支持的目标发行版/代际→任务 failed 如实，不写任何文件）→ 刷新包索引（apt update / dnf makecache）→ 包安装（最小权限、字面量参数数组 R-08；安装目标=候选数组首选〔发行版原生包优先；mongodb-org 例外〕）→ 终态落库；安装完成后不强制 start/enable（尊重包脚本默认行为，⚠️A5），实况经 FR-02 如实反映；任务输出尾部与失败原因经 FR-05 呈现，不虚构成功 | env_install_started（创建任务）+ env_repo_configured（代配写入时，v1.1 补实现）+ 任务终态审计（change，detail 含动作/版本） |
+| FR-04 | 环境卸载（C-14-02） | 卸载已装环境：强确认交互——风险提示分两层（**落地口径，对 BA ⚠️A6「列出警示」的细化**）：①本域实况——目标环境服务单元正在运行时警示加重（systemd 实况，本模块通道）；②关联模块影响——静态警示文案（「卸载 Docker/Nginx/MySQL/MongoDB 后对应容器/站点/数据库模块将失去运行环境，请先自行到对应模块确认数据已处置」，v1.1 补 MongoDB），**不做跨模块动态计数**（OUT-9，无跨模块硬调用）；知情决策不硬阻断；执行包 remove（保留系统配置与数据目录，⚠️A6；v1.1 卸载目标=候选数组中实际命中〔已装〕的包，非盲删首选）；异步任务执行（同 FR-03 通道）；卸载后环境条目回未装态（已配第三方源文件保留不回收——重装即用，源文件无安全残留风险〔仅含仓库 URL 与公钥〕） | env_uninstall_started + 任务终态审计（detail 含风险提示呈现记录） |
 | FR-05 | 环境变更任务跟踪（C-14-03） | 异步任务的观测与结果确认：任务状态 pending → running → succeeded / failed（⚠️A3）；呈现目标环境、动作（install/upgrade/uninstall）、发起者、发起时间、命令输出尾部（排障，行数上限编译期常量）、失败原因；同环境在途任务互斥（pending/running 存在时新变更请求如实拒绝）；任务台账持久化（跨重启留存）；面板重启时在途 running 任务标 failed（error=面板重启中断，如实呈现）；任务取消不做（OUT-4）；两角色可看（ADR-018） | 任务终态结果一并留痕（succeeded/failed 均记） |
 
 ### 4.3 环境服务运维（S-54）
@@ -86,13 +86,16 @@
 | R-14 | 服务端校验全部输入：envType ∈ 六值目录、服务动作 ∈ 枚举、任务查询参数——不信任前端 | idea.md §7 / kb |
 | R-02 | 本模块全部接口位于 HttpOnly Cookie 会话之后；遵奉同源 + CSRF 全站协议 | idea.md §5.4 / kb |
 | ADR-018 | 只读边界：环境列表/任务状态输出两角色同等；一切变更 admin 专属——readonly 界面无入口 + 越界请求被全局边界管控拒绝并提示原因 | D0 / kb |
-| ⚠️A1 | 六环境静态目录（编译期数据非用户可配）；目录扩展走面板版本迭代 | D0 增量澄清（2026-11-16） |
+| ⚠️A1 | 七环境静态目录（编译期数据非用户可配；v1.1 六→七：+MongoDB〔env_type=mongodb〕）；目录扩展走面板版本迭代 | D0 增量澄清（2026-11-16）+ v1.1 增量轮（2026-11-17，用户点名） |
+| ⚠️A8 | systemd 单元名一律规范全名（含 .service 后缀，映射表承载）：EnableUnitFiles/DisableUnitFiles 的 DBus 契约不自动补后缀（无后缀名 systemd 直接回 InvalidArgs——W1 实机缺陷 1 根因；StartUnit/LoadUnit 有服务端补全故仅 enable/disable 报错），目录统一全名消除不对称 | v1.1 增量轮拍板（2026-11-17，根因见 api D-13） |
+| ⚠️A9 | 已装探测三态如实区分：通道级不可用（channel.available=false，页头横幅）/ 条目级探测失败（installed=null「探测不可用」——仅真错误：命令超时/通道异常等）/ 未装（installed=false——含包名完全不在包数据库形态）；dpkg 侧以 Status 字段判定（install/hold ok installed=已装；deinstall ok config-files=未装），包名不在数据库按未装呈现非错误；命令环境注入 LC_ALL=C 消除输出本地化影响；候选包名数组任一命中即已装 | v1.1 增量轮拍板（2026-11-17，W1 实机缺陷 2 根因修复口径，经主会话确认中 ⚠️） |
+| ⚠️A10 | 第三方源代配机制（v1.0 设计声明 D-06、实现空转，v1.1 补真）：按 /etc/os-release 判定（ID+VERSION_CODENAME / ID_LIKE+VERSION_ID）目标发行版与代际；apt=写 /etc/apt/sources.list.d/mongodb-org-8.0.list（signed-by 引用面板经 HTTPS 下载的官方公钥 .asc，落 /usr/share/keyrings/，不依赖 curl/gpg 命令）；dnf/yum=写 /etc/yum.repos.d/{mongodb-org-8.0,docker-ce}.repo（gpgkey URL 内联）；MongoDB 版本轨道 8.0 ⚠️（现行稳定主轨，Debian12/Ubuntu22.04+/RHEL8/9 支持；待主会话确认）；代配清单：MongoDB 三系 + docker-ce RHEL 系（apt 系 docker 装发行版原生 docker.io 不代配；MySQL 官方源不代配——Debian12 无 mysql-server 属已知限制如实失败）；不支持组合任务 failed 如实 | v1.1 增量轮拍板（2026-11-17，经主会话确认中 ⚠️） |
 | ⚠️A2 | apt + dnf·yum 双系探测择一（Debian 系 apt / RHEL 系 dnf 无则 yum）；第三方官方仓库源由面板代配（写入审计留痕）；两者皆无（非 Linux/无包管理器）时变更能力如实不可用 | D0 拍板 |
 | ⚠️A3 | 异步任务 pending → running → succeeded/failed；同环境在途互斥；取消不做；任务台账持久化 | D0 拍板（持久化口径 D2 落定：**落 SQLite**） |
 | ⚠️A4 | 已装环境再次安装=升级（先刷新包索引，安装仓库最新版，幂等）；可升级检测二期不做 | D0 拍板 |
 | ⚠️A5 | 安装完成后不强制 start/enable，尊重发行版包脚本默认行为；实况如实呈现 | D0 拍板 |
 | ⚠️A6 | 卸载=包 remove（保留系统配置与数据目录）；强确认+风险提示（本域服务实况+关联模块静态警示，动态计数不做）；purge 二期不做 | D0 拍板（落地口径本 PRD FR-04 细化） |
-| ⚠️A7 | 每环境每发行版族的包名、systemd 单元名、版本查询方式经目录条目编译期映射表承载（Debian：nginx/apache2/docker.io/mysql-server/redis-server/php-fpm；RHEL 系：nginx/httpd/docker-ce/mysql-server/redis/php-fpm 等） | D0 拍板 |
+| ⚠️A7 | 每环境每发行版族的包名、systemd 单元名、版本查询方式经目录条目编译期映射表承载（v1.1 起包名=有序候选数组、单元名=规范全名：Debian 系 nginx=[nginx]/apache=[apache2]/docker=[docker.io,docker-ce]/mysql=[mysql-server,mysql-community-server]/redis=[redis-server]/php-fpm=[php-fpm]/mongodb=[mongodb-org]；RHEL 系 nginx=[nginx]/apache=[httpd]/docker=[docker-ce,docker]/mysql=[mysql-server,mysql-community-server]/redis=[redis]/php-fpm=[php-fpm]/mongodb=[mongodb-org]；单元名 apt：nginx.service/apache2.service/docker.service/mysql.service/redis-server.service/php-fpm 版本化解析/mongod.service，dnf·yum：nginx.service/httpd.service/docker.service/mysqld.service/redis.service/php-fpm.service/mongod.service） | D0 拍板 + v1.1 增量轮修订（多候选+全名） |
 | 本域推导 | 幂等语义：升级幂等（重复安装=终态一致）；服务启停幂等（重复 start 对已运行服务无副作用）；卸载幂等（未装时报 NOT_INSTALLED 如实拒绝，非静默成功） | ⚠️A4/同构先例 |
 | 本域推导 | 越界拒绝不记审计：R-03 语义为「变更」留痕（与 site-mgmt/service-mgmt 同口径） | R-03 字面口径 |
 | 本域推导 | 任务执行最小权限：包操作经专用低权执行通道（root 身份运行面板时以能力最小化方式执行；实现细节归 D3/后端工程，业务口径=不提权不扩散） | D0「最小权限」拍板 |
@@ -114,6 +117,7 @@
 |---------|------|------|
 | 服务运行/自启状态 | systemd 实况投影（运行中/停止/自启开/关），随系统实况实时变化，无面板侧状态迁移存储 | 实况投影，非状态机 |
 | 环境已装/未装 | 包管理器数据库实况的探测结论（已装+版本），非面板侧状态 | 实况投影，非状态机 |
+| 「探测不可用」两义（v1.1 澄清，⚠️A9） | 通道级（页头：包管理器通道不存在）与条目级（卡片角标：该环境查询真错误）不同层语义，前者禁变更操作、后者仅该环境实况未知 | 分层判定值，非状态机 |
 | 任务取消 | OUT-4 不做（包管理器中断态不安全）；「不提供」即无取消状态 | 显式 OUT |
 | 通道可用性 | 环境探测的整值刷新结论（apt/dnf/yum/null），非对象状态 | 域级判定值 |
 
@@ -141,13 +145,15 @@
 
 ## 第八部分：非功能性要求与异常场景
 
-**N1 非功能性（已锁定项）**：六环境目录为编译期数据；实况探测每请求实时（无缓存层）；任务台账量级小（低频安装/卸载积累）；包操作超时上限与任务输出尾部行数上限为编译期常量（D3 定值）；任务台账全量保留（低频事件，不建清理任务——避免常驻 goroutine）。未锁定项（移交 D3）：任务输出尾部行数上限与包操作超时上限具体值；仓库源写入的具体路径与文件名；RHEL 系 Docker CE 等需官方仓库的环境-发行版组合清单（编译期映射表内容）；面板数据目录/日志对任务执行的承载细节。
+**N1 非功能性（已锁定项）**：七环境目录为编译期数据（v1.1 六→七）；实况探测每请求实时（无缓存层）；任务台账量级小（低频安装/卸载积累）；包操作超时上限与任务输出尾部行数上限为编译期常量（D3 定值）；任务台账全量保留（低频事件，不建清理任务——避免常驻 goroutine）；代配公钥下载与源文件写入可注入测试（探测/文件 IO/HTTP 依赖注入——CI runner 环境无关，v0.1.2 CI 环境耦合 4 起教训预防）。未锁定项（移交 D3）：任务输出尾部行数上限与包操作超时上限具体值；仓库源写入的具体路径与文件名；RHEL 系 Docker CE 等需官方仓库的环境-发行版组合清单（编译期映射表内容）；面板数据目录/日志对任务执行的承载细节。
 
 **N2 异常场景**：
 
 | 场景 | 处理 |
 |------|------|
 | 包管理器通道不可用（非 Linux / apt 与 dnf·yum 皆无） | 变更类接口如实拒绝（ENV_001 语义）；列表照常呈现目录+通道不可用标注（观测不依赖通道——版本探测经通道时已装态呈现「探测不可用」，如实） |
+| 逐环境包查询失败 vs 未装（v1.1 三态区分，⚠️A9） | 包名不在包数据库（dpkg "no packages found matching" / rpm "not installed"）=**未装**如实呈现（installed=false），非错误；仅真探测错误（命令超时/通道异常）条目级 installed=null「探测不可用」；通道级不可用与条目级失败分列呈现（页头横幅 vs 卡片角标） |
+| 目标发行版/代际不在 MongoDB 等第三方源支持矩阵（v1.1，⚠️A10） | 任务终态 failed（error 明示不支持组合），不写任何源文件；面板不虚构仓库可用性 |
 | 包安装失败（网络不通/仓库不可达/依赖冲突） | 任务终态 failed + 命令输出尾部 + 失败原因如实呈现；不自动重试（操作者决策后重新发起，升级幂等） |
 | 包操作超时 | 任务终态 failed（超时上限编译期常量）；输出尾部定格 |
 | 同环境重复发起变更 | 在途互斥拒绝（pending/running 存在时，ENV_003 语义，data.taskId 指向在途任务） |
@@ -247,3 +253,4 @@
 | 版本 | 日期 | 更新说明 |
 |------|------|---------|
 | v1.0 | 2026-11-16 | 初始生成：基于 D0 增量澄清拍板（⚠️A1~A7）与 D1 三文档 v1.0 成文；完备性检查通过（G 5/5、T 适用 6/6、N 4/4）；领域建模落盘 domain-model.md v1.19（支撑域判定 + 1 聚合根 env_install_task〔四态任务状态机落 SQLite〕+ 1 域内对象-实体 环境条目投影〔零台账，包管理器/systemd 实况同 site 投影哲学〕+ 1 值对象 发行版映射〔编译期〕）；枚举 4 项新增定稿入池（env_type/env_task_action/env_task_status/package_manager_family）；D2 落定：任务台账持久化/重启恢复 running→failed/卸载风险提示两层口径（本域实况+静态警示，动态计数 OUT-9）；待对齐 3 项移交 D3/D4 |
+| v1.1 | 2026-11-17 | W1 实机冒烟缺陷修复轮（v0.1.2 用户服务器 cheerful-bliss-1 实测反馈 3 项）：①缺陷 1（enable nginx 报 DBus InvalidArgs）→ ⚠️A8 systemd 单元名规范全名拍板；②缺陷 2（Docker/MySQL/Redis/PHP-FPM 卡片误显「探测不可用」）→ ⚠️A9 三态如实区分（dpkg Status 字段判定 + LC_ALL=C + 包名不在数据库=未装非错误）+ ⚠️A7 映射表多候选包名（docker.io/docker-ce、mysql-server/mysql-community-server 覆盖官方源自装形态）；③需求 3（用户点名缺 MongoDB）→ ⚠️A1 六→七环境目录（env_type +mongodb 三方 S8 同值同步：枚举池/api DDL CHECK/PageSpec/前端）+ ⚠️A10 第三方源代配补真（v1.0 D-06 声明空转，本轮实现：os-release 判定 + apt keyring/dnf repo 文件写入 + env_repo_configured 审计；MongoDB 8.0 轨道 ⚠️待主会话终确认）；N2 异常分支 +2、辨析表 +1（探测不可用两义）；N1 补可注入测试纪律（CI 环境耦合预防第 5 起） |
