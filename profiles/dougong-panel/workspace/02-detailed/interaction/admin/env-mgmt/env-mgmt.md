@@ -2,9 +2,9 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v1.1 |
+| 版本 | v1.2 |
 | 状态 | 稳定 |
-| 最后更新 | 2026-11-17（v1.1 W1 实机冒烟缺陷修复轮增量） |
+| 最后更新 | 2026-11-17（v1.2 v0.1.4 反馈第 1 项刷新语义修复） |
 | 用户类型 | admin |
 | 唯一数据源 | 02-detailed/api/api-env-mgmt.md v1.1 |
 | 组件体系 | Vue 3 + Naive UI（NGrid/NCard/NTag/NButton/NModal/NPopconfirm/NDrawer/NAlert/NSwitch/NSpin） |
@@ -128,7 +128,7 @@
 | 概要 | envType（displayName）/action/status（colorTag）/requestedBy/createdAt/startedAt/finishedAt |
 | 失败原因 | error 非空 → NAlert error（含 timeout/面板重启中断如实呈现，D-04/I-04） |
 | 命令输出尾部 | outputTail 只读等宽文本块（≤200 行，D-08）；running 态伴随 Spin +「执行中」 |
-| 刷新 | 手动刷新按钮；**running/pending 态自动轮询 5s**（终态即停，onUnmounted 清理——cron-backup 详情 Drawer 同构先例） |
+| 刷新 | 手动刷新按钮；**running/pending 态自动轮询 5s**（终态即停，onUnmounted 清理——cron-backup 详情 Drawer 同构先例）；**终态跃迁触发环境全景与任务清单重拉**（v1.2：任务完成后 installed/version/service 态与在途标记落定——v0.1.4 反馈第 1 项；发起 install/upgrade/uninstall 成功后的写后刷新既有语义复核保持） |
 
 **readonly 视角差异**：任务列表与详情同等可看（ADR-018），无操作按钮。
 
@@ -172,5 +172,6 @@
 | v1.0 | 2026-11-16 | initial | 首次生成：1 hybrid 页面（环境卡片网格 + 任务 Drawer 双区）+ 10 Action、5 字典 Key、0 独立表单路由/0 独立详情路由；安装/升级 NPopconfirm、卸载强确认 NModal（两段警示+输入锁定）、服务操作组；任务详情 running 态 5s 轮询终态即停 |
 | v1.1a | 2026-11-17 | content_changed | UI 轮用户拍板：卡片移除「安装后可配合「X」模块使用」软引导行（relatedModule 字段随 api v1.1a 移除）；描述行仅环境本体描述 |
 | v1.1 | 2026-11-17 | dict_changed + content_changed | W1 实机冒烟缺陷修复轮（数据源升 api v1.1）：①字典 env_type 六值→七值（+mongodb，S8 与池/DDL/api 同值）；②4.1 卡片网格六→七条目（+MongoDB 卡片：displayName=MongoDB/relatedModule=数据库管理）；③实况三态呈现精确化（⚠️A9：null=条目级真错误角标，通道级不可用归页头横幅不重复渲染；false=未安装含包名不在数据库形态）；④安装确认文案提及 MongoDB/Docker CE 第三方源代配；卸载警示二补 MongoDB、提交文案补源文件保留说明；⑤第 8 节检查 2/8 同步修订 |
+| v1.2 | 2026-11-17 | content_changed | v0.1.4 用户反馈第 1 项（环境页刷新机制缺陷修复）：任务详情在途→终态跃迁时触发环境全景（loadList）与任务清单（loadTasks）重拉——修复「任务完成后环境列表不重拉、用户看到旧 installed/版本/服务态」；轮询纪律不变（running 5s/终态即停/无 SSE/WS，D 阶段口径保持）；readonly 同步（任务 Drawer 两角色可看） | 4.3 |
 
 > FX 质量清单说明：FX-001~FX-141 逐条清单文件未随引擎 payload 发布，本节按分册 9 节结构逐节落实，并以第 8 节 10 项全局一致性自查替代可机械执行部分（全仓先例）；全量 141 项留待 Gate 1 validation 执行。

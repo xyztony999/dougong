@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/dougong/dougong/internal/adapter/dbconn"
+	"github.com/dougong/dougong/internal/adapter/dbmongo"
 	"github.com/dougong/dougong/internal/adapter/dbmysql"
 	"github.com/dougong/dougong/internal/adapter/dbredis"
 	"github.com/dougong/dougong/internal/api"
@@ -158,6 +159,51 @@ func (s *stubMySQL) ImportDatabase(_ context.Context, _ dbconn.Target, _ dbconn.
 	return s.importErr
 }
 
+// stubMongo 是 MongoGateway 测试替身（零值=成功路径；v0.1.4 反馈第 3 项）。
+type stubMongo struct {
+	pingErr error
+}
+
+func (s *stubMongo) Available() error { return nil }
+
+func (s *stubMongo) Ping(ctx context.Context, t dbconn.Target, c dbconn.Creds) error {
+	return s.pingErr
+}
+
+func (s *stubMongo) ServerVersion(ctx context.Context, t dbconn.Target, c dbconn.Creds) (string, error) {
+	return "7.0.14", nil
+}
+
+func (s *stubMongo) ListDatabases(ctx context.Context, t dbconn.Target, c dbconn.Creds) ([]dbmongo.DatabaseInfo, error) {
+	return []dbmongo.DatabaseInfo{{Name: "admin", SizeBytes: 1, Collections: 2}, {Name: "appdb", SizeBytes: 4096, Collections: 5}}, nil
+}
+
+func (s *stubMongo) StatusSummary(ctx context.Context, t dbconn.Target, c dbconn.Creds) (*dbmongo.StatusSummary, error) {
+	return &dbmongo.StatusSummary{Version: "7.0.14", UptimeSec: 100, ConnectionsCurrent: 2,
+		ConnectionsAvailable: 838858, MemResidentMb: 64, OpInsert: 3, OpQuery: 5, OpUpdate: 1, OpDelete: 0}, nil
+}
+
+func (s *stubMongo) ListUsers(ctx context.Context, t dbconn.Target, c dbconn.Creds) ([]dbmongo.UserItem, error) {
+	return []dbmongo.UserItem{{Username: "app", Mechanisms: []string{"SCRAM-SHA-256"},
+		Roles: []dbmongo.UserRole{{DB: "appdb", Role: "readWrite"}}}}, nil
+}
+
+func (s *stubMongo) CreateUser(ctx context.Context, t dbconn.Target, c dbconn.Creds, username, password, db, role string) error {
+	return nil
+}
+
+func (s *stubMongo) DropUser(ctx context.Context, t dbconn.Target, c dbconn.Creds, username string) error {
+	return nil
+}
+
+func (s *stubMongo) GrantRole(ctx context.Context, t dbconn.Target, c dbconn.Creds, username, db, role string) error {
+	return nil
+}
+
+func (s *stubMongo) RevokeRole(ctx context.Context, t dbconn.Target, c dbconn.Creds, username, db, role string) error {
+	return nil
+}
+
 type stubRedis struct {
 	scanKeys []dbredis.KeyItem
 	ttlMap   map[string]int64
@@ -244,7 +290,7 @@ func newTestApp(t *testing.T) *testApp {
 	}
 	my := &stubMySQL{dumpBody: "-- dump\nINSERT 1;\n"}
 	rd := &stubRedis{ttlMap: map[string]int64{"k1": -1}}
-	svc := dbmgmtsvc.New(dbmgmtsvc.AdaptStore(st), my, rd, vault, auditSvc)
+	svc := dbmgmtsvc.New(dbmgmtsvc.AdaptStore(st), my, rd, &stubMongo{}, vault, auditSvc)
 
 	server := api.NewServer()
 	server.RegisterModules(
@@ -366,6 +412,9 @@ func (app *testApp) seedInstance(t *testing.T, engine string) int64 {
 	if engine == storedb.EngineRedis {
 		port = 6379
 	}
+	if engine == storedb.EngineMongoDB {
+		port = 27017
+	}
 	key := engine + "|tcp:localhost:" + fmt.Sprint(port) // D-01 组装规则字面量
 	cipher, err := app.vault.Encrypt("secret-old")
 	if err != nil {
@@ -448,8 +497,23 @@ func TestPermissionMatrix(t *testing.T) {
 			t.Fatalf("readonly admin-GET %s → %s", p, fmt.Sprint(env.Code))
 		}
 	}
+	// readonly：mongo 族 3 个查看接口全通（v0.1.4 反馈第 3 项）。
+	mongoID := app.seedInstance(t, storedb.EngineMongoDB)
+	for _, p := range []string{
+		"/db/mongo/status?instanceId=" + fmt.Sprint(mongoID),
+		"/db/mdb/list?instanceId=" + fmt.Sprint(mongoID),
+		"/db/muser/list?instanceId=" + fmt.Sprint(mongoID),
+	} {
+		if env := get(t, app, ro, p); fmt.Sprint(env.Code) != "0" {
+			t.Fatalf("readonly mongo GET %s → %s (message=%s)", p, fmt.Sprint(env.Code), env.Message)
+		}
+	}
+	// readonly：mongo 写接口携合法 CSRF → AUTH_008。
+	env := postJSON(t, app, ro, "/db/muser/create", map[string]any{
+		"instanceId": mongoID, "username": "x", "password": "p", "db": "d", "role": "read"}, true)
+	wantCode(t, env, "AUTH_008")
 	// readonly：写接口携合法 CSRF 仍 AUTH_008。
-	env := postJSON(t, app, ro, "/db/instance/rescan", map[string]string{}, true)
+	env = postJSON(t, app, ro, "/db/instance/rescan", map[string]string{}, true)
 	wantCode(t, env, "AUTH_008")
 	// admin 写接口缺 CSRF → AUTH_003。
 	env = postJSON(t, app, admin, "/db/instance/rescan", map[string]string{}, false)
@@ -648,4 +712,37 @@ func TestCredentialsValidationFlow(t *testing.T) {
 	env = postJSON(t, app, admin, "/db/instance/credentials", map[string]any{
 		"instanceId": mysqlID, "username": "root", "password": ""}, true)
 	wantCode(t, env, "AUTH_012")
+}
+
+// TestMongoGovernanceFlow mongo 族治理 HTTP 全流程（v0.1.4 反馈第 3 项）。
+func TestMongoGovernanceFlow(t *testing.T) {
+	app := newTestApp(t)
+	admin := initWizardAndLogin(t, app)
+	_ = get(t, app, admin, "/db/instance/list") // 耗掉首次自动探测 once
+	mongoID := app.seedInstance(t, storedb.EngineMongoDB)
+
+	// 状态/库清单/用户清单（stub 实况）。
+	env := get(t, app, admin, "/db/mongo/status?instanceId="+fmt.Sprint(mongoID))
+	wantCode(t, env, "0")
+	env = get(t, app, admin, "/db/mdb/list?instanceId="+fmt.Sprint(mongoID))
+	wantCode(t, env, "0")
+	env = get(t, app, admin, "/db/muser/list?instanceId="+fmt.Sprint(mongoID))
+	wantCode(t, env, "0")
+
+	// 建用户（缺 CSRF → AUTH_003；合法 → 0；非法角色 → AUTH_012）。
+	env = postJSON(t, app, admin, "/db/muser/create", map[string]any{
+		"instanceId": mongoID, "username": "app", "password": "secret", "db": "appdb", "role": "read"}, false)
+	wantCode(t, env, "AUTH_003")
+	env = postJSON(t, app, admin, "/db/muser/create", map[string]any{
+		"instanceId": mongoID, "username": "app", "password": "secret", "db": "appdb", "role": "root"}, true)
+	wantCode(t, env, "AUTH_012")
+	env = postJSON(t, app, admin, "/db/muser/create", map[string]any{
+		"instanceId": mongoID, "username": "app", "password": "secret", "db": "appdb", "role": "readWrite"}, true)
+	wantCode(t, env, "0")
+
+	// 引擎不匹配：mysql 族接口对 mongodb 实例 → DBM_018（HTTP 链）。
+	env = get(t, app, admin, "/db/database/list?instanceId="+fmt.Sprint(mongoID))
+	wantCode(t, env, "DBM_018")
+	env = get(t, app, admin, "/db/redis/info?instanceId="+fmt.Sprint(mongoID))
+	wantCode(t, env, "DBM_018")
 }

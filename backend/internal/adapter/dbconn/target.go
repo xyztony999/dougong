@@ -10,7 +10,7 @@ package dbconn
 // Host/Port 为空；tcp 模式反之——形态互斥由 service 层 ConnTargetResolver
 // 校验后传入，本类型不再防御）。
 type Target struct {
-	Engine     string // mysql | mariadb | redis（db_engine 枚举）
+	Engine     string // mysql | mariadb | redis | mongodb（db_engine 枚举）
 	ConnMode   string // socket | tcp（db_conn_mode 枚举）
 	SocketPath string // socket 模式连接路径
 	Host       string // tcp 模式主机（默认 localhost 由 service 填充）

@@ -111,13 +111,16 @@ type ProcessRow struct {
 	Info    *string
 }
 
-// connArgs 组装连接参数（不含二进制名；字面量参数数组 R-08）。
+// connArgs 组装连接参数（不含二进制名；字面量参数数组 R-08）。tcp 模式显式
+// --protocol=TCP——mysql 客户端对 -h localhost 特例走编译默认 Unix socket
+// 并忽略 -P，会将 tcp 语义静默改道（v0.1.4 修复轮：容器/远端 TCP 实例必须
+// 强制 TCP，localhost 字面主机不再歧义）。
 func connArgs(t dbconn.Target) []string {
-	args := make([]string, 0, 6)
+	args := make([]string, 0, 8)
 	if t.ConnMode == "socket" {
 		args = append(args, "--socket", t.SocketPath)
 	} else {
-		args = append(args, "-h", t.Host, "-P", fmt.Sprintf("%d", t.Port))
+		args = append(args, "-h", t.Host, "-P", fmt.Sprintf("%d", t.Port), "--protocol=TCP")
 	}
 	return args
 }

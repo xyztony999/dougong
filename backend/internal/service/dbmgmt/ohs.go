@@ -25,7 +25,7 @@ var systemSchemas = map[string]bool{
 // 尽力解析（查不到不阻塞，mysqldump 按默认字符集导出）→ mysqldump 流。
 // 流由调用方 Close（进程生命周期见 DumpReader）。
 func (s *Service) DumpStream(ctx context.Context, instanceID int64, database string) (io.ReadCloser, error) {
-	_, t, c, err := s.governTargetByID(ctx, instanceID, true)
+	_, t, c, err := s.governTargetByID(ctx, instanceID, familyMySQL)
 	if err != nil {
 		return nil, err
 	}
@@ -44,7 +44,7 @@ func (s *Service) DumpStream(ctx context.Context, instanceID int64, database str
 // DatabaseNames 实况库清单（整实例全库备份项的执行期展开，已滤系统库；按名
 // 字典序稳定产出——产物文件序确定性）。
 func (s *Service) DatabaseNames(ctx context.Context, instanceID int64) ([]string, error) {
-	_, t, c, err := s.governTargetByID(ctx, instanceID, true)
+	_, t, c, err := s.governTargetByID(ctx, instanceID, familyMySQL)
 	if err != nil {
 		return nil, err
 	}

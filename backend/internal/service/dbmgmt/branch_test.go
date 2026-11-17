@@ -53,6 +53,8 @@ func TestTranslateGatewayErrTable(t *testing.T) {
 		{"redis key not found", dbredis.ErrKeyNotFound, "DBM_015"},
 		{"dump failed", dbmysql.ErrDumpFailed, "DBM_012"},
 		{"import failed wrapped", wrapped(dbmysql.ErrImportFailed, "syntax"), "DBM_013"},
+		{"mysql channel unavailable", wrapped(dbmysql.ErrUnavailable, `"mysql" not found in PATH`), "DBM_021"},
+		{"redis channel unavailable", wrapped(dbredis.ErrUnavailable, `"redis-cli" not found in PATH`), "DBM_021"},
 		{"unknown passthrough", errors.New("boom"), "@"},
 	}
 	for _, c := range cases {
@@ -80,6 +82,41 @@ func TestTranslateGatewayErrTable(t *testing.T) {
 	}
 	if got := reasonOf(errors.New("no-colon")); got != "no-colon" {
 		t.Errorf("reasonOf no colon = %q", got)
+	}
+}
+
+// translatePingErr：凭据验证语境未分类引擎失败归 DBM_006（v0.1.4 修复——
+// 此前 ErrQueryFailed/ErrCommandFailed 裸落 INTERNAL）；通道不可用归 DBM_021；
+// errcode 原样透传。
+func TestTranslatePingErrTable(t *testing.T) {
+	wrapped := func(err error, reason string) error {
+		return fmt.Errorf("%w: %s", err, reason)
+	}
+	cases := []struct {
+		name string
+		in   error
+		want string
+	}{
+		{"nil", nil, ""},
+		{"query failed → 006", wrapped(dbmysql.ErrQueryFailed, "timeout"), "DBM_006"},
+		{"command failed → 006", wrapped(dbredis.ErrCommandFailed, "bad reply"), "DBM_006"},
+		{"unavailable → 021", wrapped(dbmysql.ErrUnavailable, "not found"), "DBM_021"},
+		{"auth rejected → 005", dbmysql.ErrAuthRejected, "DBM_005"},
+		{"conn failed → 006", dbmysql.ErrConnFailed, "DBM_006"},
+		{"errcode passthrough", errcode.ErrDBMInstanceNotFound, "DBM_002"},
+	}
+	for _, c := range cases {
+		got := translatePingErr(c.in)
+		if c.want == "" {
+			if got != nil {
+				t.Errorf("%s: want nil, got %v", c.name, got)
+			}
+			continue
+		}
+		var ec *errcode.Error
+		if !errors.As(got, &ec) || ec.Symbol() != c.want {
+			t.Errorf("%s: want %s, got %v", c.name, c.want, got)
+		}
 	}
 }
 
@@ -210,7 +247,7 @@ func TestProbeEngineRefreshBranches(t *testing.T) {
 	inst := e.seedInstance(t, storedb.EngineMySQL)  // mysql|tcp:localhost:3306 有凭据
 	rinst := e.seedInstance(t, storedb.EngineRedis) // redis|tcp:localhost:6379 有凭据
 	reach := func(t dbconn.Target) bool { return t.ConnMode == "tcp" && (t.Port == 3306 || t.Port == 6379) }
-	prober := NewProber(e.svc.store, e.mysql, e.redis, e.vault, reach)
+	prober := NewProber(e.svc.store, e.mysql, e.redis, e.mongo, e.vault, reach)
 
 	// Ping 成功 → reachable + version 实况刷新（双引擎）。
 	if _, updated, err := prober.ProbeAll(ctx); err != nil || updated < 2 {
@@ -266,7 +303,7 @@ func TestProbeEngineRefreshBranches(t *testing.T) {
 	}
 
 	// 网关缺席（nil）防御分支：传输可达即 reachable、无 version。
-	nilProber := NewProber(e.svc.store, nil, nil, e.vault, reach)
+	nilProber := NewProber(e.svc.store, nil, nil, nil, e.vault, reach)
 	if _, _, err := nilProber.ProbeAll(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -289,7 +326,7 @@ func TestProbeAllContinuesOnStoreError(t *testing.T) {
 	if err := db.Close(); err != nil { // 关库后一切读写报错（错误注入）
 		t.Fatal(err)
 	}
-	p := NewProber(AdaptStore(st), &fakeMySQL{}, &fakeRedis{}, nil, func(dbconn.Target) bool { return true })
+	p := NewProber(AdaptStore(st), &fakeMySQL{}, &fakeRedis{}, &fakeMongo{}, nil, func(dbconn.Target) bool { return true })
 	discovered, updated, err := p.ProbeAll(context.Background())
 	if err != nil || discovered != 0 || updated != 0 {
 		t.Fatalf("probe must degrade to 0/0 nil on store failure: %d %d %v", discovered, updated, err)
@@ -687,6 +724,50 @@ func TestSetCredentialsValidationBranches(t *testing.T) {
 	// RemoveInstance 零值 → DBM_001。
 	if _, err := e.svc.RemoveInstance(ctx, actor, InstanceIDRequest{InstanceID: 0}); errCode(t, err) != "DBM_001" {
 		t.Fatalf("remove zero id want DBM_001, got %v", err)
+	}
+}
+
+// ---- v0.1.4 凭据验证 INTERNAL bug 回归（用户实拍：tcp/localhost/3306 + 含 @
+// 密码 → INTERNAL）。根因=哨兵映射缺口（ErrUnavailable/ErrQueryFailed 未入
+// translateGatewayErr 表 → response 兜底 INTERNAL），非密码字符问题——密码经
+// MYSQL_PWD/REDISCLI_AUTH env 注入 CLI 子进程，@ 在 env 值中无害。----
+
+func TestSetCredentialsSentinelMappingRegression(t *testing.T) {
+	e := newTestEnv(t)
+	ctx := context.Background()
+	inst := e.seedInstance(t, storedb.EngineMySQL)
+	actor := testActor()
+	req := CredentialsRequest{
+		InstanceID: inst.ID, Username: "tonyxyz", Password: "TonyXyZ@D2026",
+		ConnMode: strPtrOf("tcp"), Host: strPtrOf("localhost"), Port: intPtrOf(3306),
+	}
+
+	// 客户端二进制未检出（宿主机无 mysql 客户端——如 MySQL 跑容器）→ DBM_021
+	//（旧实现裸 INTERNAL，用户被阻断的实发形态）。
+	e.mysql.pingErr = fmt.Errorf("%w: %q not found in PATH", dbmysql.ErrUnavailable, "mysql")
+	if _, err := e.svc.SetCredentials(ctx, actor, req); errCode(t, err) != "DBM_021" {
+		t.Fatalf("unavailable want DBM_021, got %v", err)
+	}
+	// 未分类引擎失败（超时/异常 stderr 等）→ DBM_006（连接类，不落库）。
+	e.mysql.pingErr = fmt.Errorf("%w: signal: killed: context deadline", dbmysql.ErrQueryFailed)
+	if _, err := e.svc.SetCredentials(ctx, actor, req); errCode(t, err) != "DBM_006" {
+		t.Fatalf("query failed want DBM_006, got %v", err)
+	}
+	// 认证被拒 → DBM_005（既有语义回归）。
+	e.mysql.pingErr = fmt.Errorf("%w: ERROR 1045", dbmysql.ErrAuthRejected)
+	if _, err := e.svc.SetCredentials(ctx, actor, req); errCode(t, err) != "DBM_005" {
+		t.Fatalf("auth want DBM_005, got %v", err)
+	}
+
+	// 含 @/数字的特殊字符密码：验证通过即正常落库（证明密码字符非阻断因素；
+	// 通道为 env 注入，无 DSN/URI 拼接面）。
+	e.mysql.pingErr = nil
+	data, err := e.svc.SetCredentials(ctx, actor, req)
+	if err != nil || data.ConnState != "reachable" {
+		t.Fatalf("special-char password should save: %+v %v", data, err)
+	}
+	if e.mysql.lastCreds.Password != "TonyXyZ@D2026" || e.mysql.lastCreds.Username != "tonyxyz" {
+		t.Fatalf("creds must reach gateway verbatim: %+v", e.mysql.lastCreds)
 	}
 }
 

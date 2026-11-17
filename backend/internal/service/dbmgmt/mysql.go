@@ -12,7 +12,7 @@ import (
 // MySQLStatus GET /db/mysql/status：状态概览（D-08 白名单 ≤10 项；实时读取
 // 不落库不缓存 D-04/I-04）。
 func (s *Service) MySQLStatus(ctx context.Context, instanceID string) (*MySQLStatusData, error) {
-	_, t, c, err := s.governTarget(ctx, instanceID, true)
+	_, t, c, err := s.governTarget(ctx, instanceID, familyMySQL)
 	if err != nil {
 		return nil, err
 	}
@@ -32,7 +32,7 @@ func (s *Service) MySQLStatus(ctx context.Context, instanceID string) (*MySQLSta
 // MySQLProcessList GET /db/mysql/processlist：进程列表实时快照（全量返回，
 // 连接数量级小 D-09）。
 func (s *Service) MySQLProcessList(ctx context.Context, instanceID string) (*ProcessListData, error) {
-	_, t, c, err := s.governTarget(ctx, instanceID, true)
+	_, t, c, err := s.governTarget(ctx, instanceID, familyMySQL)
 	if err != nil {
 		return nil, err
 	}
@@ -54,7 +54,7 @@ func (s *Service) MySQLProcessList(ctx context.Context, instanceID string) (*Pro
 // 引擎侧改密（ALTER USER USER()，A-DB8）→ 同请求 UPSERT 面板凭据密文 →
 // 落库失败 DBM_019（引擎侧已改不回滚，data.recoverHint=credentials）。
 func (s *Service) ChangeRootPassword(ctx context.Context, actor *authsvc.Identity, req PasswordRequest) (*PasswordChangeData, error) {
-	inst, t, c, err := s.governTargetByID(ctx, req.InstanceID, true)
+	inst, t, c, err := s.governTargetByID(ctx, req.InstanceID, familyMySQL)
 	if err != nil {
 		return nil, err
 	}
@@ -117,7 +117,7 @@ func (s *Service) isMySQL(inst *storedb.Instance) bool { return storedb.IsMySQLE
 
 // ListDatabases GET /db/database/list：库清单实时投影（D-04）。
 func (s *Service) ListDatabases(ctx context.Context, instanceID string) (*DatabaseListData, error) {
-	_, t, c, err := s.governTarget(ctx, instanceID, true)
+	_, t, c, err := s.governTarget(ctx, instanceID, familyMySQL)
 	if err != nil {
 		return nil, err
 	}
@@ -134,7 +134,7 @@ func (s *Service) ListDatabases(ctx context.Context, instanceID string) (*Databa
 
 // ListCharsets GET /db/database/charsets：字符集实况候选（D-11 开放集合）。
 func (s *Service) ListCharsets(ctx context.Context, instanceID string) (*CharsetsData, error) {
-	_, t, c, err := s.governTarget(ctx, instanceID, true)
+	_, t, c, err := s.governTarget(ctx, instanceID, familyMySQL)
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +151,7 @@ func (s *Service) ListCharsets(ctx context.Context, instanceID string) (*Charset
 // CreateDatabase POST /db/database/create：建库（D-11 默认 utf8mb4；charset
 // ∈ 实况候选 AUTH_012；同名实况校验 DBM_008）。
 func (s *Service) CreateDatabase(ctx context.Context, actor *authsvc.Identity, req DatabaseCreateRequest) (*DatabaseCreateData, error) {
-	inst, t, c, err := s.governTargetByID(ctx, req.InstanceID, true)
+	inst, t, c, err := s.governTargetByID(ctx, req.InstanceID, familyMySQL)
 	if err != nil {
 		return nil, err
 	}
@@ -192,7 +192,7 @@ func (s *Service) CreateDatabase(ctx context.Context, actor *authsvc.Identity, r
 // DeleteDatabase POST /db/database/delete：删库（不可逆；库存在 DBM_007
 // 不静默成功；交互层二次确认前置）。
 func (s *Service) DeleteDatabase(ctx context.Context, actor *authsvc.Identity, req DatabaseDeleteRequest) (*DatabaseDeleteData, error) {
-	inst, t, c, err := s.governTargetByID(ctx, req.InstanceID, true)
+	inst, t, c, err := s.governTargetByID(ctx, req.InstanceID, familyMySQL)
 	if err != nil {
 		return nil, err
 	}
@@ -222,7 +222,7 @@ func (s *Service) DeleteDatabase(ctx context.Context, actor *authsvc.Identity, r
 // ListDBUsers GET /db/dbuser/list：用户清单（raw 权限经 D-10 映射表归并三档
 // 呈现；无任何密码字段）。
 func (s *Service) ListDBUsers(ctx context.Context, instanceID string) (*DBUserListData, error) {
-	_, t, c, err := s.governTarget(ctx, instanceID, true)
+	_, t, c, err := s.governTarget(ctx, instanceID, familyMySQL)
 	if err != nil {
 		return nil, err
 	}
@@ -236,7 +236,7 @@ func (s *Service) ListDBUsers(ctx context.Context, instanceID string) (*DBUserLi
 // CreateDBUser POST /db/dbuser/create：建用户（密码只写不读 I-02；同名同
 // host 实况校验 DBM_010；审计 detail 不含密码）。
 func (s *Service) CreateDBUser(ctx context.Context, actor *authsvc.Identity, req DBUserCreateRequest) (*DBUserData, error) {
-	inst, t, c, err := s.governTargetByID(ctx, req.InstanceID, true)
+	inst, t, c, err := s.governTargetByID(ctx, req.InstanceID, familyMySQL)
 	if err != nil {
 		return nil, err
 	}
@@ -272,7 +272,7 @@ func (s *Service) CreateDBUser(ctx context.Context, actor *authsvc.Identity, req
 
 // DeleteDBUser POST /db/dbuser/delete：删用户（引擎语义连带回收授权）。
 func (s *Service) DeleteDBUser(ctx context.Context, actor *authsvc.Identity, req DBUserRevokeRequest) (*DBUserData, error) {
-	inst, t, c, err := s.governTargetByID(ctx, req.InstanceID, true)
+	inst, t, c, err := s.governTargetByID(ctx, req.InstanceID, familyMySQL)
 	if err != nil {
 		return nil, err
 	}
@@ -310,7 +310,7 @@ func (s *Service) DeleteDBUser(ctx context.Context, actor *authsvc.Identity, req
 // GrantDBUser POST /db/dbuser/grant：库级三档授权（D-10；幂等；用户 DBM_009/
 // 库 DBM_007/level 枚举 AUTH_012）。
 func (s *Service) GrantDBUser(ctx context.Context, actor *authsvc.Identity, req DBUserGrantRequest) (*DBUserGrantData, error) {
-	inst, t, c, err := s.governTargetByID(ctx, req.InstanceID, true)
+	inst, t, c, err := s.governTargetByID(ctx, req.InstanceID, familyMySQL)
 	if err != nil {
 		return nil, err
 	}
@@ -354,7 +354,7 @@ func (s *Service) GrantDBUser(ctx context.Context, actor *authsvc.Identity, req 
 // RevokeDBUser POST /db/dbuser/revoke：按库回收（授权关系不存在 DBM_011
 // 如实报错）。
 func (s *Service) RevokeDBUser(ctx context.Context, actor *authsvc.Identity, req DBUserRevokeRequest) (*DBUserRevokeData, error) {
-	inst, t, c, err := s.governTargetByID(ctx, req.InstanceID, true)
+	inst, t, c, err := s.governTargetByID(ctx, req.InstanceID, familyMySQL)
 	if err != nil {
 		return nil, err
 	}

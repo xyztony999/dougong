@@ -103,4 +103,54 @@ describe('envStore', () => {
     }).not.toThrow()
     expect(store.currentTask).toBeNull()
   })
+
+  it('任务在途→终态跃迁触发环境全景与任务清单重拉（v0.1.4 反馈第 1 项）', async () => {
+    const detail = (status: string) => ({
+      id: 9,
+      envType: 'mysql',
+      action: 'install',
+      status,
+      requestedBy: 'admin',
+      createdAt: '2026-11-17T00:00:00Z',
+      startedAt: '2026-11-17T00:00:01Z',
+      finishedAt: null,
+      error: null,
+      outputTail: ''
+    })
+    const envList = vi.fn().mockResolvedValue(okPayload)
+    const envTaskList = vi.fn().mockResolvedValue({ items: [], total: 0 })
+    const envTaskDetail = vi.fn().mockResolvedValueOnce(detail('running')).mockResolvedValueOnce(detail('succeeded'))
+    vi.doMock('@/api/env', () => ({ envList, envTaskList, envTaskDetail }))
+    vi.resetModules()
+    const { useEnvStore: useFresh } = await import('../env')
+    const store = useFresh()
+    await store.loadTaskDetail(9) // 首拉=running（轮询启动）
+    expect(envList).not.toHaveBeenCalled() // 在途未跃迁不重拉
+    await store.loadTaskDetail(9) // 二拉=succeeded（终态跃迁）
+    expect(envList).toHaveBeenCalledTimes(1) // 环境全景重拉
+    expect(envTaskList).toHaveBeenCalledWith({ envType: undefined, status: undefined, page: 1, pageSize: 50 })
+    store.stopPoll()
+  })
+
+  it('首拉即终态不触发重拉（无跃迁；点开历史任务不受影响）', async () => {
+    const envList = vi.fn().mockResolvedValue(okPayload)
+    const envTaskDetail = vi.fn().mockResolvedValue({
+      id: 3,
+      envType: 'nginx',
+      action: 'install',
+      status: 'failed',
+      requestedBy: 'admin',
+      createdAt: '2026-11-16T00:00:00Z',
+      startedAt: null,
+      finishedAt: '2026-11-16T00:01:00Z',
+      error: 'boom',
+      outputTail: ''
+    })
+    vi.doMock('@/api/env', () => ({ envList, envTaskList: vi.fn(), envTaskDetail }))
+    vi.resetModules()
+    const { useEnvStore: useFresh } = await import('../env')
+    const store = useFresh()
+    await store.loadTaskDetail(3)
+    expect(envList).not.toHaveBeenCalled()
+  })
 })

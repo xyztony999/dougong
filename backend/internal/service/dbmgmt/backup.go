@@ -62,7 +62,7 @@ func (e *ExportStream) Broken(transferred int64) {
 // 实况存在（DBM_007）+ 在途（DBM_016）→ 标记 busy → mysqldump（charset 按库
 // 实况组装）→ 流式响应。成功审计与 busy 解除由 ExportStream 收尾方法承载。
 func (s *Service) ExportDatabase(ctx context.Context, actor *authsvc.Identity, instanceID int64, database string) (*ExportStream, error) {
-	inst, t, c, err := s.governTargetByID(ctx, instanceID, true)
+	inst, t, c, err := s.governTargetByID(ctx, instanceID, familyMySQL)
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +107,7 @@ func (s *Service) ExportDatabase(ctx context.Context, actor *authsvc.Identity, i
 // 回滚）；非幂等（交互层二次确认前置）。
 func (s *Service) ImportDatabase(ctx context.Context, actor *authsvc.Identity,
 	instanceID int64, database string, sizeBytes int64, r io.Reader) (*ImportData, error) {
-	inst, t, c, err := s.governTargetByID(ctx, instanceID, true)
+	inst, t, c, err := s.governTargetByID(ctx, instanceID, familyMySQL)
 	if err != nil {
 		return nil, err
 	}

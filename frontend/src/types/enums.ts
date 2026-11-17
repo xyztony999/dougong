@@ -262,12 +262,13 @@ export const SITE_LOG_TYPE: Record<SiteLogType, DictItem> = {
 
 /** ---- database-mgmt 字典（api-database-mgmt.md 3.4；取值 = 04-business-enum.md 定稿，PageSpec 第 3 节颜色方案） ---- */
 
-/** db_engine：mysql / mariadb / redis（mysql/mariadb=blue→info；redis=purple——NTag 无紫色语义型，视图层 rgba 语义色承载，见 views/database-mgmt/render.ts） */
-export type DbEngine = 'mysql' | 'mariadb' | 'redis'
+/** db_engine：mysql / mariadb / redis / mongodb（v1.2 +mongodb；mysql/mariadb=blue→info；redis=purple——NTag 无紫色语义型，视图层 rgba 语义色承载，见 views/database-mgmt/render.ts；mongodb=green→success） */
+export type DbEngine = 'mysql' | 'mariadb' | 'redis' | 'mongodb'
 export const DB_ENGINE: Record<DbEngine, DictItem> = {
   mysql: { label: 'MySQL', tag: 'info' },
   mariadb: { label: 'MariaDB', tag: 'info' },
-  redis: { label: 'Redis', tag: 'default' }
+  redis: { label: 'Redis', tag: 'default' },
+  mongodb: { label: 'MongoDB', tag: 'success' }
 }
 
 /** db_conn_mode：socket / tcp（连接方式列+凭据弹窗下拉；无语义色） */
@@ -290,6 +291,14 @@ export const GRANT_LEVEL: Record<GrantLevel, DictItem> = {
   readonly: { label: '只读', tag: 'default' },
   write: { label: '读写', tag: 'info' },
   all: { label: '全部权限', tag: 'error' }
+}
+
+/** mongo_role：read / readWrite / dbAdmin（MongoDB 库级角色三档 D-19，v1.2 新增；read=gray / readWrite=blue / dbAdmin=red 高危着色——与 grant_level 平行不合并） */
+export type MongoRole = 'read' | 'readWrite' | 'dbAdmin'
+export const MONGO_ROLE: Record<MongoRole, DictItem> = {
+  read: { label: '只读', tag: 'default' },
+  readWrite: { label: '读写', tag: 'info' },
+  dbAdmin: { label: '库管理', tag: 'error' }
 }
 
 /** ---- firewall 字典（api-firewall.md 3.4；取值 = 04-business-enum.md 定稿，PageSpec 第 3 节颜色方案） ---- */

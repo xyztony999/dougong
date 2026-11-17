@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/dougong/dougong/internal/adapter/dbconn"
+	"github.com/dougong/dougong/internal/adapter/dbmongo"
 	"github.com/dougong/dougong/internal/adapter/dbmysql"
 	"github.com/dougong/dougong/internal/adapter/dbredis"
 	"github.com/dougong/dougong/internal/service/audit"
@@ -76,6 +77,31 @@ type RedisGateway interface {
 	ScanKeys(ctx context.Context, t dbconn.Target, c dbconn.Creds, cursor, pattern string, count int) (string, []dbredis.KeyItem, error)
 	// KeyTTL 单 key TTL（-2 → dbredis.ErrKeyNotFound）。
 	KeyTTL(ctx context.Context, t dbconn.Target, c dbconn.Creds, key string) (int64, error)
+}
+
+// MongoGateway 是 §4.5.1 MongoGateway 契约（adapter/dbmongo.Gateway 实现——
+// 进程内 mongo-driver v2 通道，D-15；凭据明文仅在建连选项组装使用，⚠️A18）。
+type MongoGateway interface {
+	// Available 通道可用性（进程内库恒 nil——无二进制依赖）。
+	Available() error
+	// Ping 连接验证（SCRAM + authSource=admin，D-16；哨兵 dbmongo.ErrAuthRejected/ErrConnFailed）。
+	Ping(ctx context.Context, t dbconn.Target, c dbconn.Creds) error
+	// ServerVersion buildInfo.version（档案 version 刷新，D-04）。
+	ServerVersion(ctx context.Context, t dbconn.Target, c dbconn.Creds) (string, error)
+	// ListDatabases 库清单只读投影（名称/大小/集合数，D-18）。
+	ListDatabases(ctx context.Context, t dbconn.Target, c dbconn.Creds) ([]dbmongo.DatabaseInfo, error)
+	// StatusSummary serverStatus 白名单摘要（D-08 同构 ≤10 项）。
+	StatusSummary(ctx context.Context, t dbconn.Target, c dbconn.Creds) (*dbmongo.StatusSummary, error)
+	// ListUsers 用户清单实况投影（密码零出口 I-02）。
+	ListUsers(ctx context.Context, t dbconn.Target, c dbconn.Creds) ([]dbmongo.UserItem, error)
+	// CreateUser 建用户（admin 库 + 首库首角色，D-19；重名 → dbmongo.ErrUserExists）。
+	CreateUser(ctx context.Context, t dbconn.Target, c dbconn.Creds, username, password, db, role string) error
+	// DropUser 删用户（连带回收全部角色；不存在 → dbmongo.ErrUserNotFound）。
+	DropUser(ctx context.Context, t dbconn.Target, c dbconn.Creds, username string) error
+	// GrantRole 授予库级角色（幂等）。
+	GrantRole(ctx context.Context, t dbconn.Target, c dbconn.Creds, username, db, role string) error
+	// RevokeRole 回收库级角色（授权关系不存在语义由 service 前置校验承载——引擎不必然报错）。
+	RevokeRole(ctx context.Context, t dbconn.Target, c dbconn.Creds, username, db, role string) error
 }
 
 // InstanceRepoAPI 是 db_instance 仓储契约（§4.1.5 InstanceRepository；实现

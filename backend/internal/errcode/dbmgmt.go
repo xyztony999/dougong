@@ -46,4 +46,12 @@ var (
 	ErrDBMCredSyncFailed = New("DBM_019", "密码已修改，但面板凭据同步失败")
 	// ErrDBMIdentityConflict DBM_020 连接目标纠正后 identity_key 冲突（I-01/D-03）。
 	ErrDBMIdentityConflict = New("DBM_020", "连接目标与既有实例档案冲突")
+	// ErrDBMChannelUnavailable DBM_021 引擎客户端通道不可用（mysql/redis-cli
+	// 二进制未检出；data.reason。区别于 DBM_006 网络不可达——实例可能正常，
+	// 是宿主机缺客户端，v0.1.4 凭据 INTERNAL bug 修复轮补齐）。
+	ErrDBMChannelUnavailable = New("DBM_021", "引擎客户端通道不可用（宿主机未安装 mysql/redis-cli）")
+	// ErrDBMEngineUnauthorized DBM_022 引擎操作被拒（凭据账户权限不足——
+	// MongoDB Unauthorized（code 13）类；data.reason。区别于 DBM_005 认证被拒
+	// （身份错）——这是身份对但无权执行该命令；MongoDB 增量轮补齐）。
+	ErrDBMEngineUnauthorized = New("DBM_022", "引擎操作被拒（凭据账户权限不足）")
 )

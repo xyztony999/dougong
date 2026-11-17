@@ -87,6 +87,90 @@ type ProcessListData struct {
 	GeneratedAt time.Time     `json:"generatedAt"`
 }
 
+// ---- mongo 治理（§4.5，v0.1.4 反馈第 3 项增量）----
+
+// MongoStatusData 是 mongo/status data（serverStatus 白名单，D-08 同构 ≤10 项）。
+type MongoStatusData struct {
+	Version              string `json:"version"`
+	UptimeSec            int64  `json:"uptimeSec"`
+	ConnectionsCurrent   int64  `json:"connectionsCurrent"`
+	ConnectionsAvailable int64  `json:"connectionsAvailable"`
+	MemResidentMb        int64  `json:"memResidentMb"`
+	OpInsert             int64  `json:"opInsert"`
+	OpQuery              int64  `json:"opQuery"`
+	OpUpdate             int64  `json:"opUpdate"`
+	OpDelete             int64  `json:"opDelete"`
+}
+
+// MongoDatabaseItem 是 mdb/list items 条目（只读投影，D-18）。
+type MongoDatabaseItem struct {
+	Name        string `json:"name"`
+	SizeBytes   int64  `json:"sizeBytes"`
+	Collections int64  `json:"collections"`
+}
+
+// MongoDatabaseListData 是 mdb/list data。
+type MongoDatabaseListData struct {
+	Items       []MongoDatabaseItem `json:"items"`
+	GeneratedAt time.Time           `json:"generatedAt"`
+}
+
+// MongoUserRole 是用户持有的库级角色（mongo_role，D-19）。
+type MongoUserRole struct {
+	DB   string `json:"db"`
+	Role string `json:"role"`
+}
+
+// MongoUserItem 是 muser/list items 条目（密码零出口 I-02）。
+type MongoUserItem struct {
+	Username   string          `json:"username"`
+	Mechanisms []string        `json:"mechanisms"`
+	Roles      []MongoUserRole `json:"roles"`
+}
+
+// MongoUserListData 是 muser/list data。
+type MongoUserListData struct {
+	Items       []MongoUserItem `json:"items"`
+	GeneratedAt time.Time       `json:"generatedAt"`
+}
+
+// MongoUserCreateRequest 是 muser/create 请求（首库首角色，D-19）。
+type MongoUserCreateRequest struct {
+	InstanceID int64  `json:"instanceId"`
+	Username   string `json:"username"`
+	Password   string `json:"password"`
+	DB         string `json:"db"`
+	Role       string `json:"role"`
+}
+
+// MongoUserRequest 是 muser/delete 请求。
+type MongoUserRequest struct {
+	InstanceID int64  `json:"instanceId"`
+	Username   string `json:"username"`
+}
+
+// MongoUserRoleRequest 是 muser/grant、muser/revoke 请求。
+type MongoUserRoleRequest struct {
+	InstanceID int64  `json:"instanceId"`
+	Username   string `json:"username"`
+	DB         string `json:"db"`
+	Role       string `json:"role"`
+}
+
+// MongoUserActionResult 是 muser/create、muser/delete data。
+type MongoUserActionResult struct {
+	InstanceID int64  `json:"instanceId"`
+	Username   string `json:"username"`
+}
+
+// MongoRoleActionResult 是 muser/grant、muser/revoke data。
+type MongoRoleActionResult struct {
+	InstanceID int64  `json:"instanceId"`
+	Username   string `json:"username"`
+	DB         string `json:"db"`
+	Role       string `json:"role"`
+}
+
 // PasswordRequest 是 root-password / redis/password 请求。
 type PasswordRequest struct {
 	InstanceID  int64  `json:"instanceId"`

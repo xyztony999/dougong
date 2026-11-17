@@ -25,10 +25,10 @@ func NewModule(auth *authsvc.Service, svc *dbmgmtsvc.Service) *Module {
 // Prefix 挂载前缀 /db（api §3.1 域段）。
 func (m *Module) Prefix() string { return "/db" }
 
-// Register 注册 23 接口（§3.3 权限矩阵：GET 两角色 7——instance/list、
+// Register 注册 30 接口（§3.3 权限矩阵：GET 两角色 10——instance/list、
 // mysql/status、mysql/processlist、database/list、dbuser/list、redis/info、
-// redis/slowlog；GET admin 专属 3——database/charsets、key/list、key/ttl；
-// POST admin+CSRF 13）。
+// redis/slowlog、mongo/status、mdb/list、muser/list；GET admin 专属 3——
+// database/charsets、key/list、key/ttl；POST admin+CSRF 17）。
 func (m *Module) Register(rg *gin.RouterGroup) {
 	rg.Use(middleware.InitGuard(m.auth))
 
@@ -42,6 +42,9 @@ func (m *Module) Register(rg *gin.RouterGroup) {
 	readBoth.GET("/dbuser/list", m.h.ListDBUsers)
 	readBoth.GET("/redis/info", m.h.RedisInfo)
 	readBoth.GET("/redis/slowlog", m.h.RedisSlowlog)
+	readBoth.GET("/mongo/status", m.h.MongoStatus)
+	readBoth.GET("/mdb/list", m.h.MongoListDatabases)
+	readBoth.GET("/muser/list", m.h.MongoListUsers)
 
 	// 读组 B（GET；admin 专属——charsets 建库辅助数据（readonly 无建库入口）
 	// 与 key 浏览 ×2（key 值属数据内容取出，D0 readonly 清单未含），§3.3）。
@@ -67,6 +70,10 @@ func (m *Module) Register(rg *gin.RouterGroup) {
 	write.POST("/backup/export", m.h.ExportBackup)
 	write.POST("/backup/import", m.h.ImportBackup)
 	write.POST("/redis/password", m.h.RedisPassword)
+	write.POST("/muser/create", m.h.MongoCreateUser)
+	write.POST("/muser/delete", m.h.MongoDeleteUser)
+	write.POST("/muser/grant", m.h.MongoGrantRole)
+	write.POST("/muser/revoke", m.h.MongoRevokeRole)
 }
 
 // 编译期断言：Module 实现 api.Module 契约。

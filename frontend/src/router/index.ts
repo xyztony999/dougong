@@ -25,7 +25,7 @@ declare module 'vue-router' {
      * 'mysql'=engine∈mysql/mariadb（mariadb 同 mysql 路由）；'redis'=engine=redis。
      * 不匹配 → DBM_018 语义提示 + 返回 /databases；档案不存在 → DBM_002 语义 + 返回。
      */
-    engineGuard?: 'mysql' | 'redis'
+    engineGuard?: 'mysql' | 'redis' | 'mongodb'
   }
 }
 
@@ -169,6 +169,12 @@ const router = createRouter({
           component: () => import('@/views/database-mgmt/redis/index.vue'),
           meta: { title: 'Redis 治理', engineGuard: 'redis' }
         },
+        {
+          path: 'databases/mongo/:instanceId',
+          name: 'db-mongo-manage',
+          component: () => import('@/views/database-mgmt/mongo/index.vue'),
+          meta: { title: 'MongoDB 治理', engineGuard: 'mongodb' }
+        },
         // ---- firewall（PageSpec 第 7 节：requiresAuth 继承布局路由；admin+readonly 同路由，
         // 组件内按角色渲染子集——readonly 无添加按钮+操作列整列不渲染（2 负空间，ADR-018）；
         // 菜单项由后端 ModuleMenuRegistry 按角色下发（防火墙菜单对两角色均可见）----
@@ -298,10 +304,13 @@ router.beforeEach(async (to) => {
       notifyError('实例档案不存在（可能已被移除），已返回实例清单')
       return { path: '/databases', replace: true }
     }
+    const guard = to.meta.engineGuard
     const engineOk =
-      to.meta.engineGuard === 'redis'
+      guard === 'redis'
         ? instance.engine === 'redis'
-        : instance.engine !== 'redis'
+        : guard === 'mongodb'
+          ? instance.engine === 'mongodb'
+          : instance.engine === 'mysql' || instance.engine === 'mariadb'
     if (!engineOk) {
       notifyError('实例引擎与页面不符（DBM_018），已返回实例清单')
       return { path: '/databases', replace: true }

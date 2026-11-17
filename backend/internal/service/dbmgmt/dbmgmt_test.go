@@ -382,6 +382,7 @@ type testEnv struct {
 	svc    *Service
 	mysql  *fakeMySQL
 	redis  *fakeRedis
+	mongo  *fakeMongo
 	vault  *CredentialVault
 	auditQ *storeauth.AuditRepo
 	db     interface{ Close() error }
@@ -405,10 +406,11 @@ func newTestEnv(t *testing.T) *testEnv {
 	my := &fakeMySQL{version: "8.0.36", charset: []string{"utf8mb4", "latin1"}}
 	rd := &fakeRedis{}
 	auditSvc := audit.New(st.Audit(), time.Now)
-	svc := New(AdaptStore(st), my, rd, vault, auditSvc)
+	mg := &fakeMongo{version: "7.0.14"}
+	svc := New(AdaptStore(st), my, rd, mg, vault, auditSvc)
 	// 跳过首次自动探测（单测直接造档案行）。
 	svc.discoverOnce.Do(func() {})
-	return &testEnv{svc: svc, mysql: my, redis: rd, vault: vault, auditQ: st.Audit(), db: db}
+	return &testEnv{svc: svc, mysql: my, redis: rd, mongo: mg, vault: vault, auditQ: st.Audit(), db: db}
 }
 
 // seedInstance 直接落一条可达且带凭据的档案行（治理链就绪态）。
@@ -565,30 +567,30 @@ func TestGoverTargetChain(t *testing.T) {
 	inst := e.seedInstance(t, storedb.EngineMySQL)
 
 	// DBM_001 / DBM_002。
-	if _, _, _, err := e.svc.governTarget(ctx, "abc", true); errCode(t, err) != "DBM_001" {
+	if _, _, _, err := e.svc.governTarget(ctx, "abc", familyMySQL); errCode(t, err) != "DBM_001" {
 		t.Fatalf("want DBM_001, got %v", err)
 	}
-	if _, _, _, err := e.svc.governTarget(ctx, "999", true); errCode(t, err) != "DBM_002" {
+	if _, _, _, err := e.svc.governTarget(ctx, "999", familyMySQL); errCode(t, err) != "DBM_002" {
 		t.Fatalf("want DBM_002, got %v", err)
 	}
 	// DBM_018：mysql 接口对 redis 档案。
 	redisInst := e.seedInstance(t, storedb.EngineRedis)
-	if _, _, _, err := e.svc.governTarget(ctx, itoa(redisInst.ID), true); errCode(t, err) != "DBM_018" {
+	if _, _, _, err := e.svc.governTarget(ctx, itoa(redisInst.ID), familyMySQL); errCode(t, err) != "DBM_018" {
 		t.Fatalf("want DBM_018, got %v", err)
 	}
 	// DBM_003：unreachable。
 	e.setConnState(t, inst.ID, storedb.ConnStateUnreachable)
-	if _, _, _, err := e.svc.governTarget(ctx, itoa(inst.ID), true); errCode(t, err) != "DBM_003" {
+	if _, _, _, err := e.svc.governTarget(ctx, itoa(inst.ID), familyMySQL); errCode(t, err) != "DBM_003" {
 		t.Fatalf("want DBM_003, got %v", err)
 	}
 	e.setConnState(t, inst.ID, storedb.ConnStateReachable)
 	// DBM_004：未配置凭据（新纳管档案）。
 	fresh := e.seedBareInstance(t, storedb.EngineMySQL)
-	if _, _, _, err := e.svc.governTarget(ctx, itoa(fresh.ID), true); errCode(t, err) != "DBM_004" {
+	if _, _, _, err := e.svc.governTarget(ctx, itoa(fresh.ID), familyMySQL); errCode(t, err) != "DBM_004" {
 		t.Fatalf("want DBM_004, got %v", err)
 	}
 	// 全链通过：解密凭据可用。
-	_, _, creds, err := e.svc.governTarget(ctx, itoa(inst.ID), true)
+	_, _, creds, err := e.svc.governTarget(ctx, itoa(inst.ID), familyMySQL)
 	if err != nil || creds.Username != "root" || creds.Password != "secret-old" {
 		t.Fatalf("govern ok path: %v %+v", err, creds)
 	}
@@ -1050,7 +1052,7 @@ func TestProberDiscovery(t *testing.T) {
 	reach := func(t dbconn.Target) bool {
 		return t.ConnMode == "tcp" && t.Port == 3306
 	}
-	prober := NewProber(e.svc.store, e.mysql, e.redis, e.vault, reach)
+	prober := NewProber(e.svc.store, e.mysql, e.redis, e.mongo, e.vault, reach)
 	discovered, updated, err := prober.ProbeAll(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -1069,7 +1071,7 @@ func TestProberDiscovery(t *testing.T) {
 	}
 	// 不可达轮：既有档案整值覆盖 unreachable（I-03）。
 	none := func(dbconn.Target) bool { return false }
-	p2 := NewProber(e.svc.store, e.mysql, e.redis, e.vault, none)
+	p2 := NewProber(e.svc.store, e.mysql, e.redis, e.mongo, e.vault, none)
 	_, updated, _ = p2.ProbeAll(ctx)
 	got, _ = e.svc.store.Instance().GetByIdentity(ctx, "mysql|tcp:localhost:3306")
 	if got == nil || got.ConnState != storedb.ConnStateUnreachable {

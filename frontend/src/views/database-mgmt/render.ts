@@ -26,7 +26,7 @@ function tag(label: string, type: 'default' | 'info' | 'success' | 'warning' | '
   return h(NTag, { type, size: 'small', bordered: false }, { default: () => label })
 }
 
-/** 引擎 Tag：mysql/mariadb=blue（info）、redis=purple（rgba 语义色） */
+/** 引擎 Tag：mysql/mariadb=blue（info）、redis=purple（rgba 语义色）、mongodb=green（success，v1.2） */
 export function engineTag(engine: string): VNode {
   if (engine === 'redis') {
     const d = dictItem(DB_ENGINE, engine)
@@ -37,7 +37,7 @@ export function engineTag(engine: string): VNode {
     )
   }
   const d = dictItem(DB_ENGINE, engine)
-  return tag(d.label, d.tag === 'info' ? 'info' : 'default')
+  return tag(d.label, d.tag === 'info' ? 'info' : d.tag === 'success' ? 'success' : 'default')
 }
 
 /** 连接方式 Tag（db_conn_mode，无语义色） */

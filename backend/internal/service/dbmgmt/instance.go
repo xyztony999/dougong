@@ -15,9 +15,9 @@ import (
 // engine 筛选（D-04 读路径零写副作用）。
 func (s *Service) ListInstances(ctx context.Context, engine string) (*InstanceListData, error) {
 	if engine != "" && engine != storedb.EngineMySQL && engine != storedb.EngineMariaDB &&
-		engine != storedb.EngineRedis {
+		engine != storedb.EngineRedis && engine != storedb.EngineMongoDB {
 		return nil, errcode.ErrValidation.WithFields(errcode.FieldError{
-			Field: "engine", Message: "engine 须为 mysql|mariadb|redis"})
+			Field: "engine", Message: "engine 须为 mysql|mariadb|redis|mongodb"})
 	}
 	s.discoverOnce.Do(func() {
 		if _, _, err := s.prober.ProbeAll(ctx); err != nil {
@@ -101,25 +101,36 @@ func (s *Service) SetCredentials(ctx context.Context, actor *authsvc.Identity, r
 		}
 	}
 
-	// 连接验证（DBM_005/006 不落库）。
+	// 连接验证（DBM_005/006/021/022 不落库；translatePingErr——未分类失败归
+	// DBM_006，不裸 INTERNAL）。
 	creds := dbconn.Creds{Username: req.Username, Password: req.Password}
-	if storedb.IsMySQLEngine(inst.Engine) {
+	switch {
+	case storedb.IsMySQLEngine(inst.Engine):
 		if err := s.mysql.Ping(ctx, target, creds); err != nil {
-			return nil, translateGatewayErr(err)
+			return nil, translatePingErr(err)
 		}
-	} else {
+	case storedb.IsMongoEngine(inst.Engine):
+		if err := s.mongo.Ping(ctx, target, creds); err != nil {
+			return nil, translatePingErr(err)
+		}
+	default:
 		if err := s.redis.Ping(ctx, target, creds); err != nil {
-			return nil, translateGatewayErr(err)
+			return nil, translatePingErr(err)
 		}
 	}
 
 	// 版本实况（D-04：credentials 刷新）。
 	version := ""
-	if storedb.IsMySQLEngine(inst.Engine) {
+	switch {
+	case storedb.IsMySQLEngine(inst.Engine):
 		if v, verr := s.mysql.ServerVersion(ctx, target, creds); verr == nil {
 			version = v
 		}
-	} else {
+	case storedb.IsMongoEngine(inst.Engine):
+		if v, verr := s.mongo.ServerVersion(ctx, target, creds); verr == nil {
+			version = v
+		}
+	default:
 		if v, verr := s.redis.ServerVersion(ctx, target, creds); verr == nil {
 			version = v
 		}
@@ -131,8 +142,8 @@ func (s *Service) SetCredentials(ctx context.Context, actor *authsvc.Identity, r
 		return nil, err
 	}
 	username := req.Username
-	if !storedb.IsMySQLEngine(inst.Engine) {
-		username = RedisDefaultUsername // redis 凭据用户名固定（A-DB6）
+	if !storedb.IsMySQLEngine(inst.Engine) && !storedb.IsMongoEngine(inst.Engine) {
+		username = RedisDefaultUsername // redis 凭据用户名固定（A-DB6）；mongodb 按请求实名
 	}
 	tx, err := s.store.BeginTx(ctx)
 	if err != nil {

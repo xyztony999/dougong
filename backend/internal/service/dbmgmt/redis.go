@@ -13,7 +13,7 @@ import (
 // RedisInfo GET /db/redis/info：info 概览（REDIS_INFO_FIELDS 白名单 sections
 // 骨架，D-08；I-04 实时读取）。
 func (s *Service) RedisInfo(ctx context.Context, instanceID string) (*RedisInfoData, error) {
-	_, t, c, err := s.governTarget(ctx, instanceID, false)
+	_, t, c, err := s.governTarget(ctx, instanceID, familyRedis)
 	if err != nil {
 		return nil, err
 	}
@@ -38,7 +38,7 @@ func (s *Service) RedisInfo(ctx context.Context, instanceID string) (*RedisInfoD
 // RedisSlowlog GET /db/redis/slowlog：慢日志清单（limit 默认 50 上限 200，
 // D-09；timestamp ISO-8601 UTC）。
 func (s *Service) RedisSlowlog(ctx context.Context, instanceID, limitRaw string) (*SlowlogData, error) {
-	_, t, c, err := s.governTarget(ctx, instanceID, false)
+	_, t, c, err := s.governTarget(ctx, instanceID, familyRedis)
 	if err != nil {
 		return nil, err
 	}
@@ -68,7 +68,7 @@ func (s *Service) RedisSlowlog(ctx context.Context, instanceID, limitRaw string)
 // SetRedisPassword POST /db/redis/password：改密两步同步（D-05：面板建连
 // 即旧密码验证——requirepass 语义天然满足「验证旧密码」）。
 func (s *Service) SetRedisPassword(ctx context.Context, actor *authsvc.Identity, req PasswordRequest) (*PasswordChangeData, error) {
-	inst, t, c, err := s.governTargetByID(ctx, req.InstanceID, false)
+	inst, t, c, err := s.governTargetByID(ctx, req.InstanceID, familyRedis)
 	if err != nil {
 		return nil, err
 	}
@@ -82,7 +82,7 @@ func (s *Service) SetRedisPassword(ctx context.Context, actor *authsvc.Identity,
 // ListKeys GET /db/key/list：SCAN 游标分页（D-09：cursor 默认 0、MATCH
 // pattern 默认 *、COUNT 200；pattern 校验 DBM_017 禁 KEYS 全量语义）。
 func (s *Service) ListKeys(ctx context.Context, instanceID, cursorRaw, pattern string) (*KeyListData, error) {
-	_, t, c, err := s.governTarget(ctx, instanceID, false)
+	_, t, c, err := s.governTarget(ctx, instanceID, familyRedis)
 	if err != nil {
 		return nil, err
 	}
@@ -115,7 +115,7 @@ func (s *Service) ListKeys(ctx context.Context, instanceID, cursorRaw, pattern s
 
 // KeyTTL GET /db/key/ttl：单 key TTL（-1=无过期如实；不存在 DBM_015）。
 func (s *Service) KeyTTL(ctx context.Context, instanceID, key string) (*KeyTTLData, error) {
-	_, t, c, err := s.governTarget(ctx, instanceID, false)
+	_, t, c, err := s.governTarget(ctx, instanceID, familyRedis)
 	if err != nil {
 		return nil, err
 	}

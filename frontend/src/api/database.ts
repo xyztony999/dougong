@@ -1,7 +1,7 @@
 /**
- * database-mgmt api 层 —— 23 Action 与 api-database-mgmt.md v1.1 一一对应（S7，无虚构接口）。
- * 读 10 GET（7 两角色 + 3 admin 专属：databaseCharsets/redisKeyList/redisKeyTtl）；
- * 写 13 POST（admin 专属 + CSRF——http.ts 统一注入 X-CSRF-Token）。
+ * database-mgmt api 层 —— 30 Action 与 api-database-mgmt.md v2.0 一一对应（S7，无虚构接口；
+ * v1.2 +mongo 7）。读 13 GET（10 两角色 + 3 admin 专属：databaseCharsets/redisKeyList/
+ * redisKeyTtl）；写 17 POST（admin 专属 + CSRF——http.ts 统一注入 X-CSRF-Token）。
  * 特殊通道：backup/export 走 POST 流式（postDownload 双形态分流，D-06）；
  * backup/import 走 multipart（postForm，D-06）。函数名 = PageSpec 第 2 节 Action 名。
  */
@@ -26,6 +26,14 @@ import type {
   KeyListData,
   KeyListQuery,
   KeyTtlData,
+  MongoDatabaseListData,
+  MongoRoleResult,
+  MongoStatusData,
+  MongoUserCreatePayload,
+  MongoUserListData,
+  MongoUserPayload,
+  MongoUserResult,
+  MongoUserRolePayload,
   MysqlProcesslistData,
   MysqlStatusData,
   PasswordChangePayload,
@@ -216,4 +224,41 @@ export function redisKeyList(q: KeyListQuery): Promise<KeyListData> {
 /** redisKeyTtl：单 key TTL（-1=无过期；不存在 DBM_015 如实） */
 export function redisKeyTtl(instanceId: number, key: string): Promise<KeyTtlData> {
   return request<KeyTtlData>('/db/key/ttl', { query: { instanceId, key } })
+}
+
+/** ---- mongo 族（api v2.0 §4.5.2；v0.1.4 反馈第 3 项增量；I-05 前置 engine=mongodb） ---- */
+
+/** mongoStatus：serverStatus 白名单摘要（D-08 同构 ≤10 项） */
+export function mongoStatus(instanceId: number): Promise<MongoStatusData> {
+  return request<MongoStatusData>('/db/mongo/status', { query: { instanceId } })
+}
+
+/** mongoDatabaseList：库清单只读投影（D-18：隐式建库语义，无建/删库动作） */
+export function mongoDatabaseList(instanceId: number): Promise<MongoDatabaseListData> {
+  return request<MongoDatabaseListData>('/db/mdb/list', { query: { instanceId } })
+}
+
+/** mongoUserList：用户清单实况投影（admin 库 users；密码零出口 I-02） */
+export function mongoUserList(instanceId: number): Promise<MongoUserListData> {
+  return request<MongoUserListData>('/db/muser/list', { query: { instanceId } })
+}
+
+/** mongoUserCreate：建用户（admin 库 + 首库首角色 D-19；重名 DBM_010） */
+export function mongoUserCreate(payload: MongoUserCreatePayload): Promise<MongoUserResult> {
+  return request<MongoUserResult>('/db/muser/create', { method: 'POST', body: payload })
+}
+
+/** mongoUserDelete：删用户（连带回收全部角色，引擎语义；不存在 DBM_009） */
+export function mongoUserDelete(payload: MongoUserPayload): Promise<MongoUserResult> {
+  return request<MongoUserResult>('/db/muser/delete', { method: 'POST', body: payload })
+}
+
+/** mongoUserGrant：授予库级角色（mongo_role 三档；幂等） */
+export function mongoUserGrant(payload: MongoUserRolePayload): Promise<MongoRoleResult> {
+  return request<MongoRoleResult>('/db/muser/grant', { method: 'POST', body: payload })
+}
+
+/** mongoUserRevoke：回收库级角色（授权关系不存在 DBM_011——service 实况前置校验） */
+export function mongoUserRevoke(payload: MongoUserRolePayload): Promise<MongoRoleResult> {
+  return request<MongoRoleResult>('/db/muser/revoke', { method: 'POST', body: payload })
 }

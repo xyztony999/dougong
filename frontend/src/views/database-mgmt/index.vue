@@ -3,7 +3,7 @@
  * 实例清单页 db-list（PageSpec 4.1，路由 /databases；admin+readonly 同路由组件内子集渲染）。
  * readonly 负空间（readonly 文档 4.1）：无工具栏（无重新探测）、操作列仅「查看」；
  * 查询条件/表格列与 admin 完全一致（ADR-018 全可看，凭据列仅布尔标注无任何凭据值）。
- * 行点击/查看 → 按引擎进入治理页（mysql/mariadb→mysql-manage、redis→redis-manage）。
+ * 行点击/查看 → 按引擎进入治理页（mysql/mariadb→mysql-manage、redis→redis-manage、mongodb→mongo-manage，v1.2）。
  */
 import { computed, h, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
@@ -96,11 +96,13 @@ async function onRemove(row: DbInstanceItem): Promise<void> {
 /** ---- 行点击进入治理页（按引擎路由；readonly 同入口，治理页内再按角色渲染子集） ---- */
 
 function navigateToManage(row: DbInstanceItem): void {
-  void router.push(
+  const base =
     row.engine === 'redis'
-      ? `/databases/redis/${row.id}`
-      : `/databases/mysql/${row.id}`
-  )
+      ? '/databases/redis/'
+      : row.engine === 'mongodb'
+        ? '/databases/mongo/'
+        : '/databases/mysql/'
+  void router.push(`${base}${row.id}`)
 }
 
 function stopAnd(fn: () => void): (e: MouseEvent) => void {
@@ -274,7 +276,7 @@ onMounted(() => {
       >
         <!-- 空态（R-15 发现哲学：未发现任何实例；admin 可手动重新探测） -->
         <template #empty>
-          <n-empty description="未发现 MySQL/MariaDB/Redis 实例" class="empty">
+          <n-empty description="未发现 MySQL/MariaDB/Redis/MongoDB 实例" class="empty">
             <template v-if="authStore.isAdmin" #extra>
               <n-button size="small" :loading="rescanLoading" @click="onRescan">
                 手动重新探测

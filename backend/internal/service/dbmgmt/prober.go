@@ -6,6 +6,7 @@ import (
 	"log/slog"
 
 	"github.com/dougong/dougong/internal/adapter/dbconn"
+	"github.com/dougong/dougong/internal/adapter/dbmongo"
 	"github.com/dougong/dougong/internal/adapter/dbmysql"
 	"github.com/dougong/dougong/internal/adapter/dbredis"
 	storedb "github.com/dougong/dougong/internal/store/dbmgmt"
@@ -21,17 +22,18 @@ type InstanceProber struct {
 	store     StoreAPI
 	mysql     MySQLGateway
 	redis     RedisGateway
+	mongo     MongoGateway
 	vault     *CredentialVault
 	reachable func(dbconn.Target) bool
 }
 
 // NewProber 构造探测服务（vault 供有凭据档案的引擎实况刷新）。
-func NewProber(store StoreAPI, mysql MySQLGateway, redis RedisGateway,
+func NewProber(store StoreAPI, mysql MySQLGateway, redis RedisGateway, mongo MongoGateway,
 	vault *CredentialVault, reachable func(dbconn.Target) bool) *InstanceProber {
 	if reachable == nil {
 		reachable = targetReachable
 	}
-	return &InstanceProber{store: store, mysql: mysql, redis: redis, vault: vault, reachable: reachable}
+	return &InstanceProber{store: store, mysql: mysql, redis: redis, mongo: mongo, vault: vault, reachable: reachable}
 }
 
 // ProbeAll 执行一轮完整探测（DISCOVERY_PROBE_SET），返回 {discovered, updated}
@@ -145,6 +147,21 @@ func (p *InstanceProber) engineProbe(ctx context.Context, inst *storedb.Instance
 			return storedb.ConnStateReachable, nil
 		}
 		if v, verr := p.mysql.ServerVersion(ctx, t, creds); verr == nil {
+			return storedb.ConnStateReachable, &v
+		}
+		return storedb.ConnStateReachable, nil
+	}
+	if storedb.IsMongoEngine(inst.Engine) {
+		if p.mongo == nil {
+			return storedb.ConnStateReachable, nil
+		}
+		if err := p.mongo.Ping(ctx, t, creds); err != nil {
+			if errors.Is(err, dbmongo.ErrConnFailed) {
+				return storedb.ConnStateUnreachable, nil
+			}
+			return storedb.ConnStateReachable, nil
+		}
+		if v, verr := p.mongo.ServerVersion(ctx, t, creds); verr == nil {
 			return storedb.ConnStateReachable, &v
 		}
 		return storedb.ConnStateReachable, nil

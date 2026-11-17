@@ -16,11 +16,13 @@ import (
 // Executor 是 store.Executor 的别名（*sql.DB 与 *sql.Tx 共同满足）。
 type Executor = store.Executor
 
-// db_engine / db_conn_mode / instance_conn_state 取值域（DDL CHECK 兜底，§3.4）。
+// db_engine / db_conn_mode / instance_conn_state 取值域（DDL CHECK 兜底，§3.4；
+// engine +mongodb 为迁移 011 扩值——v0.1.4 反馈第 3 项）。
 const (
 	EngineMySQL   = "mysql"
 	EngineMariaDB = "mariadb"
 	EngineRedis   = "redis"
+	EngineMongoDB = "mongodb"
 
 	ConnModeSocket = "socket"
 	ConnModeTCP    = "tcp"
@@ -33,6 +35,11 @@ const (
 // 接口要求 engine∈mysql/mariadb）。
 func IsMySQLEngine(engine string) bool {
 	return engine == EngineMySQL || engine == EngineMariaDB
+}
+
+// IsMongoEngine 报告引擎是否为 MongoDB（I-05：mongo 族接口要求 engine=mongodb）。
+func IsMongoEngine(engine string) bool {
+	return engine == EngineMongoDB
 }
 
 // Instance 对应 db_instance 表一行（§4.1.1 字段清单；凭据为内嵌值对象列组，

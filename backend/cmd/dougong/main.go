@@ -36,6 +36,7 @@ import (
 	acmegw "github.com/dougong/dougong/internal/adapter/acme"
 	"github.com/dougong/dougong/internal/adapter/backupx"
 	"github.com/dougong/dougong/internal/adapter/cronx"
+	"github.com/dougong/dougong/internal/adapter/dbmongo"
 	"github.com/dougong/dougong/internal/adapter/dbmysql"
 	"github.com/dougong/dougong/internal/adapter/dbredis"
 	"github.com/dougong/dougong/internal/adapter/dockerx"
@@ -308,7 +309,8 @@ func run(args []string) error {
 	}
 	mysqlGw := dbmysql.NewGateway(cfg.DB.MySQLBin, cfg.DB.MysqldumpBin)
 	redisGw := dbredis.NewGateway(cfg.DB.RedisCliBin)
-	dbSvc := dbmgmtsvc.New(dbmgmtsvc.AdaptStore(dbStore), mysqlGw, redisGw, dbVault, auditSvc)
+	mongoGw := dbmongo.NewGateway() // 进程内 mongo-driver v2 通道（D-15：无二进制依赖，v0.1.4 反馈第 3 项）
+	dbSvc := dbmgmtsvc.New(dbmgmtsvc.AdaptStore(dbStore), mysqlGw, redisGw, mongoGw, dbVault, auditSvc)
 	panelSvc.Menus().Register(
 		panelsvc.MenuItem{Key: "database", Title: "数据库", Path: "/databases",
 			Icon: "database", Order: 500, Visibility: []string{storeauth.RoleAdmin, storeauth.RoleReadonly}},

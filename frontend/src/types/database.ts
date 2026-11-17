@@ -6,7 +6,7 @@
  * 密码仅出现在 POST 请求体（credentials/dbuserCreate/root-password/redisPassword），零回显。
  * TTL 为整数秒（-1=无过期，Redis 语义如实透传，api 3.1 时间格式）。
  */
-import type { DbConnMode, DbEngine, GrantLevel, InstanceConnState } from './enums'
+import type { DbConnMode, DbEngine, GrantLevel, InstanceConnState, MongoRole } from './enums'
 
 /** ---- 实例档案（4.1.4 instance/list items；cred_cipher/密钥零下发 I-02） ---- */
 
@@ -291,7 +291,9 @@ export const DBM_ERROR_TEXT: Readonly<Record<string, string>> = {
   DBM_017: 'key 匹配模式非法（不支持全量语义）',
   DBM_018: '接口与实例引擎不符',
   DBM_019: '实例密码已修改成功，但面板凭据同步失败——请立即重新配置凭据',
-  DBM_020: '该连接目标已存在其他实例档案'
+  DBM_020: '该连接目标已存在其他实例档案',
+  DBM_021: '引擎客户端通道不可用（宿主机未安装 mysql/redis-cli）',
+  DBM_022: '引擎操作被拒（凭据账户权限不足）'
 }
 
 /** ApiError.data（unknown）→ data.reason 收窄（DBM_003/012/013 失败原因如实展示，api 3.4） */
@@ -307,7 +309,7 @@ export function reasonOf(data: unknown): string | null {
 export function dbmErrorText(code: string, data: unknown): string | null {
   const base = DBM_ERROR_TEXT[code]
   if (base === undefined) return null
-  if (code === 'DBM_003' || code === 'DBM_012' || code === 'DBM_013') {
+  if (code === 'DBM_003' || code === 'DBM_012' || code === 'DBM_013' || code === 'DBM_021' || code === 'DBM_022') {
     const reason = reasonOf(data)
     if (reason !== null) return `${base}：${reason}`
   }
@@ -343,3 +345,83 @@ export const REDIS_INFO_FIELD_TEXT: Readonly<Record<string, string>> = {
 
 /** 导入文件大小上限（DUMP_SIZE_LIMIT=512MiB，api D-06；前端预检，服务端 DBM_014 为准） */
 export const DUMP_SIZE_LIMIT_BYTES = 512 * 1024 * 1024
+
+/** ---- mongo 治理（api-database-mgmt.md v2.0 §4.5.2；v0.1.4 反馈第 3 项增量） ---- */
+
+/** mongoStatus 响应 data（serverStatus 白名单 ≤10 项，D-08 同构） */
+export interface MongoStatusData {
+  version: string
+  uptimeSec: number
+  connectionsCurrent: number
+  connectionsAvailable: number
+  memResidentMb: number
+  opInsert: number
+  opQuery: number
+  opUpdate: number
+  opDelete: number
+}
+
+/** mdb/list items 条目（只读投影 D-18：名称/大小/集合数；系统库 admin/config/local 如实返回） */
+export interface MongoDatabaseItem {
+  name: string
+  sizeBytes: number
+  collections: number
+}
+
+export interface MongoDatabaseListData {
+  items: MongoDatabaseItem[]
+  generatedAt: string
+}
+
+/** 用户持有的库级角色（mongo_role 三档 D-19） */
+export interface MongoUserRole {
+  db: string
+  role: string
+}
+
+/** muser/list items 条目（密码/凭证零出口 I-02） */
+export interface MongoUserItem {
+  username: string
+  mechanisms: string[]
+  roles: MongoUserRole[]
+}
+
+export interface MongoUserListData {
+  items: MongoUserItem[]
+  generatedAt: string
+}
+
+/** mongoUserCreate payload（首库首角色 D-19） */
+export interface MongoUserCreatePayload {
+  instanceId: number
+  username: string
+  password: string
+  db: string
+  role: MongoRole
+}
+
+/** mongoUserDelete payload */
+export interface MongoUserPayload {
+  instanceId: number
+  username: string
+}
+
+/** mongoUserGrant / mongoUserRevoke payload（幂等授予/实况校验回收） */
+export interface MongoUserRolePayload {
+  instanceId: number
+  username: string
+  db: string
+  role: MongoRole
+}
+
+export interface MongoUserResult {
+  instanceId: number
+  username: string
+}
+
+export interface MongoRoleResult {
+  instanceId: number
+  username: string
+  db: string
+  role: string
+}

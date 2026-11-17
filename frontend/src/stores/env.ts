@@ -1,7 +1,8 @@
 /**
  * envStore —— 环境管理状态（PageSpec env-mgmt v1.0 第 1 节）：
- * 环境全景投影缓存（loadList 成败流/generatedAt/通道状态；D-01 无轮询——手动刷新
- * + 写后刷新）与任务 Drawer 态（清单筛选 + 当前任务详情 running 5s 轮询终态即停，
+ * 环境全景投影缓存（loadList 成败流/generatedAt/通道状态；D-01 无列表轮询——手动
+ * 刷新+写后刷新）与任务 Drawer 态（清单筛选 + 当前任务详情 running 5s 轮询终态即停，
+ * 终态跃迁触发环境全景与任务清单重拉——v0.1.4 反馈第 1 项 refresh 语义；
  * cron-backup 详情 Drawer 先例；onUnmounted 配对清理由页面承载）。
  */
 import { defineStore } from 'pinia'
@@ -71,12 +72,30 @@ export const useEnvStore = defineStore('env', () => {
   const detailLoading = ref(false)
   let pollTimer: ReturnType<typeof setInterval> | null = null
 
+  /** 在途态判定（pending/running=轮询继续；succeeded/failed=终态） */
+  function isInFlight(s: EnvTaskStatus): boolean {
+    return s === 'pending' || s === 'running'
+  }
+
+  /** 详情到达统一入口：在途→终态跃迁时重拉环境全景与任务清单
+   *（v0.1.4 用户反馈第 1 项：任务完成后 installed/version/service 态与
+   * 在途标记需落定——旧实现终态即停不刷新，用户看到旧环境状态；
+   * 语义=「终态触发重拉」，保持 5s 轮询纪律，无 SSE/WebSocket） */
+  function onDetailArrived(d: EnvTaskDetail): void {
+    const prev = currentTask.value
+    currentTask.value = d
+    if (prev !== null && isInFlight(prev.status) && !isInFlight(d.status)) {
+      void loadList()
+      void loadTasks(1)
+    }
+    schedulePoll(d.status)
+  }
+
   async function loadTaskDetail(taskId: number): Promise<void> {
     detailLoading.value = true
     try {
       const data = await envTaskDetail(taskId)
-      currentTask.value = data
-      schedulePoll(data.status)
+      onDetailArrived(data)
     } finally {
       detailLoading.value = false
     }
@@ -84,7 +103,7 @@ export const useEnvStore = defineStore('env', () => {
 
   function schedulePoll(status: EnvTaskStatus): void {
     stopPoll()
-    if (status === 'pending' || status === 'running') {
+    if (isInFlight(status)) {
       const id = currentTask.value?.id
       if (id == null) return
       pollTimer = setInterval(() => {
@@ -95,8 +114,8 @@ export const useEnvStore = defineStore('env', () => {
         }
         void envTaskDetail(tid)
           .then((d) => {
-            currentTask.value = d
-            if (d.status !== 'pending' && d.status !== 'running') stopPoll()
+            onDetailArrived(d)
+            if (!isInFlight(d.status)) stopPoll()
           })
           .catch(() => stopPoll()) // 轮询失败即停（手动刷新兜底）
       }, 5000)

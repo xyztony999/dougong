@@ -28,6 +28,11 @@ const (
 	ActionDatabaseExported    = "database_exported"
 	ActionDatabaseImported    = "database_imported"
 	ActionRedisPasswordSet    = "redis_password_set"
+	// MongoDB 用户与角色治理（v0.1.4 反馈第 3 项；detail 不含密码，D-13）。
+	ActionMongoUserCreated = "mongo_user_created"
+	ActionMongoUserDeleted = "mongo_user_deleted"
+	ActionMongoUserGranted = "mongo_user_granted"
+	ActionMongoUserRevoked = "mongo_user_revoked"
 )
 
 // 审计对象类型（audit_log.object_type 业务扩展取值）。
@@ -58,6 +63,10 @@ var DiscoveryProbeSet = []ProbeTarget{
 	{Engine: "mysql", ConnMode: "socket", SocketPath: "/var/lib/mysql/mysql.sock"},
 	{Engine: "mysql", ConnMode: "tcp", Host: "localhost", Port: 3306},
 	{Engine: "redis", ConnMode: "tcp", Host: "localhost", Port: 6379},
+	// v0.1.4 反馈第 3 项 +2（D-17：mongod 官方默认 unixSocketPath 与端口；
+	// 自定义路径不追——探测不到即未按默认装，如实口径）。
+	{Engine: "mongodb", ConnMode: "socket", SocketPath: "/tmp/mongodb-27017.sock"},
+	{Engine: "mongodb", ConnMode: "tcp", Host: "localhost", Port: 27017},
 }
 
 // probeTimeout 传输层探测拨号超时（socket 存在性/TCP 拨通）。

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/dougong/dougong/internal/adapter/dbconn"
+	"github.com/dougong/dougong/internal/adapter/dbmongo"
 	"github.com/dougong/dougong/internal/adapter/dbmysql"
 	"github.com/dougong/dougong/internal/adapter/dbredis"
 	"github.com/dougong/dougong/internal/errcode"
@@ -18,10 +19,11 @@ import (
 )
 
 // Service 是数据库管理应用服务（门面：instance/mysql/database/dbuser/
-// backup/redis/key 全部接口编排；分层纪律——不感知 HTTP）。
+// backup/redis/key/mongo 全部接口编排；分层纪律——不感知 HTTP）。
 type Service struct {
 	mysql  MySQLGateway
 	redis  RedisGateway
+	mongo  MongoGateway
 	store  StoreAPI
 	audit  AuditRecorder
 	vault  *CredentialVault
@@ -32,16 +34,16 @@ type Service struct {
 	discoverOnce sync.Once // 进程内首次探测触发器（D-07：任一角色首次 list）
 }
 
-// New 构造服务（装配：store/mysql/redis/vault/audit；探测与 busy 表内建）。
-func New(store StoreAPI, mysql MySQLGateway, redis RedisGateway,
+// New 构造服务（装配：store/mysql/redis/mongo/vault/audit；探测与 busy 表内建）。
+func New(store StoreAPI, mysql MySQLGateway, redis RedisGateway, mongo MongoGateway,
 	vault *CredentialVault, auditRec AuditRecorder) *Service {
 	s := &Service{
-		mysql: mysql, redis: redis, store: store,
+		mysql: mysql, redis: redis, mongo: mongo, store: store,
 		audit: auditRec, vault: vault,
 		busy:  NewBusyTable(),
 		clock: time.Now,
 	}
-	s.prober = NewProber(store, mysql, redis, vault, nil)
+	s.prober = NewProber(store, mysql, redis, mongo, vault, nil)
 	return s
 }
 
@@ -68,34 +70,55 @@ func (s *Service) loadInstance(ctx context.Context, id int64) (*storedb.Instance
 	return inst, nil
 }
 
+// dbFamily 是接口引擎族要求（I-05 前置链三族判定——v0.1.4 反馈第 3 项
+// 由布尔二值重构：mongodb 入列后「redis 族=其余全部」不再成立）。
+type dbFamily int
+
+const (
+	familyMySQL dbFamily = iota
+	familyRedis
+	familyMongo
+)
+
 // checkEngine 引擎匹配（DBM_018：mysql 族接口要求 engine∈mysql/mariadb；
-// redis 族接口要求 engine=redis）。
-func checkEngine(inst *storedb.Instance, mysqlFamily bool) error {
-	if mysqlFamily != storedb.IsMySQLEngine(inst.Engine) {
-		return errcode.ErrDBMEngineMismatch
+// redis 族接口要求 engine=redis；mongo 族接口要求 engine=mongodb）。
+func checkEngine(inst *storedb.Instance, family dbFamily) error {
+	switch family {
+	case familyMySQL:
+		if !storedb.IsMySQLEngine(inst.Engine) {
+			return errcode.ErrDBMEngineMismatch
+		}
+	case familyRedis:
+		if inst.Engine != storedb.EngineRedis {
+			return errcode.ErrDBMEngineMismatch
+		}
+	case familyMongo:
+		if inst.Engine != storedb.EngineMongoDB {
+			return errcode.ErrDBMEngineMismatch
+		}
 	}
 	return nil
 }
 
 // governTarget 治理/观测统一前置（I-05 全链，query string 形态入口——GET
 // 接口用；DBM_001 形态判定在此发生）。
-func (s *Service) governTarget(ctx context.Context, instanceID string, mysqlFamily bool) (
+func (s *Service) governTarget(ctx context.Context, instanceID string, family dbFamily) (
 	*storedb.Instance, dbconn.Target, dbconn.Creds, error) {
 	id, err := parseInstanceID(instanceID)
 	if err != nil {
 		return nil, dbconn.Target{}, dbconn.Creds{}, err
 	}
-	return s.governTargetByID(ctx, id, mysqlFamily)
+	return s.governTargetByID(ctx, id, family)
 }
 
 // governTargetByID 同前置链（POST 体数值形态入口）。
-func (s *Service) governTargetByID(ctx context.Context, id int64, mysqlFamily bool) (
+func (s *Service) governTargetByID(ctx context.Context, id int64, family dbFamily) (
 	*storedb.Instance, dbconn.Target, dbconn.Creds, error) {
 	inst, err := s.loadInstance(ctx, id)
 	if err != nil {
 		return nil, dbconn.Target{}, dbconn.Creds{}, err
 	}
-	if err := checkEngine(inst, mysqlFamily); err != nil {
+	if err := checkEngine(inst, family); err != nil {
 		return nil, dbconn.Target{}, dbconn.Creds{}, err
 	}
 	if inst.ConnState != storedb.ConnStateReachable {
@@ -144,6 +167,10 @@ func reasonOf(err error) string {
 
 // translateGatewayErr 将 MySQL/Redis 网关哨兵翻译为 DBM 错误码；errcode
 // 原样透传，其余 wrap 原样（response 兜底 INTERNAL）。
+//
+// v0.1.4 修复轮补齐：ErrUnavailable（客户端二进制未检出）→ DBM_021——
+// 此前无映射落 default 透传，response 层兜底为裸 INTERNAL（用户凭据验证
+// 被阻断的实发缺陷：MySQL 跑容器/他机时宿主机无 mysql 客户端即触发）。
 func translateGatewayErr(err error) error {
 	if err == nil {
 		return nil
@@ -153,17 +180,24 @@ func translateGatewayErr(err error) error {
 		return err
 	}
 	switch {
-	case errors.Is(err, dbmysql.ErrAuthRejected), errors.Is(err, dbredis.ErrAuthRejected):
+	case errors.Is(err, dbmysql.ErrAuthRejected), errors.Is(err, dbredis.ErrAuthRejected),
+		errors.Is(err, dbmongo.ErrAuthRejected):
 		return errcode.ErrDBMCredentialsInvalid.WithData(map[string]string{"reason": reasonOf(err)})
-	case errors.Is(err, dbmysql.ErrConnFailed), errors.Is(err, dbredis.ErrConnFailed):
+	case errors.Is(err, dbmysql.ErrConnFailed), errors.Is(err, dbredis.ErrConnFailed),
+		errors.Is(err, dbmongo.ErrConnFailed):
 		return errcode.ErrDBMConnTestFailed.WithData(map[string]string{"reason": reasonOf(err)})
+	case errors.Is(err, dbmysql.ErrUnavailable), errors.Is(err, dbredis.ErrUnavailable):
+		return errcode.ErrDBMChannelUnavailable.WithData(map[string]string{"reason": reasonOf(err)})
+	case errors.Is(err, dbmongo.ErrUnauthorized):
+		// DBM_022：身份对但无权执行（区别 DBM_005 认证被拒）。
+		return errcode.ErrDBMEngineUnauthorized.WithData(map[string]string{"reason": reasonOf(err)})
 	case errors.Is(err, dbmysql.ErrDatabaseExists):
 		return errcode.ErrDBMDatabaseExists
 	case errors.Is(err, dbmysql.ErrDatabaseNotFound):
 		return errcode.ErrDBMDatabaseNotFound
-	case errors.Is(err, dbmysql.ErrUserExists):
+	case errors.Is(err, dbmysql.ErrUserExists), errors.Is(err, dbmongo.ErrUserExists):
 		return errcode.ErrDBMDBUserExists
-	case errors.Is(err, dbmysql.ErrUserNotFound):
+	case errors.Is(err, dbmysql.ErrUserNotFound), errors.Is(err, dbmongo.ErrUserNotFound):
 		return errcode.ErrDBMDBUserNotFound
 	case errors.Is(err, dbmysql.ErrGrantMissing):
 		return errcode.ErrDBMGrantNotFound
@@ -176,6 +210,23 @@ func translateGatewayErr(err error) error {
 	default:
 		return err
 	}
+}
+
+// translatePingErr 凭据验证（Ping）语境的错误翻译：在 translateGatewayErr
+// 之上，将未分类引擎失败（ErrQueryFailed/ErrCommandFailed——SELECT 1/PING
+// 语境下一切非认证失败均为连接类）归 DBM_006（data.reason 如实呈现），
+// 不再裸落 INTERNAL（v0.1.4 凭据验证 INTERNAL bug 修复：契约 D-03 要求
+// 连接类失败一律业务码）。
+func translatePingErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	switch {
+	case errors.Is(err, dbmysql.ErrQueryFailed), errors.Is(err, dbredis.ErrCommandFailed),
+		errors.Is(err, dbmongo.ErrQueryFailed):
+		return errcode.ErrDBMConnTestFailed.WithData(map[string]string{"reason": reasonOf(err)})
+	}
+	return translateGatewayErr(err)
 }
 
 // ---- 审计（D-13：13 动作码 category=change；detail 不含密码/密文/密钥）----

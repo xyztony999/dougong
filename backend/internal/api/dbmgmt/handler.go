@@ -392,3 +392,95 @@ func (h *Handler) KeyTTL(c *gin.Context) {
 	}
 	response.OK(c, data)
 }
+
+// ---- mongo（§4.5.2；v0.1.4 反馈第 3 项增量）----
+
+// MongoStatus GET /db/mongo/status：query {instanceId}。
+func (h *Handler) MongoStatus(c *gin.Context) {
+	data, err := h.svc.MongoStatus(c.Request.Context(), c.Query("instanceId"))
+	if err != nil {
+		response.Fail(c, err)
+		return
+	}
+	response.OK(c, data)
+}
+
+// MongoListDatabases GET /db/mdb/list：query {instanceId}。
+func (h *Handler) MongoListDatabases(c *gin.Context) {
+	data, err := h.svc.MongoListDatabases(c.Request.Context(), c.Query("instanceId"))
+	if err != nil {
+		response.Fail(c, err)
+		return
+	}
+	response.OK(c, data)
+}
+
+// MongoListUsers GET /db/muser/list：query {instanceId}。
+func (h *Handler) MongoListUsers(c *gin.Context) {
+	data, err := h.svc.MongoListUsers(c.Request.Context(), c.Query("instanceId"))
+	if err != nil {
+		response.Fail(c, err)
+		return
+	}
+	response.OK(c, data)
+}
+
+// MongoCreateUser POST /db/muser/create。
+func (h *Handler) MongoCreateUser(c *gin.Context) {
+	var req dbmgmtsvc.MongoUserCreateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, bindError(err))
+		return
+	}
+	data, err := h.svc.MongoCreateUser(c.Request.Context(), identity(c), req)
+	if err != nil {
+		response.Fail(c, err)
+		return
+	}
+	response.OK(c, data)
+}
+
+// MongoDeleteUser POST /db/muser/delete。
+func (h *Handler) MongoDeleteUser(c *gin.Context) {
+	var req dbmgmtsvc.MongoUserRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, bindError(err))
+		return
+	}
+	data, err := h.svc.MongoDeleteUser(c.Request.Context(), identity(c), req)
+	if err != nil {
+		response.Fail(c, err)
+		return
+	}
+	response.OK(c, data)
+}
+
+// MongoGrantRole POST /db/muser/grant。
+func (h *Handler) MongoGrantRole(c *gin.Context) {
+	var req dbmgmtsvc.MongoUserRoleRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, bindError(err))
+		return
+	}
+	data, err := h.svc.MongoGrantRole(c.Request.Context(), identity(c), req)
+	if err != nil {
+		response.Fail(c, err)
+		return
+	}
+	response.OK(c, data)
+}
+
+// MongoRevokeRole POST /db/muser/revoke。
+func (h *Handler) MongoRevokeRole(c *gin.Context) {
+	var req dbmgmtsvc.MongoUserRoleRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, bindError(err))
+		return
+	}
+	data, err := h.svc.MongoRevokeRole(c.Request.Context(), identity(c), req)
+	if err != nil {
+		response.Fail(c, err)
+		return
+	}
+	response.OK(c, data)
+}

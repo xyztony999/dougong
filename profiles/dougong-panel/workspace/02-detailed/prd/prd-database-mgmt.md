@@ -2,9 +2,9 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v1.0 |
+| 版本 | v1.1 |
 | 状态 | 稳定 |
-| 最后更新 | 2026-11-12 |
+| 最后更新 | 2026-11-17 |
 | 输入 | D0 澄清报告（00-architecture/d0-clarification-database-mgmt.md）、D1 三文档（business-arch/application-arch/function-list-database-mgmt.md v1.0）、idea.md §4.1 M5/§5.3/§6 M4/§7、knowledge（ADR-007/ADR-018、R-03/R-08/R-14/R-15、kb 对象表 db_instance/database/db_user/redis_instance）、⚠️A18~A20（D1 新增，本 PRD 沿用） |
 | 下游 | D3 API 设计（02-detailed/api）、D4 交互设计（02-detailed/interaction） |
 
@@ -124,6 +124,16 @@
 | 编号 | 需求 | 主流程与规则 | 审计 |
 |------|------|-------------|------|
 | FR-20 | key 只读浏览（S-37-01） | 浏览实例内 key 清单（名称、类型）并查看 TTL：**严格只读**，不提供任何编辑/删除/数据变更入口（MVP 边界 OUT-3）；key 值属数据内容取出，admin 专属（D0 readonly 查看清单未含）；大库浏览经游标分页承载（SCAN 口径、匹配模式、TTL 呈现格式 D3 定，待对齐-7） | —（查看类；admin 专属查看） |
+
+### 4.8 MongoDB 实例治理与观测（S-55）（v1.1 追加）
+
+> 增量范围（v0.1.4 用户反馈第 3 项，拍板 Q1=A/Q2=A）：实例发现/凭据配置/清单呈现/移除纳管（FR-01~FR-04）对 mongodb 引擎同构适用（探测集扩展：mongod 默认 socket /tmp/mongodb-27017.sock + localhost:27017；凭据验证=SCRAM、authSource=admin 固定 MVP——详见 D3 设计决策）；通道=进程内官方 mongo-driver Go 库（纯 Go，无外部二进制依赖）。本节仅列 MongoDB 专属 FR。
+
+| # | 功能需求 | 说明 | 审计 |
+|---|---------|------|------|
+| FR-21 | MongoDB 状态概览（S-55-01） | serverStatus 实况关键状态摘要（白名单 ≤10 项：版本/运行时长/连接/内存/操作计数，口径 D3 定稿）；只读观测；两角色同等可用（ADR-018） | —（查看类） |
+| FR-22 | MongoDB 库清单查看（S-55-02） | 实例内数据库清单只读投影（名称/大小/集合数，ListDatabases 实况）；**不提供建库/删库**——MongoDB 隐式建库语义（集合随首文档写入产生），无显式 DDL 对应物，与 MySQL 库管理面的差异如实裁剪；两角色同等可用 | —（查看类） |
+| FR-23 | MongoDB 用户与角色治理（S-55-03） | 用户清单（admin 库 users 实况投影：用户名/认证机制/角色概况；密码只写不读 ⚠️A18 同构）；创建（用户名/密码/首库+首角色）、删除（连带回收全部角色，引擎语义）；**角色边界锁定库级三档**（mongo_role：read/readWrite/dbAdmin——原生角色名直用，不做自定义角色编辑）；授予/回收（grantRolesToUser/revokeRolesFromUser）；清单两角色可看、变更 admin 专属 | 记审计（R-03；密码值脱敏） |
 
 ## 第五部分：业务规则汇总
 
@@ -310,3 +320,4 @@
 | 版本 | 日期 | 更新说明 |
 |------|------|---------|
 | v1.0 | 2026-11-12 | 初始生成：基于 D0 澄清报告与 D1 三文档（BA/AA/FL v1.0）成文；完备性检查通过（G 5/5、T 适用 4/4、N 4/4）；领域建模落盘 domain-model.md（支撑域判定 + 2 聚合根 db_instance/redis_instance + 2 域内实体 database/db_user + 1 内嵌值对象凭据，零库用户台账 D2 判定、无子流程无状态机无关联领域对象，判定论证见各部分）；枚举 3 项新增定稿（db_engine/db_conn_mode/instance_conn_state）+ 既有 draft db_type 不采用（被 db_engine 取代）；沿用 D1 假设 ⚠️A18~A20；待对齐 10 项移交 D3/D4 |
+| v1.1 | 2026-11-17 | 增量（v0.1.4 用户反馈第 3 项，用户拍板 Q1=A 范围/Q2=A 通道）：新增 4.8 MongoDB 实例治理与观测（S-55）——FR-21 状态概览/FR-22 库清单只读（隐式建库语义不设建删库）/FR-23 用户与角色治理（mongo_role 三档库级角色）；FR-01~04 对 mongodb 引擎同构适用（探测集/凭据验证 SCRAM authSource=admin 扩展归 D3）；通道=进程内 mongo-driver Go 库；集合/文档级浏览与 mongodump 备份二期 OUT；领域模型 domain-model v1.21 同步（db_instance 聚合根 engine 扩值 mongodb + mongo_role 入池） |

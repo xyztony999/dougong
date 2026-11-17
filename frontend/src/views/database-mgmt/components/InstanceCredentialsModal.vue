@@ -3,7 +3,8 @@
  * 配置凭据弹窗（PageSpec 5.1；instanceCredentials，D-03 先验证后落库）。
  * 连接方式下拉（I-07 互斥显隐：socket 模式显 socket 路径、tcp 模式显主机+端口）；
  * 密码 type=password 不回显（⚠️A18/I-02——无任何读出口）。
- * DBM_005/006 内联错误（均不落库语义，弹窗保持打开）；DBM_020 连接目标纠正冲突内联提示。
+ * DBM_005/006/021 内联错误（均不落库语义，弹窗保持打开；DBM_021 客户端通道
+ * 不可用=v0.1.4 修复轮新增）；DBM_020 连接目标纠正冲突内联提示。
  */
 import { computed, ref, watch } from 'vue'
 import { useMessage } from 'naive-ui'
@@ -42,7 +43,7 @@ interface CredForm {
 }
 
 /** 引擎默认端口（PageSpec 5.1：档案现值或引擎默认端口——MySQL 族 3306 / Redis 6379） */
-const ENGINE_DEFAULT_PORT: Readonly<Record<string, number>> = { mysql: 3306, mariadb: 3306, redis: 6379 }
+const ENGINE_DEFAULT_PORT: Readonly<Record<string, number>> = { mysql: 3306, mariadb: 3306, redis: 6379, mongodb: 27017 }
 
 const form = ref<CredForm>({
   connMode: 'tcp',
@@ -134,6 +135,11 @@ async function onSubmit(): Promise<void> {
         inlineError.value = '连接失败：网络或 socket 不可达（未保存）'
         return
       }
+      if (e.is('DBM_021')) {
+        inlineError.value =
+          '引擎客户端通道不可用：宿主机未安装 mysql/redis-cli 客户端（实例本身可能正常；安装对应客户端后重试）'
+        return
+      }
       if (e.is('DBM_020')) {
         inlineError.value = '该连接目标已存在其他实例档案（DBM_020）'
         return
@@ -191,7 +197,7 @@ async function onSubmit(): Promise<void> {
           placeholder="密码不回显（仅验证后密文保存）"
         />
       </n-form-item>
-      <!-- DBM_005/006/020 内联错误（不落库语义，弹窗保持打开） -->
+      <!-- DBM_005/006/020/021 内联错误（不落库语义，弹窗保持打开） -->
       <n-alert v-if="inlineError !== null" type="error" :show-icon="false">
         {{ inlineError }}
       </n-alert>
