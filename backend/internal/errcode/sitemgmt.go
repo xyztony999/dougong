@@ -36,8 +36,9 @@ var (
 	ErrCertNotFound = New("CERT_001", "证书不存在")
 	// ErrCertInvalidState CERT_002 证书状态不允许该操作；data.currentStatus。
 	ErrCertInvalidState = New("CERT_002", "证书当前状态不允许该操作")
-	// ErrCertDuplicate CERT_003 同域名集合已有 pending/valid/expiring_soon 证书（D-10）；data.existingCertId。
-	ErrCertDuplicate = New("CERT_003", "同域名集合已有生效中证书")
+	// ErrCertDuplicate CERT_003 同域名集合已有 acme 源 active 或任意来源 pending
+	// 证书（D-10 v2.1 接管语义：imported 源放行=ACME 接管入口）；data.existingCertId。
+	ErrCertDuplicate = New("CERT_003", "同域名集合已有生效中的 ACME 证书或进行中申请")
 	// ErrAcmeFailed CERT_004 ACME 签发/续期失败（挑战不通/CA 拒绝/超时）；data.reason。
 	ErrAcmeFailed = New("CERT_004", "ACME 签发/续期失败")
 	// ErrCertReferenced CERT_005 证书仍被站点引用，先解除部署（D-11）；data.sites[]。

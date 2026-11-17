@@ -165,7 +165,9 @@ async function onSubmit(): Promise<void> {
         const existingCertId = typeof existing === 'number' ? existing : null
         dialog.error({
           title: '证书已存在',
-          content: '同域名集合已有生效中证书（CERT_003），可直接部署已有证书。',
+          content:
+            '该域名已有生效中的 ACME 证书或进行中的申请（CERT_003）——可直接部署已有证书；' +
+            '如需续期请用证书列表行的「更新证书」。',
           positiveText: existingCertId !== null ? '查看已有证书' : '关闭',
           negativeText: '关闭',
           onPositiveClick: () => {

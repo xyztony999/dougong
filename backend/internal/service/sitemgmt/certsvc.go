@@ -127,7 +127,12 @@ func (s *Service) CertRequest(ctx context.Context, actor *authsvc.Identity, req 
 		dnsCredID = &id
 	}
 	primary := domains[0]
-	if existing := s.findActiveByDomains(ctx, domains); existing != nil {
+	// I-03 防重（CERT_003，v2.1 语义修正）：仅拦 **acme 源** active 证书（已有
+	// 「更新证书」续签通道，重复申请无意义）与 **pending** 进行中（防并发双击）；
+	// **imported 源同域名集合放行**——这正是 ACME 接管续期的入口（用户实测
+	// 死路反馈：导入证书不能续签、CERT_003 又拦重新签发、被引用还删不掉）。
+	if existing := s.findActiveByDomains(ctx, domains); existing != nil &&
+		(existing.Source == storesitemgmt.SourceAcme || existing.Status == storesitemgmt.StatusPending) {
 		return nil, errcode.ErrCertDuplicate.WithData(ExistingCertData{ExistingCertID: existing.ID})
 	}
 	if req.Challenge != storesitemgmt.ChallengeDNS01 {
@@ -274,18 +279,28 @@ func (s *Service) finalizeRenewal(ctx context.Context, certID int64, status stri
 
 // findActiveByDomains I-03：同域名集合的 active 证书（D-10；renew_failed/
 // expired 不阻塞重新申请）。
+// v2.1 接管语义：同集合多张 active 并存时，优先返回**拦截性**的一张（acme 源
+// 或 pending——CERT_003 判定用），imported 仅作兜底返回——避免首张恰好是
+// imported 而漏拦共存的 acme 证书。
 func (s *Service) findActiveByDomains(ctx context.Context, domains []string) *storesitemgmt.Certificate {
 	rows, err := s.store.Cert().ListActive(ctx)
 	if err != nil {
 		slog.WarnContext(ctx, "site-mgmt: list active certs failed", "err", err)
 		return nil
 	}
+	var fallback *storesitemgmt.Certificate
 	for i := range rows {
-		if domainSetEqual(rows[i].Domains, domains) {
+		if !domainSetEqual(rows[i].Domains, domains) {
+			continue
+		}
+		if rows[i].Source == storesitemgmt.SourceAcme || rows[i].Status == storesitemgmt.StatusPending {
 			return &rows[i]
 		}
+		if fallback == nil {
+			fallback = &rows[i]
+		}
 	}
-	return nil
+	return fallback
 }
 
 // prepareHTTP01 A-SM10：已有 /.well-known/acme-challenge/ location → 复用其

@@ -311,7 +311,7 @@ export const SITE_ERROR_TEXT: Readonly<Record<string, string>> = {
 export const CERT_ERROR_TEXT: Readonly<Record<string, string>> = {
   CERT_001: '证书不存在',
   CERT_002: '证书状态不允许该操作',
-  CERT_003: '同域名集合已有生效中证书',
+  CERT_003: '该域名已有生效中的 ACME 证书或进行中的申请',
   CERT_004: 'ACME 签发/续期失败',
   CERT_005: '证书仍被站点引用，请先解除部署',
   CERT_006: '该站点当前未部署此证书',

@@ -1054,6 +1054,58 @@ func TestCertRequestFlowAndDup(t *testing.T) {
 	wantSymbol(t, err, "CERT_001")
 }
 
+// TestCertRequestTakeoverImported v2.1 接管语义回归锁（用户实测死路反馈）：
+// imported 源 active 同域名集合**不拦** CERT_003——ACME 重新签发即接管续期
+// 入口；接管后同集合存在 acme 源 active，再申请恢复拦截。
+func TestCertRequestTakeoverImported(t *testing.T) {
+	env := newEnv(t)
+	ctx := context.Background()
+	p := env.writeConf(t, "sites-enabled", "takeover.conf",
+		"server {\n    listen 80;\n    server_name takeover.example.com;\n}\n")
+	siteID := p + "#0"
+	// 用户场景：存量 nginx 证书被扫描导入（active valid）。
+	if _, err := env.store.Cert().Create(ctx, storesitemgmt.Certificate{
+		PrimaryDomain: "takeover.example.com", Domains: []string{"takeover.example.com"},
+		Source: storesitemgmt.SourceImported, Status: storesitemgmt.StatusValid,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// 同域名集合申请 ACME（HTTP-01）→ 放行并完成签发（此前 CERT_003 死路）。
+	env.acmeGw.res = issueResult(env.now.Add(90 * 24 * time.Hour))
+	data, err := env.svc.CertRequest(ctx, adminActor(), CertRequestRequest{
+		SiteID: siteID, Challenge: storesitemgmt.ChallengeHTTP01})
+	if err != nil {
+		t.Fatalf("imported 接管申请应放行: %v", err)
+	}
+	if data.Status != storesitemgmt.StatusValid {
+		t.Fatalf("接管签发终态 = %s, want valid", data.Status)
+	}
+	// 共存断言：imported 保留 + 新 acme valid（接管不吞并既有证书，用户择机
+	// 部署新证书后退役旧导入）。
+	list, err := env.svc.CertList(ctx, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var imported, acme int
+	for _, it := range list.Items {
+		if it.PrimaryDomain == "takeover.example.com" {
+			switch it.Source {
+			case storesitemgmt.SourceImported:
+				imported++
+			case storesitemgmt.SourceAcme:
+				acme++
+			}
+		}
+	}
+	if imported != 1 || acme != 1 {
+		t.Fatalf("共存断言 imported=%d acme=%d, want 1/1", imported, acme)
+	}
+	// acme 在场后再申请 → 恢复 CERT_003（有续签通道，重复申请无意义）。
+	_, err = env.svc.CertRequest(ctx, adminActor(), CertRequestRequest{
+		SiteID: siteID, Challenge: storesitemgmt.ChallengeHTTP01})
+	wantSymbol(t, err, "CERT_003")
+}
+
 func TestCertDeployUndeployDelete(t *testing.T) {
 	env := newEnv(t)
 	ctx := context.Background()

@@ -2,9 +2,9 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v2.0 |
+| 版本 | v2.1 |
 | 状态 | 稳定 |
-| 最后更新 | 2026-11-16 |
+| 最后更新 | 2026-11-17 |
 | 输入 | prd-site-mgmt.md v1.2（Gate 1 改判 DNS-01 纳入 ⚠️A20；v1.1 增量完备性复核通过 ⚠️A18/A19）、domain-model.md v1.18（零新对象注记）、d0-clarification-site-mgmt.md、D1 三文档（BA/AA/FL v1.1）；v1.0 基线输入见变更记录 |
 | 接口规约 | 无激活技术栈（ACTIVE_STACKS 为空）——按通用 REST/JSON 契约设计；认证=HttpOnly Cookie 会话 + CSRF token（R-02，复用 account-auth）；鉴权=RBAC 两角色边界矩阵（ADR-018）；安全写入=R-06 四步强制前置（本模块核心约束） |
 
@@ -35,7 +35,7 @@
 | D-07 | **日志尾部读取**：GET /sites/log/tail 参数 lines 默认 100、上限 1000（LOG_TAIL_MAX 编译期常量）；只读当前主日志文件（轮转归档不跟踪）；路径解析链=server 块 access_log/error_log 指令 → nginx 默认路径回退（⚠️A15）→ 仍缺失返回 SITE_011（如实提示，不虚构内容） | PRD FR-18/待对齐-7；日志尾部为排障入口非全文检索（PRD T4）。**关闭 prd-site-mgmt.md 待对齐-7** |
 | D-08 | **证书状态读时惰性推算**：valid/expiring_soon/expired 由 not_after 与当前时间即时推算（CERT_EXPIRING_DAYS=30 编译期常量，ADR-024 阈值固定不可配）；pending/renew_failed 为落库态；**imported 证书元数据（issuer/not_before/not_after）读时重读源站证书文件刷新**（不落库过期值，防面板外替换漂移）；acme 证书元数据在签发/续期成功时落库更新 | account-auth D-03「计算态」同构先例（session 过期惰性判定）；证书数量少读时解析成本可忽略。**关闭 prd-site-mgmt.md 待对齐-3** |
 | D-09 | **ACME 经 lego ACL**：ACME 协议交互（account/challenge/order）止步于 AcmeGateway（lego 封装，idea.md §5.3 选型），证书产物翻译为 certificate 对象字段；账户密钥存储=面板数据目录独立文件（`acme-account.key`，权限 0600，不入 SQLite、不经任何接口下发）；CA 目录 URL 为配置文件键 `acme.directory_url`（默认 Let's Encrypt 生产，可指向 staging，重启生效——account-auth D-10 配置文件先例）；**自动续期=每日调度对 expiring_soon 证书单次尝试**，失败转 renew_failed 等待手动重试（不自动无限重试）；签发/续期为同步阻塞调用（ACME_TIMEOUT=120s 上限，超时转 renew_failed） | R-09 除外条款的唯一外呼路径，防腐层防外部模型渗透（PRD 第九部分，本项目首个外部系统 ACL）；核心域不被外部概念污染。**关闭 prd-site-mgmt.md 待对齐-4** |
-| D-10 | **同域名重复申请防重**：cert/request 前置校验同域名集合（SAN 全集）已有 pending/valid/expiring_soon 证书 → CERT_003 拒绝（data.existingCertId 提示复用部署）；renew_failed/expired 不阻塞重新申请（新证书行） | PRD FR-23/待对齐-5；防重复签发浪费 CA 速率配额。**关闭 prd-site-mgmt.md 待对齐-5** |
+| D-10 | **同域名重复申请防重**（v2.1 接管语义修正）：cert/request 前置校验同域名集合（SAN 全集）已有 **acme 源** active（valid/expiring_soon——有「更新证书」续签通道，重复申请无意义）或 **pending**（防并发双击）证书 → CERT_003 拒绝（data.existingCertId 提示复用部署）；**imported 源 active 同集合放行——ACME 重新签发即接管续期入口**（用户实测死路反馈：导入证书不能续签、CERT_003 又拦签发、被引用删不掉；接管后两证共存，用户部署新证后退役旧导入）；renew_failed/expired 不阻塞重新申请（新证书行） | PRD FR-23/待对齐-5；防重复签发浪费 CA 速率配额。**关闭 prd-site-mgmt.md 待对齐-5** |
 | D-11 | **部署引用关系实时推导、不落冗余列**：引用=扫描站点 ssl_cert 值与证书 storage_path（acme）/origin_path（imported）匹配；cert/delete 守卫与 cert/list 的 referencedSites 均按实时推导；部署时将站点原 ssl_cert 值快照入 certificate.deploy_prev_refs（JSON map siteId→原引用值），**cert/undeploy 恢复部署前原引用值**（接管不破坏：解除部署=回到面板接入前状态），多站点部署各自记录 | 引用关系从站点配置实况推导零漂移（D-01 同哲学）；恢复原值语义沿 PRD 待对齐-9 推导方向。**关闭 prd-site-mgmt.md 待对齐-9 的接口部分**（交互呈现 D4 定） |
 | D-12 | **操作与审计事务边界**：配置文件写入类动作在文件系统侧（非 SQLite 事务域），完成后经 AuditService.Record 独立写入，失败重试一次、仍失败记面板运行日志兜底（file-manager D-09 同口径）；**例外**：certificate 表写（签发落库/续期更新/删除）与审计**同事务**（均在 SQLite，account-auth I-05 口径） | account-auth I-05「同事务」前提是变更落 SQLite；文件系统动作不可回滚，如实降级并显式声明 |
 | D-13 | 混合模式（MIXED）声明：全部对象实际为自管（无外部数据同步源；ACME 为用户主动动作的外呼通道非数据源，R-09），不设 manage_mode 字段，权限管控按角色区分（ADR-018） | 分册 Step 2 默认混合模式；本模块无托管侧 |
@@ -173,7 +173,7 @@ certificate (证书聚合)                dns_credential (凭证聚合)
 | SITE_014 | INVALID_SOURCE | 参数错误 | 源码内容非法：超编辑大小上限 1MiB 或非 UTF-8（R-14，沿 file-manager D-05 上限先例） |
 | CERT_001 | CERT_NOT_FOUND | 拒绝 | 证书不存在（certificate 表实况） |
 | CERT_002 | INVALID_CERT_STATE | 拒绝 | 证书状态/来源不允许该操作（部署要求 valid/expiring_soon；renew 要求 acme 来源且 valid/expiring_soon/renew_failed；replace 要求 imported 来源——acme 调用 data.reason=source；retry-renewal 仅 renew_failed；data.currentStatus） |
-| CERT_003 | CERT_DUPLICATE_DOMAIN | 参数冲突 | 同域名集合已有 pending/valid/expiring_soon 证书（D-10，data.existingCertId） |
+| CERT_003 | CERT_DUPLICATE_DOMAIN | 参数冲突 | 同域名集合已有 **acme 源** valid/expiring_soon 或任意来源 **pending** 证书（D-10 v2.1 接管语义；imported 源 active 同集合放行=ACME 接管入口，data.existingCertId） |
 | CERT_004 | ACME_FAILED | 操作失败 | ACME 签发/续期失败（挑战不通/CA 拒绝/超时）；证书落 renew_failed，data.reason（ADR-024 状态机） |
 | CERT_005 | CERT_REFERENCED | 拒绝 | 证书仍被站点引用，先解除部署（D-11 实时推导守卫）；data.sites[]（引用站点清单含 siteId/serverNames） |
 | CERT_006 | UNDEPLOY_NOT_DEPLOYED | 参数冲突 | 该站点当前未部署此证书（I-05 引用一致性校验） |
@@ -255,7 +255,7 @@ certificate (证书聚合)                dns_credential (凭证聚合)
 |------|--------|---------|
 | I-01 | source/challenge 组装约束：acme → challenge 必填 + storage_path 必填 + origin_path 禁填；imported → origin_path 必填 + challenge/storage_path 禁填；v2.0：challenge=dns_01 → dns_credential_id 必填（I-C01 同步）；http_01/tls_alpn → dns_credential_id 禁填 | 写入侧校验，CERT_002 语义 |
 | I-02 | 删除守卫：引用站点集（实时推导）非空时禁止删除 | CERT_005（data.sites[]，D-11） |
-| I-03 | 同域名集合唯一性：SAN 全集相同的 active 证书（pending/valid/expiring_soon）至多一张 | CERT_003（D-10） |
+| I-03 | 同域名集合唯一性（v2.1 接管语义）：SAN 全集相同的 **acme 源** active 证书至多一张、**pending**（任意来源）至多一张；imported 源可与 acme 源同集合**共存**（ACME 接管过渡期，用户部署新证后退役旧导入） | CERT_003（D-10） |
 | I-04 | 托管文件归属：acme 证书文件由面板全权管理（签发/续期原路径替换、删除时移除）；imported 证书永不改动源站原文件（⚠️A16） | 写侧编排 |
 | I-05 | 部署引用一致性：deploy 后目标站点 ssl_cert=storage_path 且 deploy_prev_refs 记录原值；undeploy 恢复原值并清除该站点键；实时推导引用与站点配置实况恒一致 | 部署/解除编排（CERT_006） |
 
@@ -307,7 +307,7 @@ imported 证书以 valid 态入册（存量识别导入机制，4.2 存量导入
 **接口详情**（全部写接口隐含 CSRF 与 AUTH_008 角色边界；涉及站点配置写回的 deploy/undeploy 隐含 WritePipeline → SITE_003/SITE_004 与 nginx 可用性 SITE_012 前置，不再逐条重复）：
 
 - **GET /sites/cert/list**：query `{source?(cert_source), status?(cert_status)}`。处理：读全表 → CertStatusCalculator 逐行推算（D-08；imported 元数据重读文件刷新）→ CertReferencedResolver 推导 referencedSites → 筛选排序（not_after 升序，临期在前）。响应 data=`{items:[{id, primaryDomain, domains[], issuer, source, status, challenge?, notBefore?, notAfter?, originPath?, lastError?, referencedSites:[{siteId, serverNames[]}], createdAt}], generatedAt}`（storage_path/acme_account_ref 不下发——内部实现细节，载荷与安全考虑）。审计：—（查看类）。
-- **POST /sites/cert/request**：req `{siteId?, domains?[], challenge, dnsCredentialId?}`（v2.0 扩展：域名来源 siteId 与 domains **二选一**——domains 支持手动指定含泛域名 `*.domain`〔CERT_010 形态校验〕，适用无站点/泛域名场景；challenge=dns_01 时 dnsCredentialId 必填且凭证存在（CERT_009）、dns_01 无需 nginx 80/443 通路前置）。校验：siteId/domains 二选一（CERT_010）；siteId 路径解析+实况存在（SITE_001/002）或 domains 逐项形态校验（CERT_010）；challenge ∈ acme_challenge（CERT_007）；dnsCredentialId 实况（CERT_009，dns_01 时）；I-03 同域名防重（CERT_003，data.existingCertId）；http_01/tls_alpn 需 nginx 可用（SITE_012），dns_01 免前置（TXT 在 DNS 服务商侧）。执行：INSERT certificate（status=pending，challenge，domains=站点 serverNames 或手动指定，dns_01 落 dns_credential_id）→ AcmeGateway 签发（同步 ≤120s；http_01 走 D-19 落点，dns_01 经 lego DNS provider 自动 TXT 添加/验证/清理，D-20——TXT 清理失败不阻断签发，运行日志警示）→ 成功：写托管文件 + status=valid + not_before/not_after/issuer 落库；失败：status=renew_failed + last_error。响应：成功 data=`{certId, status:"valid", notAfter}`；失败 CERT_004（data.reason）。审计：cert_requested（change，detail={challenge, result}；同事务，D-12 例外）。
+- **POST /sites/cert/request**：req `{siteId?, domains?[], challenge, dnsCredentialId?}`（v2.0 扩展：域名来源 siteId 与 domains **二选一**——domains 支持手动指定含泛域名 `*.domain`〔CERT_010 形态校验〕，适用无站点/泛域名场景；challenge=dns_01 时 dnsCredentialId 必填且凭证存在（CERT_009）、dns_01 无需 nginx 80/443 通路前置）。校验：siteId/domains 二选一（CERT_010）；siteId 路径解析+实况存在（SITE_001/002）或 domains 逐项形态校验（CERT_010）；challenge ∈ acme_challenge（CERT_007）；dnsCredentialId 实况（CERT_009，dns_01 时）；I-03 同域名防重（CERT_003，data.existingCertId；v2.1 接管语义——imported 源 active 同集合**放行**，见 D-10）；http_01/tls_alpn 需 nginx 可用（SITE_012），dns_01 免前置（TXT 在 DNS 服务商侧）。执行：INSERT certificate（status=pending，challenge，domains=站点 serverNames 或手动指定，dns_01 落 dns_credential_id）→ AcmeGateway 签发（同步 ≤120s；http_01 走 D-19 落点，dns_01 经 lego DNS provider 自动 TXT 添加/验证/清理，D-20——TXT 清理失败不阻断签发，运行日志警示）→ 成功：写托管文件 + status=valid + not_before/not_after/issuer 落库；失败：status=renew_failed + last_error。响应：成功 data=`{certId, status:"valid", notAfter}`；失败 CERT_004（data.reason）。审计：cert_requested（change，detail={challenge, result}；同事务，D-12 例外）。
 - **POST /sites/cert/deploy**：req `{certId, siteId}`。校验：证书存在（CERT_001）且状态推算 ∈ {valid, expiring_soon}（CERT_002，data.currentStatus）；站点存在（SITE_002）。执行：写前快照原 ssl_cert 值入 deploy_prev_refs[siteId] → WritePipeline 将站点 ssl_cert 改写为 storage_path（R-06 四步）→ reload（D-05）。响应 data=`{certId, siteId, certRef}`（新引用值）。审计：cert_deployed（change）。
 - **POST /sites/cert/undeploy**：req `{certId, siteId}`。校验：证书/站点存在；I-05 该站点在 deploy_prev_refs 中（否则 CERT_006）。执行：WritePipeline 将站点 ssl_cert 恢复为 deploy_prev_refs[siteId] 原值 → 清除该键 → reload。响应 data=`{certId, siteId, certRef}`（恢复后的原引用值）。审计：cert_undeployed（change）。
 - **POST /sites/cert/retry-renewal**：req `{certId}`。校验：证书存在（CERT_001）且 status=renew_failed（CERT_002，valid/expiring_soon 无需重试、pending 在途、expired 需重新 request）。执行：进入 4.1.3 同一续期通道（同步返回终态）。响应：成功 data=`{certId, status:"valid", notAfter}`；失败 CERT_004。审计：cert_renewal_retried（change；结果一并 detail）。
@@ -320,7 +320,7 @@ imported 证书以 valid 态入册（存量识别导入机制，4.2 存量导入
 
 **跨接口复用规则**：状态推算统一 CertStatusCalculator（D-08）；引用推导统一 CertReferencedResolver（D-11，deploy/undeploy/delete/list 共用）；签发/续期统一 AcmeGateway 通道（D-09，request 与 4.1.3/retry 共用；dns_01 经 DNS provider 分支，D-20）；站点配置写回统一 WritePipeline（D-04，4.2）；审计统一 AuditService.Record（D-12）；凭据加解密统一 CredentialVault 通道（dns-cred.key，D-20——仅签发/续期内存态解密）。
 
-**幂等语义**：deploy 重复提交=幂等（引用已为目标值时直接成功）；undeploy 第二次提交报 CERT_006（如实）；delete 重复提交报 CERT_001（如实）；request 重复提交经 I-03 防重返回 CERT_003（如实，指向已有证书）；retry-renewal 在非 renew_failed 态报 CERT_002（如实）；renew 在 pending/expired/imported 报 CERT_002（如实，D-18）；replace 重复提交=重复一次替换（终态一致，幂等）；dns-credential/delete 重复提交报 CERT_009（如实）、create 重复提交=新凭证行（名称不唯一约束，如实呈现）。防重复提交为前端在途态（P3 过程数据），非服务端一致性手段。
+**幂等语义**：deploy 重复提交=幂等（引用已为目标值时直接成功）；undeploy 第二次提交报 CERT_006（如实）；delete 重复提交报 CERT_001（如实）；request 重复提交经 I-03 防重返回 CERT_003（如实，指向已有证书；v2.1：imported 源 active 在场时放行=接管签发，非重复）；retry-renewal 在非 renew_failed 态报 CERT_002（如实）；renew 在 pending/expired/imported 报 CERT_002（如实，D-18）；replace 重复提交=重复一次替换（终态一致，幂等）；dns-credential/delete 重复提交报 CERT_009（如实）、create 重复提交=新凭证行（名称不唯一约束，如实呈现）。防重复提交为前端在途态（P3 过程数据），非服务端一致性手段。
 
 #### 4.1.5 领域事件与集成
 
@@ -557,6 +557,7 @@ CREATE INDEX IF NOT EXISTS idx_dns_cred_provider ON dns_credential(provider);
 | v1.1 | 2026-11-16 | rule_added | 登记被依赖（ADR-029，panel-core 增量 D1 消费契约）：1.5 上下文映射新增 panel-core 被依赖行（AcmeGateway 4.1.5 + nginx 安全写回 4.2.5 复用，挑战 location 注入/撤除走 R-06）；5.1 新增「AcmeGateway + nginx 安全写回」进程内 OHS 服务行并订正尾注「无对外 OHS」声明；本模块 HTTP 接口/表/枚举/网关契约本体零变更 | 1.5、5.1 |
 | v1.2 | 2026-11-16 | interface_added / interface_changed / rule_added | 增量（v0.1.2 用户反馈三项，输入 prd-site-mgmt.md v1.1/domain-model v1.18/D1 三文档 v1.1 ⚠️A18/A19）：**新增接口 2 个**（18→20）——POST /sites/cert/renew（手动立即续期，D-18：acme 来源 valid/expiring_soon/renew_failed，失败迁移分流 valid 保持 valid+last_error）与 POST /sites/cert/replace（imported 文件替换，D-18：CERT_008 PEM 校验+cert-backup 备份 5 份+原子写回 origin_path+reload，读时刷新无 SQL）；**接口变更 1 个**——site/list 响应 items 改聚合条目（D-17：同源文件同 server_name 全集聚合，listen 合并/enabled 任一/证书状态组内最优+blocks[] 子清单，顶层 siteId 移除、寻址经 blocks[].siteId，全部写接口与 detail 单块寻址不变）；**规则新增**——D-17 聚合投影、D-18 手动更新双通道、D-19 HTTP-01 挑战落点策略三级（root 直写→复用 location→临时注入兜底字节级复原）；4.1.3 子流程触发扩展手动入口；**错误码** CERT_002 说明扩展（来源守卫）+ CERT_008 新增（INVALID_CERT_PEM）；**常量** +CERT_BACKUP_KEEP=5/CERT_PEM_SIZE_LIMIT=1MiB；**审计动作码** +cert_manual_renewed/cert_replaced；枚举/DDL/网关契约零变更 | 1.3、3.3、3.4、4.1.3、4.1.4、4.2.4、5.1、5.2 |
 | v2.0 | 2026-11-16 | interface_added / table_added / table_changed / enum_value_added / enum_added / rule_added / structural | DNS-01 增量（Gate 1 改判 P2，输入 prd v1.2/domain-model v1.20/D1 三文档 v1.2 ⚠️A20）：**新增接口 3 个**（20→23）——GET /sites/dns-credential/list、POST /sites/dns-credential/{create,delete}（admin 专属、密文存储零回显、删除引用警示）；**接口变更 1 个**——cert/request 扩展（siteId/domains 二选一+泛域名校验 CERT_010、dns_01 分支 dnsCredentialId 必填 CERT_009、免 nginx 通路前置）；**结构变更**——第 2 章跨聚合根设计启用（双聚合根：certificate+dns_credential；I-C01/C02 引用完整性）+ 4.3 dns_credential 聚合根节；**表变更**——certificate +dns_credential_id 列（迁移 009）+ dns_credential 表新增（credential_enc 密文列+dns-cred.key 独立密钥文件沿 CredentialVault 先例）；**枚举**——acme_challenge +dns_01（池同步）+ dns_provider 新增（cloudflare/aliyun/dnspod，池同步）；**规则**——D-20 DNS API 自动化（TXT 自动操作时序/清理失败不阻断/续期凭证复用/凭证缺失 last_error）；AcmeGateway +IssueDNS 契约；错误码 +CERT_009/010；动作码 +dns_credential_created/deleted；M1~M5 增量重跑通过（23 路径三段式） | 1.3、1.4、第 2 章、3.3、3.4、4.1.1、4.1.3、4.1.4、4.1.5、4.3、5.1、5.2、5.3 |
+| v2.1 | 2026-11-17 | rule_changed | **CERT_003 接管语义修正**（服务器实测死路反馈：导入证书不能续签〔面板不持有签发账户〕→ 申请同域名 ACME 被 CERT_003 拦死 → 被站点引用又删不掉）：D-10/I-03 防重范围收窄为「**acme 源** active（有「更新证书」续签通道）+ 任意来源 **pending**（防双击）」；**imported 源 active 同域名集合放行=ACME 接管续期入口**，接管后两证共存（用户部署新证→解除部署→退役旧导入）；CERT_003 文案、cert/request 校验序、幂等语义同步；接口路径/表/枚举零变更（实现：certsvc 防重条件+findActiveByDomains 拦截优先，回归测试 TestCertRequestTakeoverImported） | 3.4（CERT_003）、D-10、I-03、4.1.4（request 校验）、6.3 |
 
 ### 6.2 变更类型词汇表
 
