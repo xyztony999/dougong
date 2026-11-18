@@ -1033,3 +1033,60 @@
   - CI 环境耦合预防第 7 起：引导类测试全注入化（fakeMySQLBoot/fakeRedisBoot/fakeMongoBoot/fakeBoot 替身 + dbredis 纯函数），零 runner 实况引擎依赖
   - 环境绑定如实声明：dbmysql/dbmongo BootstrapAdminUser、dbredis BootstrapRequirepass 需实况引擎（Windows 无 mysql socket/mongod/redis-cli），0% 归 Linux 目标环境冒烟（service 层编排全注入覆盖）；实机冒烟清单见 gate2-env-bootstrap-inc-2026-11-17.md §7
   - 工作区纪律：不触碰 ACME v2.4 轮（service/panel acme_test.go:490 env.dir 编译错误归属 ACME 轮，全仓 go test ./... 该包 FAIL 非本轮）与 DBM_005 UX 轮未提交改动；本轮 vet/test scoped 9 包；git 操作主会话统一
+
+# 增量轮 · database-mgmt v2.3 表级/集合文档治理 + TCP 优先探测（2026-11-18，/pipeline session 轨）
+
+> 设计输入：api-database-mgmt.md v2.3（D-21~D-26/§4.7/§4.8/I-10~I-12）+ D0 d0-clarification-database-mgmt-ux-2026-11-18.md（Q1~Q6 拍板）+ Gate 1 gate1-database-mgmt-ux-2026-11-18.md（WARN，CRITICAL 0）。
+> 范围：F1 探测策略（后端）+ MySQL 表级治理 6 接口 + Mongo 集合/文档治理 8 接口（总 30→44）；F2/F5 呈现层归前端与 panel-core（本轮零承载）。
+> 零新表零迁移零 DDL（4 投影实体零台账，复用 db_instance）；identity_key 语义不变；既有接口 DTO 仅 additive（instance/list +redundantSocket、rescan +merged）。
+> 环境：go1.24.0 windows/amd64（PATH 内 go，D:\go-toolchain 便携版同源）；基线实跑 go build ./...=0、go test ./... -race -count=1 全仓 ok 0 FAIL（改动前）。
+
+## 设计裁定（增量轮 A-DB13~A-DB19）
+
+| # | 冲突/决策点 | 裁定 |
+|---|------------|------|
+| A-DB13 | **DBM_022 编号冲突**：既有代码 ErrDBMEngineUnauthorized=DBM_022（v0.1.4 修复轮补入，errcode/dbmgmt.go:56；前端 database.ts:296 等消费）与 api v2.3 §3.4 定稿 DBM_022=TABLE_NOT_FOUND 冲突——D-26「编号接续既有最大值（DBM_021）」与设计时点代码实态不符（设计侧遗漏修复轮已占 022） | 按 ask「错误码按 api 定稿」优先：DBM_022~028 逐字按 api §3.4 实现（TABLE_NOT_FOUND/NO_SINGLE_PK/ROW_NOT_FOUND/COLLECTION_NOT_FOUND/INVALID_DOCUMENT_JSON/DOCUMENT_NOT_FOUND/SYSTEM_DATABASE_PROTECTED）；既有 ErrDBMEngineUnauthorized **改编号 DBM_029**（续接空号不复用，符号名不变，语义不变）。**跨层同步项（上报工作流）**：前端 types/database.ts DBM_022 文案映射/MongoCreateUserModal/MongoRoleManageModal 的 DBM_022 判定须改 DBM_029（PageSpec v1.4 错误分流已按 DBM_022=表不存在定稿，前端 v2.3 轮同步）；api 文档 §3.4 未含 ENGINE_UNAUTHORIZED 行，建议设计侧补记 DBM_029 |
+| A-DB14 | ProbeAll 签名与清理归属 | ProbeAll 改返回 ProbeResult{Discovered, Updated, TCPReachable map[engine]bool}（两阶段 D-21）；保守清理独立方法 MergeRedundantSockets(ctx, tcpReachable, actor)——**仅 Rescan 调用**（自动探测不清理不写审计，D-07 口径不变）；每清理行 DELETE+审计 instance_merged 同事务（R-03），已配凭据 socket 行保留 |
+| A-DB15 | redundantSocket 派生口径（api「同 engine 本机 TCP 档案存在且可达」） | list 读路径派生：socket 行 && 存在同 engine TCP 档案行 host∈{localhost,127.0.0.1,::1}（本机判据）且 conn_state=reachable → true；远程 TCP 档案不触发（D-21 远程不受影响）；零写副作用（I-04） |
+| A-DB16 | 新增写动作审计「同事务」落法（零台账无档案变更） | 引擎侧动作成功后独立 BeginTx→txAudit→Commit（事务内唯一写入=审计行，R-03 同事务语义）；审计失败返回错误不虚构成功 + slog 记引擎侧已执行（D-05 哲学同构，无专用错误码不虚构）；instance_merged 与 DELETE 天然同事务 |
+| A-DB17 | 引擎侧 SQL 组装（A-DB10 沿既有裁定） | 表级 SQL 在 adapter/dbmysql（information_schema 投影/JSON_OBJECT 逐行聚合/UPDATE/DELETE/DROP）：标识符 service 白名单前置（库名沿 databaseNameRe、表名/列名同形态 ^[A-Za-z0-9_]+$ ≤64）+ quoteIdent 双防线（A-DB3）；行值/pkValue 自由文本 quoteString 全量转义；LIMIT/OFFSET 服务端整数形态（非用户字符串拼接）；面板 SQLite 侧零新增 SQL（复用 #5 DELETE） |
+| A-DB18 | BSON↔JSON 映射（mdoc 通道） | 驱动自带 bson/extjson：ObjectId→{"$oid":"hex"}、日期→{"$date":...} 扩展 JSON 透传（api §4.8.4）；mdoc/update id=前端原值透传，网关内 extjson 还原 BSON；document._id 存在且≠id→AUTH_012，缺省服务端以 id 补入（_id 不可变更 D-23）；insert 缺省 _id 引擎自动生成 |
+| A-DB19 | 分页入参形态（TABLE_PAGE_LIMIT/DOC_PAGE_LIMIT 默认 20 上限 100） | page/pageSize 空→默认 1/20；非整数或 <1→AUTH_012；pageSize>100→截断至 100（api「超限截断至上限」）；offset=(page-1)*pageSize 服务端计算 |
+
+## 任务清单
+
+- [x] T-DBM-V1 · F1 探测策略 TCP 优先两阶段 + rescan 保守清理（D-21/Q1）
+  - 输入：api D-21/§2.3 探测纳管编排/§4.1.4 list·rescan 详情；D0 Q1
+  - 输出：service/dbmgmt/prober.go（ProbeAll 两阶段：阶段 1 TCP 目标探测记录 map[engine]bool 本机 TCP 可达性；阶段 2 socket 目标——engine TCP 可达→跳过登记〔既有 socket 档案 conn_state 仍整值刷新〕，否则兜底登记；probeOnce 重构注入 reachable 免二次拨号）+ MergeRedundantSockets（socket && 同 engine 本轮 TCP 可达 && !CredentialsSet → DELETE+instance_merged 同事务；已配凭据保留）；instance.go（ListInstances +redundantSocket 派生 A-DB15；Rescan +merged 统计与审计 detail）；dto.go（InstanceItem.RedundantSocket bool、RescanData.Merged int，additive）；consts.go（ActionInstanceMerged）
+  - 测试：prober_test.go（TCP 可达 socket 跳过登记/socket-only 兜底/既有 socket 档案刷新不 INSERT/清理无凭据行+审计同事务/已配凭据保留/redundantSocket 派生含远程 TCP 不触发/rescan merged 统计）；既有 ProbeAll 三返回值调用点同步（dbmgmt_test/branch_test/mongo_test）
+- [x] T-DBM-V2 · dbmysql 表级治理网关扩展（D-22，§4.1.5 v2.3）
+  - 输出：adapter/dbmysql/table.go——ListTables（information_schema.TABLES：name/engine/rowEstimate/dataSizeBytes/collation/comment，NULL 如实可空）/TableStructure（COLUMNS：column/type/nullable/key/default/extra/comment）/TableRows（JSON_OBJECT 逐行聚合：先取列名→SELECT JSON_OBJECT('col',`col`,...) LIMIT off,lim→batch 转义还原→逐行 JSON 解析；total=COUNT(*)）/DropTable（不存在→ErrTableNotFound）/UpdateRow（WHERE pk=quoteString(pkValue)，values null→NULL，affected 返回）/DeleteRow；哨兵 +ErrTableNotFound；纯函数抽取（jsonObjectStmt/updateRowStmt/deleteRowStmt/parseJSONRows）供单测
+  - 测试：table_test.go 纯函数（SQL 形状/标识符引用/键序/NULL 语义/转义还原/注入形态拒绝）——零 runner 实况依赖
+- [x] T-DBM-V3 · dbmongo 集合/文档网关扩展（D-23/D-25，§4.5.1 v2.3）
+  - 输出：adapter/dbmongo/governance.go——DropDatabase/ListCollections（名称+estimatedDocumentCount+collStats sizeBytes）/CreateCollection（重名→ErrCollectionExists code 48）/DropCollection（不存在→ErrCollectionNotFound code 26）/ListDocuments（find skip/limit+CountDocuments，extjson 形态）/InsertDocument（InsertOne，_id 冲突→ErrDocumentExists code 11000）/ReplaceDocument（ReplaceOne by _id，matched 返回）/DeleteDocument（DeleteOne by _id，deleted 返回）；BSON↔extjson 纯函数（docToBSON/docFromBSON/idFromJSON）；classify 扩 code 48/26/11000/2（BadValue 系统库等如实 ErrQueryFailed）
+  - 测试：governance_test.go 纯函数（extjson 往返 ObjectId/$date/嵌套、id 还原形态、classify 新码）——零 runner 实况依赖
+- [x] T-DBM-V4 · service 层治理编排 + 错误码 + 审计动作码（§4.7/§4.8/I-10~I-12/D-24）
+  - 输出：errcode/dbmgmt.go（DBM_022~028 按 api 定稿 + ErrDBMEngineUnauthorized 改 DBM_029〔A-DB13〕）；consts.go（+10 审计动作码共 28、ObjectTypeDataTable/TableRow/MongoCollection/MongoDocument/MongoDatabase、TablePageDefault/TablePageLimit/DocPageDefault/DocPageLimit、Mongo 系统库保护集）；ports.go（MySQLGateway +6/MongoGateway +8 方法）；service/dbmgmt/table.go（TableList/TableStructure/TableRows/DropTable/UpdateRow/DeleteRow——I-05 前置+库 DBM_007+表 DBM_022+单列主键 I-10 DBM_023+values 校验〔非空/不含主键/列名∈结构/pkValue 非空〕+affected=0 DBM_024+审计同事务脱敏〔detail 仅定位+列名，不含行值〕）；service/dbmgmt/mongogov.go（MongoListCollections/MongoCreateCollection/MongoDropCollection/MongoDropDatabase〔系统库 DBM_028 硬校验 I-12〕/MongoListDocuments/MongoInsertDocument/MongoReplaceDocument/MongoDeleteDocument——JSON 服务端校验 DBM_026+_id 不可变更+DBM_027 匹配 0 如实+审计同事务脱敏〔不含文档内容〕）；service.go translateGatewayErr 新哨兵映射 + txAuditOnly 辅助（A-DB16）；dto.go 新 DTO（可空显式 *T，children:null 先例口径）
+  - 测试：table_test.go/mongogov_test.go（fake 替身扩展：全链成功/DBM_007/022/023〔无主键+复合主键〕/024/025/026/027/028/AUTH_012 各校验/审计 detail 脱敏断言/分页钳制）
+- [x] T-DBM-V5 · api 层 14 新接口（§3.3 权限矩阵 D-24/I-11）
+  - 输出：api/dbmgmt/handler.go +14 薄壳 handler；routes.go——readBoth +table/list·table/structure·mcoll/list（元数据两角色）；readAdmin +row/list·mdoc/list（数据内容 admin 专属）；write +table/drop·row/update·row/delete·mcoll/create·mcoll/drop·mdb/dropdb·mdoc/insert·mdoc/update·mdoc/delete（admin+CSRF）；总 44（GET 18/POST 26）
+  - 测试：module_test.go stub 扩展 + TestPermissionMatrix 14 新路由矩阵（readonly 元数据通/数据内容 AUTH_008/写 AUTH_008/缺 CSRF AUTH_003）+ TestTableGovernanceFlow + TestMongoCollDocFlow HTTP 全流程
+- [x] T-DBM-V6 · 既有测试同步（签名/编号变更回归）
+  - ProbeAll 三返回值→ProbeResult 调用点（dbmgmt_test.go TestProberDiscovery/branch_test.go TestProbeEngineRefreshBranches·TestProbeAllContinuesOnStoreError/mongo_test.go mongo 探测段——tcp+socket 双登记断言改 TCP 优先单行+socket 兜底新用例）；TestTranslateMongoSentinels DBM_022→DBM_029；mongo_test 探测期望按 D-21 更新
+- [x] T-DBM-V7 · Gate 2 合规检查（backend-rules §7，增量面）+ 编译门控自验
+  - G-01~G-07 grep 扫描 + 人工核对（exec 参数数组/SQL 拼接/硬编码凭据/SQL 层位/panic/goroutine）；go build ./... && go vet ./... && go test ./... -race -count=1 全仓 + gofmt -l + GOOS=linux 交叉编译
+- [x] T-DBM-V8 · 归档与 INDEX
+  - 本清单落盘 backend/tasks.md（增量轮追加）；INDEX.md database-mgmt backend note 追加 v2.3 增量记录（含 A-DB13 跨层同步项）
+
+## database-mgmt v2.3 增量完成汇总（2026-11-18）
+
+- 交付面：14 新接口（MySQL 6 table/{list,structure,drop}+row/{list,update,delete}；Mongo 8 mcoll/{list,create,drop}+mdb/dropdb+mdoc/{list,insert,update,delete}），总 30→44（机械核验 routes.go：readBoth.GET 13 + readAdmin.GET 5 + write.POST 26 = 44，GET 18/POST 26 与 api §3.3 矩阵逐行对齐）；F1 探测 TCP 优先两阶段+socket 兜底+rescan 保守清理（instance/list +redundantSocket、rescan +merged additive，identity_key/既有 DTO 其余零变更）
+- 新增文件：adapter/dbmysql/table.go（+table_test.go 8 纯函数用例）/ adapter/dbmongo/governance.go（+governance_test.go 6 纯函数用例）/ service/dbmgmt/table.go / mongogov.go / prober_test.go（7 用例）/ table_test.go（5 用例）/ mongogov_test.go（4 用例）；修改：prober.go（ProbeResult 两阶段+MergeRedundantSockets）/instance.go/dto.go/consts.go/ports.go/service.go/identity.go/errcode/dbmgmt.go/api handler.go+routes.go/既有测试同步（dbmgmt_test/branch_test/mongo_test/module_test）
+- 错误码：DBM_022~028 按 api §3.4 定稿逐字实现；**A-DB13 编号冲突裁定**——既有 ErrDBMEngineUnauthorized（v0.1.4 修复轮占 DBM_022）改编号 DBM_029（符号/语义不变）；机械核验 DBM_001~029 连续唯一。**跨层同步项（上报）**：前端 types/database.ts:296 DBM_022 文案映射、MongoCreateUserModal.vue:90 与 MongoRoleManageModal.vue:56 的 DBM_022 判定、types/__tests__/database.test.ts 用例须改 DBM_029（PageSpec v1.4 已按 DBM_022=表不存在定稿）；建议设计侧 api §3.4 补记 DBM_029 行
+- 审计：+10 动作码共 28（机械核验 consts.go+bootstrap.go 28 唯一零重复）；新写动作经 txAuditOnly 独立事务（A-DB16，事务内唯一写入=审计行）；instance_merged 与 DELETE 同事务；detail 脱敏断言用例在位（row_updated 含列名不含行值/mongo_document_inserted 含 insertedId 不含文档内容）
+- 安全底线核验：R-08 本轮零新增 exec 站点（表级经 g.query 既有字面量参数数组通道，密码 MYSQL_PWD env 不进 argv；mongo 进程内 driver 零 exec）；A-DB3 标识符 service 白名单（validateTableName/validateCollectionName/列名∈结构集）+quoteIdent/quoteString 双防线（注入形态用例 TestRowStmtEscaping）；A-DB10 引擎侧 SQL 归适配器（G-04 命中人工复核：table.go 引擎 SQL 沿 gateway.go 先例，service 层命中全为注释）；I-02 凭据零回显（新 DTO 无凭据字段）；I-12 系统库 admin/config/local DBM_028 硬校验先于库存在判定
+- 自验（2026-11-18 实跑，go1.24.0 windows/amd64，cwd=backend/）：`go build ./...`=0 ✓ `go vet ./...`=0 ✓ `go test ./... -race -count=1` 全仓 48 个含测试包全 ok 0 FAIL ✓ `gofmt -l internal/ cmd/` 0 文件 ✓ `GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build ./...`=0 ✓；覆盖率 service/dbmgmt 85.2%（超 80% 目标）·api/dbmgmt 66.3%·adapter/dbmysql 33.4%·adapter/dbmongo 24.2%（引擎实联环境绑定沿先例归 Linux 冒烟）
+- Gate 2 增量面：G-01 唯一 -c 命中=cronx/runner.go:145 既有豁免（A-C2 argv 元素非拼接，本轮零新增 exec）；G-02 Sprintf SQL 0 命中；G-03 硬编码凭据 0 命中；G-05 panic 0 命中；G-06 新增 goroutine 0；G-07 全绿（上行）
+- CI 环境耦合预防第 8 起：表级/集合文档治理测试全注入化（fakeMySQL/fakeMongo 记忆实况替身 + 适配器纯函数 SQL 组装/extjson 往返/classify），探测 reachable 全注入——零 runner 实况引擎依赖（Windows/Linux 行为一致）
+- 环境绑定如实声明：dbmysql 表级 CLI 实联（information_schema/JSON_OBJECT/ROW_COUNT() 多语句）与 dbmongo 治理 driver 实联（createCollection/collStats/ReplaceOne 等）归 Linux 目标环境冒烟；extjson 顶层编码限制经 {"_id":...} 包装文档法规避（驱动 MarshalExtJSON 要求顶层文档/UnmarshalExtJSON 顶层 any 落 bson.D——idFromJSON/idToJSON 包装实现，TestObjectIDExtJSONRoundTrip/TestDocToBSONExplicitID 锚点）
+- 遗留（非阻断）：A-DB13 前端 DBM_029 映射同步归前端 v2.3 轮（本轮后端单边交付，前端旧映射 DBM_022 文案在新码下失配——工作流统一门控前须同步）；api §3.4 DBM_029 补记归设计侧

@@ -1,10 +1,13 @@
 /**
- * database-mgmt API 类型 —— 与 api-database-mgmt.md v1.1 4.1.4/4.2.4/4.3.4/4.4.4 对齐（唯一事实源）。
- * 实例档案（db_instance 合一表 D-01）为唯一持久化投影；database/db_user/key/慢日志/进程列表
- * 为引擎实况投影（I-04 零台账：每请求实时读取，响应带 generatedAt）。
+ * database-mgmt API 类型 —— 与 api-database-mgmt.md v2.3 对齐（唯一事实源；
+ * 4.1.4/4.2.4/4.3.4/4.4.4/4.5.2 + v2.3 新增 4.7 表级/4.8 集合文档）。
+ * 实例档案（db_instance 合一表 D-01）为唯一持久化投影；database/db_user/key/慢日志/进程列表/
+ * 表/行/集合/文档为引擎实况投影（I-04 零台账：每请求实时读取，响应带 generatedAt）。
  * 凭据纪律（⚠️A18/I-02）：任何响应无密码/密文/密钥字段——credUsername 可见（连接账户名非秘密）；
  * 密码仅出现在 POST 请求体（credentials/dbuserCreate/root-password/redisPassword），零回显。
  * TTL 为整数秒（-1=无过期，Redis 语义如实透传，api 3.1 时间格式）。
+ * v2.3：instance/list +redundantSocket（D-21 TCP 优先保守清理标注）、rescan +merged；
+ * 行值/文档 JSON null≠TS undefined 显式 | null（api 4.7.4/4.8.4 DTO 逐形状）。
  */
 import type { DbConnMode, DbEngine, GrantLevel, InstanceConnState, MongoRole } from './enums'
 
@@ -28,6 +31,11 @@ export interface DbInstanceItem {
   credUsername?: string
   credUpdatedAt?: string
   discoveredAt: string
+  /**
+   * v2.3 D-21：conn_mode=socket 且同 engine 本机 TCP 档案存在且可达时派生 true——
+   * 已配凭据的冗余 socket 行保留+标注（保守清理口径，不做凭据自动迁移）。
+   */
+  redundantSocket: boolean
 }
 
 /** GET /db/instance/list 响应 data */
@@ -40,6 +48,8 @@ export interface InstanceListData {
 export interface RescanResult {
   discovered: number
   updated: number
+  /** v2.3 D-21：本轮保守清理的冗余 socket 行数（仅无凭据行；additive 字段） */
+  merged: number
 }
 
 /** POST /db/instance/credentials req（D-03：连接目标纠正字段可选；密码仅入请求体零回显） */
@@ -268,8 +278,11 @@ export interface BackupImportResult {
 /** ---- 错误码与展示常量（PageSpec 第 1 节错误处理 + api 3.4，逐条对应） ---- */
 
 /**
- * DBM_001~020 错误文案（页面级分流——拦截器不含 DBM 码集，service-mgmt SVC 先例）：
+ * DBM_001~029 错误文案（页面级分流——拦截器不含 DBM 码集，service-mgmt SVC 先例）：
  * DBM_005/006 凭据弹窗内联、DBM_002/018 守卫分流、DBM_019 强提示弹窗在各处理路径单独引用。
+ * v2.3 续编 DBM_022~028（api 3.4/D-26）+ DBM_029 引擎操作被拒（A-DB13 编号裁定闭环：
+ * 此前实现轮 ErrDBMEngineUnauthorized 曾占 DBM_022，与 v2.3 TABLE_NOT_FOUND 冲突，
+ * 后端增量轮已改编号 DBM_029〔errcode/dbmgmt.go〕，前端映射/弹窗判定本轮同步）。
  */
 export const DBM_ERROR_TEXT: Readonly<Record<string, string>> = {
   DBM_001: 'instanceId 非法',
@@ -293,7 +306,14 @@ export const DBM_ERROR_TEXT: Readonly<Record<string, string>> = {
   DBM_019: '实例密码已修改成功，但面板凭据同步失败——请立即重新配置凭据',
   DBM_020: '该连接目标已存在其他实例档案',
   DBM_021: '引擎客户端通道不可用（宿主机未安装 mysql/redis-cli）',
-  DBM_022: '引擎操作被拒（凭据账户权限不足）'
+  DBM_022: '目标表不存在',
+  DBM_023: '该表无单列主键，不支持行级编辑/删除',
+  DBM_024: '行已不存在或已被修改',
+  DBM_025: '目标集合不存在',
+  DBM_026: '文档 JSON 非法',
+  DBM_027: '文档已不存在',
+  DBM_028: '系统库（admin/config/local）不可删除',
+  DBM_029: '引擎操作被拒：当前凭据账户权限不足'
 }
 
 /** ApiError.data（unknown）→ data.reason 收窄（DBM_003/012/013 失败原因如实展示，api 3.4） */
@@ -306,16 +326,20 @@ export function reasonOf(data: unknown): string | null {
 }
 
 /**
- * DBM 错误 → toast 文案（含 reason 的码：003/005/006/012/013/021/022 追加服务端原因；
+ * DBM 错误 → toast 文案（含 reason 的码：003/005/006/012/013/021/023/029 追加服务端原因；
  * 未知码返回 null 不提示）。DBM_005/006 追加 reason 为 v0.1.7 UX 增强——治理操作
  * 因凭据失效被拒时，服务器原文（如 1045 含 host 形态）随 toast 如实呈现辅助诊断。
+ * v2.3：DBM_023 data.reason 如实提示无单列主键原因（无主键/复合主键，api 3.4）。
+ * DBM_029（A-DB13 闭环）：引擎操作被拒 data.reason=引擎原文（如 Unauthorized code 13），
+ * 区别于 DBM_005 认证被拒——身份对但无权执行该命令。
  */
 export function dbmErrorText(code: string, data: unknown): string | null {
   const base = DBM_ERROR_TEXT[code]
   if (base === undefined) return null
   if (
     code === 'DBM_003' || code === 'DBM_005' || code === 'DBM_006' ||
-    code === 'DBM_012' || code === 'DBM_013' || code === 'DBM_021' || code === 'DBM_022'
+    code === 'DBM_012' || code === 'DBM_013' || code === 'DBM_021' || code === 'DBM_023' ||
+    code === 'DBM_029'
   ) {
     const reason = reasonOf(data)
     if (reason !== null) return `${base}：${reason}`
@@ -457,4 +481,347 @@ export interface MongoRoleResult {
   username: string
   db: string
   role: string
+}
+
+/** ---- MySQL 表级治理（api v2.3 §4.7；data_table/table_row 实况投影零台账 I-04） ---- */
+
+/** GET /db/table/list items（information_schema.TABLES；可空字段显式 | null——JSON null≠TS undefined） */
+export interface DataTableItem {
+  name: string
+  /** 存储引擎实况开放集合（非字典，PageSpec 第 3 节偏差声明） */
+  engine: string
+  /** TABLE_ROWS 统计估算（InnoDB 非精确值；视图/特殊引擎可空） */
+  rowEstimate: number | null
+  dataSizeBytes: number | null
+  collation: string | null
+  comment: string | null
+}
+
+export interface TableListData {
+  items: DataTableItem[]
+  generatedAt: string
+}
+
+/** GET /db/table/structure columns（information_schema.COLUMNS；key=引擎原值 ""/PRI/UNI/MUL 开放字符串） */
+export interface TableColumnDef {
+  column: string
+  type: string
+  nullable: boolean
+  key: string
+  default: string | null
+  extra: string
+  comment: string | null
+}
+
+/** GET /db/table/structure 响应 data（singlePk=恰好 1 列 PRI 派生；行写入口禁用判定同源 I-10） */
+export interface TableStructureData {
+  table: string
+  columns: TableColumnDef[]
+  singlePk: boolean
+  pkColumn: string | null
+  generatedAt: string
+}
+
+/** 行单元格值（JSON_OBJECT 原生映射：string/number/boolean/null——null=NULL 语义≠TS undefined） */
+export type RowCellValue = string | number | boolean | null
+
+/** GET /db/row/list 行（列名→值；columns 来自结构列序） */
+export type TableRow = Record<string, RowCellValue>
+
+/** GET /db/row/list query（page 默认 1；pageSize 默认 20 上限 100=TABLE_PAGE_LIMIT，D-22） */
+export interface RowListQuery {
+  instanceId: number
+  database: string
+  table: string
+  page?: number
+  pageSize?: number
+}
+
+export interface RowListData {
+  columns: string[]
+  rows: TableRow[]
+  total: number
+  page: number
+  pageSize: number
+  generatedAt: string
+}
+
+/** POST /db/table/drop req（DROP TABLE 不可逆，交互层强确认前置） */
+export interface TableDropPayload {
+  instanceId: number
+  database: string
+  table: string
+}
+
+export interface TableMutationResult {
+  instanceId: number
+  database: string
+  table: string
+}
+
+/** POST /db/row/update req（values 仅含变更列且不含主键列；null→SET col=NULL，D-22） */
+export interface RowUpdatePayload {
+  instanceId: number
+  database: string
+  table: string
+  pkValue: string
+  values: Record<string, string | null>
+}
+
+/** POST /db/row/delete req（WHERE 主键=旧值参数化定位，I-10） */
+export interface RowDeletePayload {
+  instanceId: number
+  database: string
+  table: string
+  pkValue: string
+}
+
+export interface RowMutationResult {
+  instanceId: number
+  database: string
+  table: string
+  pkValue: string
+  affected: number
+}
+
+/** ---- MongoDB 集合与文档治理（api v2.3 §4.8；mongo_collection/mongo_document 实况投影） ---- */
+
+/** GET /db/mcoll/list items（docCount=estimatedDocumentCount 估算语义如实） */
+export interface MongoCollectionItem {
+  name: string
+  docCount: number
+  sizeBytes: number
+}
+
+export interface MongoCollectionListData {
+  items: MongoCollectionItem[]
+  generatedAt: string
+}
+
+/** POST /db/mcoll/create req（隐式建库语义：库随首集合写入产生，D-25） */
+export interface MongoCollectionCreatePayload {
+  instanceId: number
+  database: string
+  name: string
+}
+
+/** POST /db/mcoll/drop req（dropCollection 不可逆） */
+export interface MongoCollectionDropPayload {
+  instanceId: number
+  database: string
+  name: string
+}
+
+export interface MongoCollectionMutationResult {
+  instanceId: number
+  database: string
+  name: string
+}
+
+/** POST /db/mdb/dropdb req（系统库 admin/config/local 服务端硬校验 DBM_028，I-12） */
+export interface MongoDatabaseDropPayload {
+  instanceId: number
+  database: string
+}
+
+export interface MongoDatabaseDropResult {
+  instanceId: number
+  database: string
+}
+
+/**
+ * 文档 JSON 值（BSON→JSON 映射如实——ObjectId `{"$oid":"hex"}`/$date 扩展 JSON 透传；
+ * 递归 unknown 收窄呈现，禁 any）。
+ */
+export type MongoDocValue =
+  | string
+  | number
+  | boolean
+  | null
+  | MongoDocValue[]
+  | { [field: string]: MongoDocValue }
+
+/** GET /db/mdoc/list 文档（_id 置顶呈现归前端排序） */
+export type MongoDocument = Record<string, MongoDocValue>
+
+/** GET /db/mdoc/list query（page 默认 1；pageSize 默认 20 上限 100=DOC_PAGE_LIMIT，D-23） */
+export interface MongoDocumentListQuery {
+  instanceId: number
+  database: string
+  collection: string
+  page?: number
+  pageSize?: number
+}
+
+export interface MongoDocumentListData {
+  documents: MongoDocument[]
+  total: number
+  page: number
+  pageSize: number
+  generatedAt: string
+}
+
+/** POST /db/mdoc/insert req（document._id 可选，缺省引擎自动生成 ObjectId） */
+export interface MongoDocumentInsertPayload {
+  instanceId: number
+  database: string
+  collection: string
+  document: MongoDocument
+}
+
+/** POST /db/mdoc/update req（id=行文档 _id 原值透传；ReplaceOne 整体替换，_id 不可变更） */
+export interface MongoDocumentUpdatePayload {
+  instanceId: number
+  database: string
+  collection: string
+  id: MongoDocValue
+  document: MongoDocument
+}
+
+/** POST /db/mdoc/delete req（DeleteOne by _id） */
+export interface MongoDocumentDeletePayload {
+  instanceId: number
+  database: string
+  collection: string
+  id: MongoDocValue
+}
+
+export interface MongoDocumentInsertResult {
+  instanceId: number
+  database: string
+  collection: string
+  insertedId: MongoDocValue
+}
+
+export interface MongoDocumentUpdateResult {
+  instanceId: number
+  database: string
+  collection: string
+  id: MongoDocValue
+  matched: number
+}
+
+export interface MongoDocumentDeleteResult {
+  instanceId: number
+  database: string
+  collection: string
+  id: MongoDocValue
+  deleted: number
+}
+
+/** ---- v2.3 展示常量与纯函数（PageSpec 4.1/5.12~5.15/6.4~6.7；弹窗/页面与单测共用） ---- */
+
+/** 浏览页分页默认/上限（TABLE_PAGE_LIMIT=DOC_PAGE_LIMIT=100，api D-22/D-23） */
+export const BROWSE_PAGE_SIZE_DEFAULT = 20
+export const BROWSE_PAGE_SIZE_LIMIT = 100
+export const BROWSE_PAGE_SIZES: number[] = [20, 50, 100]
+
+/** 分页 pageSize 收窄（非法/缺省→默认 20；超限截断至上限——服务端 AUTH_012 同口径前端镜像） */
+export function clampBrowsePageSize(v: number | null | undefined): number {
+  if (v === null || v === undefined || !Number.isFinite(v) || v < 1) {
+    return BROWSE_PAGE_SIZE_DEFAULT
+  }
+  return Math.min(Math.floor(v), BROWSE_PAGE_SIZE_LIMIT)
+}
+
+/** Mongo 系统库（I-12/D-25：删除保护前端镜像，服务端 DBM_028 硬校验为最终守卫） */
+export const MONGO_SYSTEM_DATABASES: readonly string[] = ['admin', 'config', 'local']
+
+export function isMongoSystemDatabase(name: string): boolean {
+  return MONGO_SYSTEM_DATABASES.includes(name)
+}
+
+/** 集合名形态白名单（R-14/api 4.8.4：非空/禁 $ 前缀/禁空字符；服务端终审） */
+export function validateCollectionName(name: string): string | null {
+  if (name.trim() === '') return '请输入集合名'
+  if (name.startsWith('$')) return '集合名不可以 $ 开头（引擎保留前缀）'
+  if (/[\s\0]/.test(name)) return '集合名不可含空白或空字符'
+  return null
+}
+
+/** F2 语义 tooltip 文案（PageSpec 4.1：connState/credentialsSet NTooltip 包裹，治理页摘要条复用） */
+export const CONN_STATE_TOOLTIP =
+  '绿色=可达（面板能连上该实例）；橙色=不可达。仅反映连通性，不代表凭据正确。'
+export const CREDENTIALS_TOOLTIP =
+  '是否已在面板配置该实例登录凭据（加密存储、不回显）。未配置时治理与观测不可用。'
+
+/** F1 TCP 优先图例文案（PageSpec 4.1 清单说明行；D-21 探测策略呈现面） */
+export const TCP_FIRST_LEGEND =
+  '面板优先经 TCP 纳管；仅当实例关闭 TCP（skip-networking）时经本机 Socket 兜底发现。'
+export const REDUNDANT_SOCKET_TOOLTIP =
+  '该实例已可经 TCP 纳管；此 Socket 档案因已配置凭据而保留。建议改配 TCP 行凭据后手动移除本行。'
+
+/** I-10 行写禁用态 tooltip（singlePk=false 同源判定，DBM_023 服务端兜底） */
+export const NO_SINGLE_PK_TOOLTIP =
+  '该表无单列主键（无主键/复合主键），不支持行级编辑/删除'
+
+/** 行单元格文本呈现（null→「NULL」由视图层 NTag 承载；此处返回文本形态，布尔/数值原样 String） */
+export function rowCellText(value: RowCellValue): string {
+  if (value === null) return 'NULL'
+  return String(value)
+}
+
+/**
+ * 文档 JSON 双层校验前端拦截层（api D-23：JSON.parse 先行，服务端 DBM_026 兜底）。
+ * 成功返回解析对象（须为 JSON 对象非数组/标量——文档语义）；失败返回错误文案（内联呈现）。
+ */
+export function parseDocumentJson(text: string): { ok: true; doc: MongoDocument } | { ok: false; error: string } {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch (e) {
+    return { ok: false, error: `JSON 解析失败：${e instanceof Error ? e.message : String(e)}` }
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    return { ok: false, error: '文档须为 JSON 对象（{…} 形态）' }
+  }
+  return { ok: true, doc: parsed as MongoDocument }
+}
+
+/** ObjectId 扩展 JSON 缩写呈现（{"$oid":"hex"} → 「ObjectId(hex)」；其余 JSON 序列化） */
+export function formatDocId(id: MongoDocValue): string {
+  if (typeof id === 'object' && id !== null && !Array.isArray(id)) {
+    const oid = id.$oid
+    if (typeof oid === 'string') return `ObjectId(${oid})`
+  }
+  return JSON.stringify(id)
+}
+
+/** _id 置顶排序（api 4.8.4：呈现归前端；其余键保持引擎自然序） */
+export function docWithIdFirst(doc: MongoDocument): MongoDocument {
+  if (!('_id' in doc)) return doc
+  const rest: MongoDocument = {}
+  for (const [k, v] of Object.entries(doc)) {
+    if (k !== '_id') rest[k] = v
+  }
+  return { _id: doc._id, ...rest }
+}
+
+/**
+ * 行编辑变更列收集（PageSpec 5.12：values 仅含变更列，未改列不提交减少隐式转换面；
+ * NULL 勾选→null 提交；主键列排除——定位键不可编辑）。纯函数（弹窗与单测共用）。
+ */
+export function buildChangedRowValues(
+  original: TableRow,
+  edited: Record<string, { text: string; isNull: boolean }>,
+  pkColumn: string | null
+): Record<string, string | null> {
+  const values: Record<string, string | null> = {}
+  for (const [col, state] of Object.entries(edited)) {
+    if (col === pkColumn) continue
+    const next: string | null = state.isNull ? null : state.text
+    const prev = original[col]
+    // JSON null≠TS undefined：原值 null 与勾选 NULL 等价；原值非 null 按文本比对
+    const unchanged =
+      prev === null ? state.isNull : !state.isNull && prev !== undefined && String(prev) === state.text
+    if (!unchanged) values[col] = next
+  }
+  return values
+}
+
+/** rescan 成功 toast（PageSpec 4.1：新增/更新计数；v1.4 merged>0 追加保守清理统计，D-21） */
+export function rescanToastText(result: RescanResult): string {
+  const base = `重新探测完成：新增 ${result.discovered} 个实例，更新 ${result.updated} 个状态`
+  const merged = result.merged ?? 0
+  return merged > 0 ? `${base}，清理 ${merged} 个冗余 Socket 档案` : base
 }

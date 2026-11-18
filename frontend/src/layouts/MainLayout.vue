@@ -32,6 +32,8 @@ import {
 } from '@vicons/ionicons5'
 import { logout } from '@/api/auth'
 import { ApiError } from '@/api/http'
+import { useDbCrumbs } from '@/composables/useDbCrumbs'
+import type { DbCrumb } from '@/composables/useDbCrumbs'
 import { useAuthStore } from '@/stores/auth'
 import { usePanelStore } from '@/stores/panel'
 import { PANEL_ROLE, dictItem } from '@/types/enums'
@@ -144,6 +146,16 @@ const headerTitle = computed<string>(() => {
   return find(panelStore.menuItems) ?? '斗拱面板'
 })
 
+/**
+ * 顶栏面包屑（database-mgmt PageSpec v1.4 7.2，F5——panel-core S-09-01 能力消费）：
+ * 数据库域多级路由渲染可点击 crumb 链（末级当前页不可点）；其余模块保持单标题兜底。
+ */
+const { crumbs } = useDbCrumbs()
+
+function onCrumbClick(crumb: DbCrumb): void {
+  if (crumb.path !== null) void router.push(crumb.path)
+}
+
 /** 布局每次挂载重新拉取（登出换角色登录后不残留上一角色菜单） */
 onMounted(() => {
   void panelStore.loadMenu()
@@ -217,8 +229,19 @@ async function onLogout(): Promise<void> {
       <n-layout>
         <n-layout-header bordered class="header">
           <!-- v0.1.2 反馈第 5 项（D-P18）：顶栏标题=当前页面标题（路由 meta.title 优先、
-           菜单 title 兜底）——替换硬编码业务域显示名，内部术语不泄漏用户 UI -->
-          <span class="header-title">{{ headerTitle }}</span>
+           菜单 title 兜底）；v1.4 F5：数据库域升级为 n-breadcrumb 返回导航（7.2 crumb 链，
+           末级当前页不可点），其余模块保持单标题兜底（panel-core 通用能力渐进接入） -->
+          <n-breadcrumb v-if="crumbs.length > 0" class="header-title">
+            <n-breadcrumb-item
+              v-for="(crumb, idx) in crumbs"
+              :key="idx"
+              :class="{ 'crumb-current': crumb.path === null }"
+              @click="onCrumbClick(crumb)"
+            >
+              {{ crumb.label }}
+            </n-breadcrumb-item>
+          </n-breadcrumb>
+          <span v-else class="header-title">{{ headerTitle }}</span>
           <div class="header-right">
             <span class="username">{{ authStore.currentUser?.username ?? '' }}</span>
             <n-tag :type="roleDict.tag" size="small">{{ roleDict.label }}</n-tag>
@@ -275,6 +298,9 @@ async function onLogout(): Promise<void> {
 }
 .header-title {
   font-weight: 500;
+}
+.crumb-current {
+  cursor: default;
 }
 .header-right {
   display: flex;

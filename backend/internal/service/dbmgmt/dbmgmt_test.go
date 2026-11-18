@@ -55,6 +55,18 @@ type fakeMySQL struct {
 	revokeErr     error
 	createExecErr error // CreateDatabase 执行体（exists 前置已过后）
 	dropExecErr   error // DropDatabase 执行体
+	// v2.3 表级治理（记忆实况+行为注入；零值=成功路径）。
+	tables       []dbmysql.TableInfo
+	structures   map[string][]dbmysql.ColumnInfo // key "db.table"
+	rows         map[string][]map[string]any     // key "db.table"
+	tableErr     error                           // 表级读统一失败注入
+	dropTableErr error
+	updateRowErr error
+	deleteRowErr error
+	affected     int64    // 行写受影响行数（0 → DBM_024）
+	updatedRows  []string // 行写定位记录 db.table:pk
+	deletedRows  []string
+	lastValues   map[string]any
 }
 
 func (f *fakeMySQL) Available() error { return nil }
@@ -1053,26 +1065,29 @@ func TestProberDiscovery(t *testing.T) {
 		return t.ConnMode == "tcp" && t.Port == 3306
 	}
 	prober := NewProber(e.svc.store, e.mysql, e.redis, e.mongo, e.vault, reach)
-	discovered, updated, err := prober.ProbeAll(ctx)
+	res, err := prober.ProbeAll(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if discovered != 1 {
-		t.Fatalf("discovered = %d, want 1", discovered)
+	if res.Discovered != 1 {
+		t.Fatalf("discovered = %d, want 1", res.Discovered)
+	}
+	if !res.TCPReachable["mysql"] || res.TCPReachable["redis"] || res.TCPReachable["mongodb"] {
+		t.Fatalf("tcp reachability map wrong: %+v", res.TCPReachable)
 	}
 	got, _ := e.svc.store.Instance().GetByIdentity(ctx, "mysql|tcp:localhost:3306")
 	if got == nil || got.ConnState != storedb.ConnStateReachable || got.CredentialsSet() {
 		t.Fatalf("probe row wrong: %+v", got)
 	}
 	// 再跑一轮：既有档案 → updated=1。
-	discovered, updated, _ = prober.ProbeAll(ctx)
-	if discovered != 0 || updated != 1 {
-		t.Fatalf("second pass: discovered=%d updated=%d", discovered, updated)
+	res, _ = prober.ProbeAll(ctx)
+	if res.Discovered != 0 || res.Updated != 1 {
+		t.Fatalf("second pass: discovered=%d updated=%d", res.Discovered, res.Updated)
 	}
 	// 不可达轮：既有档案整值覆盖 unreachable（I-03）。
 	none := func(dbconn.Target) bool { return false }
 	p2 := NewProber(e.svc.store, e.mysql, e.redis, e.mongo, e.vault, none)
-	_, updated, _ = p2.ProbeAll(ctx)
+	_, _ = p2.ProbeAll(ctx)
 	got, _ = e.svc.store.Instance().GetByIdentity(ctx, "mysql|tcp:localhost:3306")
 	if got == nil || got.ConnState != storedb.ConnStateUnreachable {
 		t.Fatalf("unreachable overwrite missing: %+v", got)

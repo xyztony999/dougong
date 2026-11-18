@@ -241,3 +241,53 @@ func validateRedisKey(key string) error {
 	}
 	return nil
 }
+
+// ---- v2.3 表级/集合治理白名单（R-14 / A-DB3）----
+
+// validateTableName 表名白名单校验（沿库名形态 ^[A-Za-z0-9_]+$ ≤64——
+// quoteIdent 引擎侧组装前置防线）。
+func validateTableName(name string) error {
+	if name == "" || len(name) > maxTableNameLen || !databaseNameRe.MatchString(name) {
+		return errcode.ErrValidation.WithFields(errcode.FieldError{
+			Field: "table", Message: fmt.Sprintf("表名须为 %d 字符内的字母/数字/下划线", maxTableNameLen)})
+	}
+	return nil
+}
+
+// validateCollectionName Mongo 集合名形态校验（引擎规则服务端承载：非空/
+// 禁 $ 前缀/禁空字符/禁 system. 保留前缀，§4.8.4 mcoll/create）。
+func validateCollectionName(name string) error {
+	if name == "" || len(name) > maxCollectionNameLen ||
+		strings.HasPrefix(name, "$") || strings.ContainsRune(name, 0) ||
+		strings.HasPrefix(name, "system.") {
+		return errcode.ErrValidation.WithFields(errcode.FieldError{
+			Field: "name", Message: "集合名须非空且不含 $ 前缀/空字符/system. 保留前缀"})
+	}
+	return nil
+}
+
+// parsePagination 分页入参形态（A-DB19：空→默认；非整数或 <1→AUTH_012；
+// pageSize 超限截断至上限——api「超限截断至上限」口径）。
+func parsePagination(pageRaw, pageSizeRaw string, defaultSize, limit int) (page, pageSize int, err error) {
+	page, pageSize = 1, defaultSize
+	if pageRaw != "" {
+		p, perr := strconv.Atoi(pageRaw)
+		if perr != nil || p < 1 {
+			return 0, 0, errcode.ErrValidation.WithFields(errcode.FieldError{
+				Field: "page", Message: "page 须为 ≥1 的整数"})
+		}
+		page = p
+	}
+	if pageSizeRaw != "" {
+		ps, perr := strconv.Atoi(pageSizeRaw)
+		if perr != nil || ps < 1 {
+			return 0, 0, errcode.ErrValidation.WithFields(errcode.FieldError{
+				Field: "pageSize", Message: "pageSize 须为 ≥1 的整数"})
+		}
+		pageSize = ps
+	}
+	if pageSize > limit {
+		pageSize = limit
+	}
+	return page, pageSize, nil
+}

@@ -1,8 +1,9 @@
 package errcode
 
-// database-mgmt（数据库管理）模块错误码（api-database-mgmt.md §3.4，
-// DBM_001~020 共 20 个新增；鉴权/CSRF/越界/参数校验复用 AUTH 码族）。
-// symbol 即契约 code 列原值，经响应包络 code 字段上线符号串。
+// database-mgmt（数据库管理）模块错误码（api-database-mgmt.md §3.4 v2.3，
+// DBM_001~028 契约码 + DBM_029 引擎操作被拒〔A-DB13 编号裁定〕；鉴权/CSRF/
+// 越界/参数校验复用 AUTH 码族）。symbol 即契约 code 列原值，经响应包络
+// code 字段上线符号串。
 var (
 	// ErrDBMInvalidInstanceID DBM_001 instanceId 非法（R-14）。
 	ErrDBMInvalidInstanceID = New("DBM_001", "instanceId 非法")
@@ -50,8 +51,32 @@ var (
 	// 二进制未检出；data.reason。区别于 DBM_006 网络不可达——实例可能正常，
 	// 是宿主机缺客户端，v0.1.4 凭据 INTERNAL bug 修复轮补齐）。
 	ErrDBMChannelUnavailable = New("DBM_021", "引擎客户端通道不可用（宿主机未安装 mysql/redis-cli）")
-	// ErrDBMEngineUnauthorized DBM_022 引擎操作被拒（凭据账户权限不足——
+	// ErrDBMTableNotFound DBM_022 目标表不存在（实况校验；table/structure、
+	// table/drop、row/* 前置，api v2.3 §3.4）。
+	ErrDBMTableNotFound = New("DBM_022", "目标表不存在")
+	// ErrDBMNoSinglePK DBM_023 表无单列主键，行写禁用（I-10/D-22；data.reason
+	// 如实提示——无主键/复合主键；服务端为最终守卫）。
+	ErrDBMNoSinglePK = New("DBM_023", "该表无单列主键，不支持行级编辑/删除")
+	// ErrDBMRowNotFound DBM_024 行定位失败（WHERE 主键=旧值匹配 0 行——行已
+	// 删除或主键值已被面板外修改；不静默成功）。
+	ErrDBMRowNotFound = New("DBM_024", "行已不存在或主键值已被修改")
+	// ErrDBMCollectionNotFound DBM_025 目标集合不存在（实况校验；mcoll/drop、
+	// mdoc/* 前置）。
+	ErrDBMCollectionNotFound = New("DBM_025", "目标集合不存在")
+	// ErrDBMInvalidDocumentJSON DBM_026 文档 JSON 非法（服务端校验 R-14；
+	// mdoc/insert、mdoc/update）。
+	ErrDBMInvalidDocumentJSON = New("DBM_026", "文档 JSON 非法")
+	// ErrDBMDocumentNotFound DBM_027 目标文档不存在（_id 定位匹配 0——已删除/
+	// 从未存在；mdoc/update、mdoc/delete；不静默成功）。
+	ErrDBMDocumentNotFound = New("DBM_027", "文档已不存在")
+	// ErrDBMSystemDatabaseProtected DBM_028 Mongo 系统库（admin/config/local）
+	// 删除保护（I-12/D-25；mdb/dropdb 服务端硬校验）。
+	ErrDBMSystemDatabaseProtected = New("DBM_028", "系统库（admin/config/local）不可删除")
+	// ErrDBMEngineUnauthorized DBM_029 引擎操作被拒（凭据账户权限不足——
 	// MongoDB Unauthorized（code 13）类；data.reason。区别于 DBM_005 认证被拒
-	// （身份错）——这是身份对但无权执行该命令；MongoDB 增量轮补齐）。
-	ErrDBMEngineUnauthorized = New("DBM_022", "引擎操作被拒（凭据账户权限不足）")
+	// （身份错）——这是身份对但无权执行该命令）。
+	// 编号沿革（A-DB13）：v0.1.4 修复轮原占 DBM_022；api v2.3 §3.4 定稿
+	// DBM_022=TABLE_NOT_FOUND，本码续接空号改 DBM_029（语义不变，前端映射
+	// 须同步——见 backend/tasks.md 增量轮裁定表）。
+	ErrDBMEngineUnauthorized = New("DBM_029", "引擎操作被拒（凭据账户权限不足）")
 )

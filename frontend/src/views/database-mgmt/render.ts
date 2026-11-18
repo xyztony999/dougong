@@ -1,10 +1,12 @@
 /**
- * database-mgmt 模块内共享渲染助手（3 页面共用：引擎/连接状态/凭据/授权档位 Tag、
+ * database-mgmt 模块内共享渲染助手（清单+治理+浏览页共用：引擎/连接状态/凭据/授权档位 Tag、
  * 实例标识文本组装）。Tag 语义色 = PageSpec 第 3 节颜色方案；redis 引擎紫色无 NTag
  * 语义型 → rgba 语义色（site-mgmt 先例，frontend-rules §4.1 禁大面积硬编码 hex 界内）。
+ * v1.4 F2：connStateTag/credentialsTag 外包 NTooltip 语义（文案常量 types/database.ts，
+ * 治理页/浏览页摘要条复用同一助手自动获益）；F1：redundantSocketTag 冗余 Socket 标注（D-21）。
  */
 import { h } from 'vue'
-import { NTag } from 'naive-ui'
+import { NTag, NTooltip } from 'naive-ui'
 import type { VNode } from 'vue'
 import {
   DB_CONN_MODE,
@@ -14,6 +16,11 @@ import {
   dictItem
 } from '@/types/enums'
 import type { DbInstanceItem } from '@/types/database'
+import {
+  CONN_STATE_TOOLTIP,
+  CREDENTIALS_TOOLTIP,
+  REDUNDANT_SOCKET_TOOLTIP
+} from '@/types/database'
 
 /** redis 引擎紫色（PageSpec 第 3 节 db_engine::redis=purple） */
 const REDIS_TAG_COLOR = {
@@ -46,16 +53,35 @@ export function connModeTag(connMode: string): VNode {
   return tag(d.label, 'default')
 }
 
-/** 连接状态 Tag（reachable=green / unreachable=orange） */
-export function connStateTag(connState: string): VNode {
-  const d = dictItem(INSTANCE_CONN_STATE, connState)
-  return tag(d.label, d.tag === 'warning' ? 'warning' : 'success')
+/** tooltip 包裹（v1.4 F2：trigger=Tag 本体，default=语义文案） */
+function withTooltip(trigger: VNode, text: string): VNode {
+  return h(NTooltip, null, { trigger: () => trigger, default: () => text })
 }
 
-/** 凭据 Tag（credentialsSet 布尔：true=已配置 green / false=未配置 gray，PageSpec 第 3 节） */
+/** 连接状态 Tag（reachable=green / unreachable=orange）+ NTooltip 语义（v1.4 F2） */
+export function connStateTag(connState: string): VNode {
+  const d = dictItem(INSTANCE_CONN_STATE, connState)
+  return withTooltip(
+    tag(d.label, d.tag === 'warning' ? 'warning' : 'success'),
+    CONN_STATE_TOOLTIP
+  )
+}
+
+/** 凭据 Tag（credentialsSet 布尔：true=已配置 green / false=未配置 gray）+ NTooltip 语义（v1.4 F2） */
 export function credentialsTag(credentialsSet: boolean): VNode {
   const d = boolTag(credentialsSet, '已配置', '未配置')
-  return tag(d.label, d.tag === 'success' ? 'success' : 'default')
+  return withTooltip(
+    tag(d.label, d.tag === 'success' ? 'success' : 'default'),
+    CREDENTIALS_TOOLTIP
+  )
+}
+
+/**
+ * 冗余 Socket 标注（v1.4 F1/D-21：redundantSocket=true 行——已配凭据的冗余 socket 档案
+ * 保留+标注，保守清理口径不做凭据自动迁移；NTag(gray)+NTooltip 引导改配 TCP 行后手动移除）。
+ */
+export function redundantSocketTag(): VNode {
+  return withTooltip(tag('冗余 Socket', 'default'), REDUNDANT_SOCKET_TOOLTIP)
 }
 
 /**
@@ -78,4 +104,9 @@ export function EngineTag(props: { engine: string }): VNode {
 
 export function ConnStateTag(props: { connState: string }): VNode {
   return connStateTag(props.connState)
+}
+
+/** 凭据 Tag 函数组件（摘要条模板内使用；v1.4 F2 同款 tooltip 助手） */
+export function CredentialsTag(props: { credentialsSet: boolean }): VNode {
+  return credentialsTag(props.credentialsSet)
 }

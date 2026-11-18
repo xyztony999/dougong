@@ -34,7 +34,7 @@ var (
 	ErrAuthRejected = errors.New("dbmongo: authentication rejected")
 	// ErrConnFailed 连接层失败（拨号/ServerSelection/超时）→ DBM_006 / DBM_003。
 	ErrConnFailed = errors.New("dbmongo: connection failed")
-	// ErrUnauthorized 操作被拒（code 13，凭据账户权限不足）→ DBM_022。
+	// ErrUnauthorized 操作被拒（code 13，凭据账户权限不足）→ DBM_029（A-DB13 编号裁定）。
 	ErrUnauthorized = errors.New("dbmongo: unauthorized")
 	// ErrUserNotFound 用户不存在（code 11）→ DBM_009。
 	ErrUserNotFound = errors.New("dbmongo: user not found")
@@ -198,7 +198,7 @@ func (g *Gateway) ListDatabases(ctx context.Context, t dbconn.Target, c dbconn.C
 }
 
 // StatusSummary serverStatus 白名单摘要（§4.5.2； Unauthorized（code 13）经
-// classify → ErrUnauthorized → DBM_022——凭据账户权限不足如实呈现）。
+// classify → ErrUnauthorized → DBM_029——凭据账户权限不足如实呈现）。
 func (g *Gateway) StatusSummary(ctx context.Context, t dbconn.Target, c dbconn.Creds) (*StatusSummary, error) {
 	var sum *StatusSummary
 	err := g.withClient(t, c, func(ctx context.Context, cl *mongo.Client) error {
@@ -335,6 +335,12 @@ func classify(err error) error {
 			return fmt.Errorf("%w: %s", ErrUserNotFound, firstLine(cmdErr.Message))
 		case 51003: // UserAlreadyExists
 			return fmt.Errorf("%w: %s", ErrUserExists, firstLine(cmdErr.Message))
+		case 48: // CollectionAlreadyExists（v2.3 建集合重名）
+			return fmt.Errorf("%w: %s", ErrCollectionExists, firstLine(cmdErr.Message))
+		case 26: // NamespaceNotFound（v2.3 删集合不存在）
+			return fmt.Errorf("%w: %s", ErrCollectionNotFound, firstLine(cmdErr.Message))
+		case 11000: // DuplicateKey（v2.3 文档 _id 冲突）
+			return fmt.Errorf("%w: %s", ErrDocumentExists, firstLine(cmdErr.Message))
 		}
 		return fmt.Errorf("%w: %s", ErrQueryFailed, firstLine(cmdErr.Message))
 	}

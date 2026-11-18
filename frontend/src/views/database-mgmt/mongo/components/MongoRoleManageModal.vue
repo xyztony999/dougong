@@ -53,7 +53,8 @@ function errorText(e: unknown): string | null {
   const map: Record<string, string> = {
     DBM_009: '用户不存在（可能已被删除，请刷新用户清单）',
     DBM_011: '授权关系不存在（该用户未持有此库角色）',
-    DBM_022: '引擎操作被拒：当前凭据账户权限不足'
+    // DBM_029 引擎操作被拒（A-DB13：旧 DBM_022 语义映射已随编号裁定改判）
+    DBM_029: '引擎操作被拒：当前凭据账户权限不足'
   }
   return map[e.code] ?? e.message
 }

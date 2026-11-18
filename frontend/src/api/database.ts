@@ -1,7 +1,8 @@
 /**
- * database-mgmt api 层 —— 30 Action 与 api-database-mgmt.md v2.0 一一对应（S7，无虚构接口；
- * v1.2 +mongo 7）。读 13 GET（10 两角色 + 3 admin 专属：databaseCharsets/redisKeyList/
- * redisKeyTtl）；写 17 POST（admin 专属 + CSRF——http.ts 统一注入 X-CSRF-Token）。
+ * database-mgmt api 层 —— 44 Action 与 api-database-mgmt.md v2.3 一一对应（S7，无虚构接口；
+ * v1.2 +mongo 7、v1.4 +table/row 6 +mcoll/mdoc/mdb-dropped 8）。读 18 GET（13 两角色 +
+ * 5 admin 专属：databaseCharsets/redisKeyList/redisKeyTtl/rowList/mongoDocumentList——
+ * 数据内容 Q6/D-24 沿 key 先例）；写 26 POST（admin 专属 + CSRF——http.ts 统一注入 X-CSRF-Token）。
  * 特殊通道：backup/export 走 POST 流式（postDownload 双形态分流，D-06）；
  * backup/import 走 multipart（postForm，D-06）。函数名 = PageSpec 第 2 节 Action 名。
  */
@@ -34,13 +35,36 @@ import type {
   MongoUserPayload,
   MongoUserResult,
   MongoUserRolePayload,
+  MongoCollectionCreatePayload,
+  MongoCollectionDropPayload,
+  MongoCollectionListData,
+  MongoCollectionMutationResult,
+  MongoDatabaseDropPayload,
+  MongoDatabaseDropResult,
+  MongoDocumentDeletePayload,
+  MongoDocumentDeleteResult,
+  MongoDocumentInsertPayload,
+  MongoDocumentInsertResult,
+  MongoDocumentListData,
+  MongoDocumentListQuery,
+  MongoDocumentUpdatePayload,
+  MongoDocumentUpdateResult,
   MysqlProcesslistData,
   MysqlStatusData,
   PasswordChangePayload,
   PasswordSyncResult,
   RedisInfoData,
   RedisSlowlogData,
-  RescanResult
+  RescanResult,
+  RowDeletePayload,
+  RowListData,
+  RowListQuery,
+  RowMutationResult,
+  RowUpdatePayload,
+  TableDropPayload,
+  TableListData,
+  TableMutationResult,
+  TableStructureData
 } from '@/types/database'
 import { postDownload, postForm, request } from './http'
 
@@ -233,7 +257,8 @@ export function mongoStatus(instanceId: number): Promise<MongoStatusData> {
   return request<MongoStatusData>('/db/mongo/status', { query: { instanceId } })
 }
 
-/** mongoDatabaseList：库清单只读投影（D-18：隐式建库语义，无建/删库动作） */
+/** mongoDatabaseList：库清单实况投影（v1.4 D-18 废止 ADR-031/D-25：可管理清单——
+ * 建库经 mcoll/create 隐式达成、删库经 mdb/dropdb；DTO 零变更） */
 export function mongoDatabaseList(instanceId: number): Promise<MongoDatabaseListData> {
   return request<MongoDatabaseListData>('/db/mdb/list', { query: { instanceId } })
 }
@@ -261,4 +286,118 @@ export function mongoUserGrant(payload: MongoUserRolePayload): Promise<MongoRole
 /** mongoUserRevoke：回收库级角色（授权关系不存在 DBM_011——service 实况前置校验） */
 export function mongoUserRevoke(payload: MongoUserRolePayload): Promise<MongoRoleResult> {
   return request<MongoRoleResult>('/db/muser/revoke', { method: 'POST', body: payload })
+}
+
+/** ---- MySQL 表级治理（api v2.3 §4.7；v1.4 F3 增量；I-05 前置 engine∈mysql/mariadb） ---- */
+
+/** tableList：表清单（information_schema.TABLES 实况投影，元数据 Q6 两角色） */
+export function tableList(instanceId: number, database: string): Promise<TableListData> {
+  return request<TableListData>('/db/table/list', { query: { instanceId, database } })
+}
+
+/** tableStructure：表结构（含 singlePk/pkColumn 派生——行写入口禁用判定同源 I-10，元数据两角色） */
+export function tableStructure(
+  instanceId: number,
+  database: string,
+  table: string
+): Promise<TableStructureData> {
+  return request<TableStructureData>('/db/table/structure', {
+    query: { instanceId, database, table }
+  })
+}
+
+/** tableDrop：删表（DROP TABLE 不可逆，交互层强确认前置；不存在 DBM_022 不静默成功） */
+export function tableDrop(payload: TableDropPayload): Promise<TableMutationResult> {
+  return request<TableMutationResult>('/db/table/drop', { method: 'POST', body: payload })
+}
+
+/** rowList：行数据分页（JSON_OBJECT 逐行聚合 D-22；**admin 专属——数据内容 Q6/I-11**） */
+export function rowList(q: RowListQuery): Promise<RowListData> {
+  return request<RowListData>('/db/row/list', {
+    query: {
+      instanceId: q.instanceId,
+      database: q.database,
+      table: q.table,
+      page: q.page,
+      pageSize: q.pageSize
+    }
+  })
+}
+
+/** rowUpdate：行编辑（单列主键约束 I-10；values 仅变更列不含主键；匹配 0 行 DBM_024 如实） */
+export function rowUpdate(payload: RowUpdatePayload): Promise<RowMutationResult> {
+  return request<RowMutationResult>('/db/row/update', { method: 'POST', body: payload })
+}
+
+/** rowDelete：行删除（WHERE 主键=旧值参数化；匹配 0 行 DBM_024 如实） */
+export function rowDelete(payload: RowDeletePayload): Promise<RowMutationResult> {
+  return request<RowMutationResult>('/db/row/delete', { method: 'POST', body: payload })
+}
+
+/** ---- MongoDB 集合与文档治理（api v2.3 §4.8；v1.4 F4 增量；I-05 前置 engine=mongodb） ---- */
+
+/** mongoCollectionList：集合清单（实况投影，元数据 Q6 两角色；空库返回空列表非错误） */
+export function mongoCollectionList(
+  instanceId: number,
+  database: string
+): Promise<MongoCollectionListData> {
+  return request<MongoCollectionListData>('/db/mcoll/list', { query: { instanceId, database } })
+}
+
+/** mongoCollectionCreate：建集合（隐式建库语义 D-25；同名 DBM_008 语义复用 data.reason） */
+export function mongoCollectionCreate(
+  payload: MongoCollectionCreatePayload
+): Promise<MongoCollectionMutationResult> {
+  return request<MongoCollectionMutationResult>('/db/mcoll/create', {
+    method: 'POST',
+    body: payload
+  })
+}
+
+/** mongoCollectionDrop：删集合（dropCollection 不可逆；不存在 DBM_025 不静默成功） */
+export function mongoCollectionDrop(
+  payload: MongoCollectionDropPayload
+): Promise<MongoCollectionMutationResult> {
+  return request<MongoCollectionMutationResult>('/db/mcoll/drop', { method: 'POST', body: payload })
+}
+
+/** mongoDatabaseDrop：删库（dropDatabase 不可逆；系统库 admin/config/local DBM_028 服务端硬校验 I-12） */
+export function mongoDatabaseDrop(
+  payload: MongoDatabaseDropPayload
+): Promise<MongoDatabaseDropResult> {
+  return request<MongoDatabaseDropResult>('/db/mdb/dropdb', { method: 'POST', body: payload })
+}
+
+/** mongoDocumentList：文档分页（find skip/limit，BSON→JSON 扩展形态透传；**admin 专属 Q6/I-11**） */
+export function mongoDocumentList(q: MongoDocumentListQuery): Promise<MongoDocumentListData> {
+  return request<MongoDocumentListData>('/db/mdoc/list', {
+    query: {
+      instanceId: q.instanceId,
+      database: q.database,
+      collection: q.collection,
+      page: q.page,
+      pageSize: q.pageSize
+    }
+  })
+}
+
+/** mongoDocumentInsert：文档插入（InsertOne；JSON 双层校验前端拦截为先 DBM_026 服务端兜底） */
+export function mongoDocumentInsert(
+  payload: MongoDocumentInsertPayload
+): Promise<MongoDocumentInsertResult> {
+  return request<MongoDocumentInsertResult>('/db/mdoc/insert', { method: 'POST', body: payload })
+}
+
+/** mongoDocumentUpdate：文档编辑（ReplaceOne by _id 整体替换；_id 不可变更；matched=0 DBM_027） */
+export function mongoDocumentUpdate(
+  payload: MongoDocumentUpdatePayload
+): Promise<MongoDocumentUpdateResult> {
+  return request<MongoDocumentUpdateResult>('/db/mdoc/update', { method: 'POST', body: payload })
+}
+
+/** mongoDocumentDelete：文档删除（DeleteOne by _id；deleted=0 DBM_027 如实） */
+export function mongoDocumentDelete(
+  payload: MongoDocumentDeletePayload
+): Promise<MongoDocumentDeleteResult> {
+  return request<MongoDocumentDeleteResult>('/db/mdoc/delete', { method: 'POST', body: payload })
 }

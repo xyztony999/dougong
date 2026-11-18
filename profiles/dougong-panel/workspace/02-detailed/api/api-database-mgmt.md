@@ -2,25 +2,25 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v2.2 |
+| 版本 | v2.3.1 |
 | 状态 | 稳定 |
-| 最后更新 | 2026-11-17（v2.2 安装后配置就绪 OHS 增量） |
-| 输入 | prd-database-mgmt.md v1.1、domain-model.md v1.22、d0-clarification-database-mgmt.md、D1 三文档 v1.0；**v2.2 安装后配置就绪联动**：d0-clarification-2026-11-17-bootstrap.md（env-mgmt 主导轮拍板 Q1~Q4）、api-env-mgmt.md v1.2（BootstrapAfterInstall OHS 消费方）、prd-env-mgmt.md v1.2 FR-07 |
+| 最后更新 | 2026-11-18（v2.3.1 §3.4 补记 DBM_029 ENGINE_UNAUTHORIZED——A-DB13 编号裁定跨层同步闭环；v2.3 表级/集合文档治理 + TCP 优先探测增量） |
+| 输入 | prd-database-mgmt.md v1.2、domain-model.md v1.23、d0-clarification-database-mgmt.md、D1 三文档 v1.2；**v2.3 增量**：d0-clarification-database-mgmt-ux-2026-11-18.md（用户实机反馈 5 项拍板 Q1~Q6）、ADR-031（D-18 修订）、prd-database-mgmt.md v1.2 FR-24~39 与待对齐-11；v2.2 安装后配置就绪联动输入沿旧（d0-clarification-2026-11-17-bootstrap.md、api-env-mgmt.md v1.2、prd-env-mgmt.md v1.2 FR-07） |
 | 接口规约 | 无激活技术栈（ACTIVE_STACKS 为空）——按通用 REST/JSON 契约设计；认证=HttpOnly Cookie 会话 + CSRF token（R-02）；鉴权=RBAC 两角色边界矩阵（ADR-018）；与 api-account-auth.md 同一响应/错误码契约 |
 
 ## 1. 模块设计概述
 
 ### 1.1 业务背景及目标
 
-数据库管理是斗拱面板 M4 里程碑模块：解决「自托管运维者如何用面板接管并治理服务器上已装的 MySQL/MariaDB 与 Redis 实例」的问题——本机探测发现即纳管（R-15，不要求重装）、凭据密文接管（⚠️A18 只进不出）、MySQL 库/用户/库级授权/root 密码治理、双引擎实况观测（状态概览/进程列表/info/慢日志）、mysqldump 备份导出导入（R-08 参数数组）、Redis key 只读浏览（MVP 严格只读）。M4 验收硬项：发现存量 MySQL → 建库/建用户/授权/改密码/备份导出再导入成功；Redis 状态与慢日志展示正确；所有操作可审计（idea.md §6 M4）。服务对象：管理员（admin，全部治理与数据动作）、只读用户（readonly，7 个查看接口）。
+数据库管理是斗拱面板 M4 里程碑模块：解决「自托管运维者如何用面板接管并治理服务器上已装的 MySQL/MariaDB 与 Redis 实例」的问题——本机探测发现即纳管（R-15，不要求重装）、凭据密文接管（⚠️A18 只进不出）、MySQL 库/用户/库级授权/root 密码治理、双引擎实况观测（状态概览/进程列表/info/慢日志）、mysqldump 备份导出导入（R-08 参数数组）、Redis key 只读浏览（MVP 严格只读）。M4 验收硬项：发现存量 MySQL → 建库/建用户/授权/改密码/备份导出再导入成功；Redis 状态与慢日志展示正确；所有操作可审计（idea.md §6 M4）。服务对象：管理员（admin，全部治理与数据动作）、只读用户（readonly，元数据查看接口）。**v2.3 增量（2026-11-18 用户实机反馈轮 Q1~Q6）**：治理深度下探——MySQL/MariaDB 表级治理（表清单/结构/分页行数据/单列主键行写/删表，D-22）与 MongoDB 库/集合/文档治理（删库/建集合/删集合/文档 CRUD，D-23/D-25 修订 D-18）；探测登记改 TCP 优先两阶段+socket 兜底+rescan 保守清理（D-21）；角色口径细化 Q6（D-24：元数据两角色/数据内容+写操作 admin 专属）；呈现层 F2/F5 归前端与 panel-core（本 API 文档零接口承载，面包屑动态段取 instance/list 既有 DTO）。
 
 ### 1.2 边界说明
 
 | 项 | 说明 |
 |----|------|
-| 本模块做 | 实例探测纳管/凭据配置/移除（⚠️A20）、库与用户 CRUD 与库级授权、root/Redis 密码修改、状态概览/进程列表/info/慢日志观测、库级备份导出导入、key 只读浏览 |
-| 本模块不做（接口边界） | ① PostgreSQL（二期，ADR-007）与 SQL 查询工作台/在线执行 SQL（不做，D0 OUT）；② Redis 数据编辑/删除 key/发布订阅（MVP 只读）；③ 实例进程启停/自启（service-mgmt，systemd 层）；④ 定时备份任务与轮转（cron-backup M8——其数据库备份源拟复用本模块 DbGateway.DumpDatabase，契约由该模块 D2/D3 定义）；⑤ 凭据任何形式的回显/导出（⚠️A18：无任何读取出口）；⑥ dbmysql/dbredis 适配器实现（后端工程，本模块经 DbGateway 网关契约消费，4.1.5） |
-| 与存储的关系 | SQLite 单文件（ADR-011）；唯一持久化=实例档案合一表 db_instance（D-01，含凭据密文列 D-02）；database/db_user/key 等引擎内对象零台账不落库（domain-model v1.9 D2 判定） |
+| 本模块做 | 实例探测纳管/凭据配置/移除（⚠️A20）、库与用户 CRUD 与库级授权、root/Redis 密码修改、状态概览/进程列表/info/慢日志观测、库级备份导出导入、key 只读浏览；**v2.3 +MySQL 表级治理（表清单/结构/行数据分页/单列主键行写/删表）与 MongoDB 库/集合/文档治理（删库/建集合/删集合/文档分页/插入/编辑/删除）** |
+| 本模块不做（接口边界） | ① PostgreSQL（二期，ADR-007）与 SQL 查询工作台/在线执行 SQL（不做，D0 OUT）；② Redis 数据编辑/删除 key/发布订阅（MVP 只读）；③ 实例进程启停/自启（service-mgmt，systemd 层）；④ 定时备份任务与轮转（cron-backup M8——其数据库备份源拟复用本模块 DbGateway.DumpDatabase，契约由该模块 D2/D3 定义）；⑤ 凭据任何形式的回显/导出（⚠️A18：无任何读取出口）；⑥ dbmysql/dbredis 适配器实现（后端工程，本模块经 DbGateway 网关契约消费，4.1.5）；**⑦ v2.3 新增 OUT：MySQL 插入行/建表/多列主键行写（后续迭代）、MongoDB 聚合管道/索引管理/分片管理（后续迭代）、凭据自动迁移 socket→TCP（不做，D-21 保守口径）、远程实例新增探测目标（探测集仍编译期常量）、mongodump/mongorestore（二期）** |
+| 与存储的关系 | SQLite 单文件（ADR-011）；唯一持久化=实例档案合一表 db_instance（D-01，含凭据密文列 D-02）；database/db_user/key 等引擎内对象零台账不落库（domain-model v1.9 D2 判定）；**v2.3：data_table/table_row/mongo_collection/mongo_document 同为零台账投影实体（domain-model v1.23），DDL 零变更无新表无迁移** |
 
 ### 1.3 设计决策
 
@@ -43,9 +43,15 @@
 | D-15 | **MongoDB 通道=进程内官方 mongo-driver Go 库**（go.mongodb.org/mongo-driver/v2，go.mod 新直接依赖；dbmongo 适配器承载 MongoGateway 网关契约）：连接超时 5s/命令超时 30s 通道级防御；每操作独立建连即断（不驻留连接池长连——与 CLI 通道每次 exec 的生命期语义对齐） | v0.1.4 用户拍板 Q2=A：纯 Go 无外部二进制依赖——根除「宿主机客户端缺席致通道不可用」缺陷类（同日 DBM_021 修复的实发根因）；凭据经 options.Credential 结构化传递，无 URI 转义面（mongosh 连接串需 URL 编码——@ 类字符真实风险点）；R-09 零外呼维持（仅连本机实例）；审计面=go.sum 锁定+依赖最小（driver v2 纯 Go） |
 | D-16 | **MongoDB 凭据验证=SCRAM、authSource=admin 固定**（credentials 接口对 mongodb 实例以 admin 库验证；不暴露 authSource 配置面）；验证失败映射复用 DBM_005/006/021（translatePingErr 同链） | 面板纳管的 mongod 语义=管理员用户建在 admin 库（官方运维惯例）；配置面克制（MVP 不做多 authSource）；通道不可用类（DNS/超时/协议错误）经 translatePingErr 归 DBM_006（连接类）——无 CLI 二进制依赖故 ErrUnavailable 哨兵不适用于 dbmongo |
 | D-17 | **探测集扩展 +2 目标**：{engine=mongodb, socket, /tmp/mongodb-27017.sock} 与 {engine=mongodb, tcp, localhost:27017}（mongod 默认 socket 路径与端口；D-07 探测时机/审计口径不变） | R-15 发现哲学同构：env-mgmt 已可装 mongodb-org（mongod.service），端口/socket 探测即纳管；socket 路径=官方默认 unixSocketPath（可配置面不追——探测不到即未按默认装，如实） |
-| D-18 | **MongoDB 库清单=只读投影（名称/大小/集合数，ListDatabases 实况）**：不提供建库/删库接口（无 mysql 族 database/create、delete 对应物） | MongoDB 隐式建库语义（库随首集合/首文档写入产生，显式 DDL 无对应物）；与 MySQL 面的差异如实裁剪不虚构等价动作；零库台账 D-04 口径同构 |
+| D-18 | **MongoDB 库清单=只读投影（名称/大小/集合数，ListDatabases 实况）**：不提供建库/删库接口（无 mysql 族 database/create、delete 对应物） | MongoDB 隐式建库语义（库随首集合/首文档写入产生，显式 DDL 无对应物）；与 MySQL 面的差异如实裁剪不虚构等价动作；零库台账 D-04 口径同构。**⚠️v2.3 修订（ADR-031，D-25）：「只读/无删库」口径废止——库清单可管理（浏览集合入口+删库 mdb/dropdb），仍无独立建库接口（隐式建库经显式建集合 mcoll/create 达成）；ListDatabases 投影形态与 mdb/list DTO 不变** |
 | D-19 | **MongoDB 用户治理=admin 库 users + 三档库级角色 mongo_role ∈ {read, readWrite, dbAdmin}**（原生角色名直用）：创建=db.createUser（用户名/密码/首库+首角色）；删除=db.dropUser（连带回收全部角色，引擎语义）；授予/回收=grantRolesToUser/revokeRolesFromUser；用户清单=users 实况投影（用户名/mechanisms/角色概况 {db, role}）；重名冲突 DBM_010/不存在 DBM_009/授权关系不存在 DBM_011 语义复用 | v0.1.4 用户拍板 Q1=A：对齐 MySQL 用户管理面（创建/删除/授权/回收三档）；mongo_role 与 grant_level 平行不合并（角色 vs 权限集合语义不同构）；密码只写不读（⚠️A18 同构）；mongod 未开鉴权时面板建连即 localhost exception 语境——操作成败如实返回 |
 | D-20 | **安装后配置就绪 OHS（v2.2，BootstrapAfterInstall）**：本模块提供进程内 OHS `BootstrapAfterInstall(ctx, engine, actorName) → BootstrapOutcome{Status(succeeded\|failed\|skipped), Note, InstanceID}` 供 env-mgmt worker 消费（数据库类环境安装成功后，装完即可管）。编排：①幂等前置——本机默认 identity（mysql tcp localhost:3306 / redis tcp localhost:6379 / mongodb tcp localhost:27017）已 credentialsSet → skipped；②引导通道建账户/设密码（**MySQL** dbmysql 经 unix socket root auth_socket 免密〔DISCOVERY_PROBE_SET socket 候选逐一尝试〕CREATE USER dougong@localhost + GRANT ALL ON *.* WITH GRANT OPTION，账户已存在→skipped；**Redis** dbredis CONFIG GET requirepass 判未设→CONFIG SET 随机密码 + CONFIG REWRITE + bind 本机校验，已设→skipped；**MongoDB** dbmongo 免认证 localhost exception 建 admin 库 dougong root 角色，已有用户/已开鉴权→skipped）；③治理通道 TCP Ping 验证新凭据（失败→failed，不写未验证凭据，沿 D-03 哲学）；④CredentialVault 加密 UPSERT db_instance + conn_state=reachable + version 刷新 + 审计 instance_bootstrapped（同事务，脱敏）。随机强密码 crypto/rand（24B→base64url 32 字符）；**密码明文仅引导建连与加密内存态，零回显**（BootstrapOutcome.Note/审计/日志均不含密码）；引擎侧引导方法经窄接口注入（测试替身，零 runner 实况依赖）；服务就绪（start/等待）归 env-mgmt，本模块不操作进程 | env-mgmt 安装后配置就绪增量联动（d0-clarification-2026-11-17-bootstrap.md 拍板 Q1~Q4）；实例与凭据生命周期归本模块（四层分界），故引导建账户/注册归本模块 OHS 而非 env-mgmt 自持；与 D-03 先验证后落库/D-02 密文零出口同哲学 |
+| D-21 | **探测登记策略=TCP 优先两阶段 + socket 兜底 + rescan 保守清理（v2.3，Q1 二次拍板取代展示层归并）**：ProbeAll 改两阶段——阶段 1 探 DISCOVERY_PROBE_SET 全部 TCP 目标并记录各 engine 本机 TCP 可达性（map[engine]bool）；阶段 2 探 socket 目标：该 engine 本机 TCP 可达 → socket 即使可达也**跳过登记**（视为同一服务的冗余通道，不 INSERT 新档案；既有 socket 档案的 conn_state 仍整值刷新如实），仅该 engine 无任何本机 TCP 可达时 socket 兜底登记（覆盖 skip-networking）。**rescan 保守清理**：探测完成后，对「conn_mode=socket 且同 engine 本机 TCP 本轮可达 且 !CredentialsSet()」的既有档案行执行 DELETE（解除纳管，审计 instance_merged 同事务 R-03）；「已配凭据」的 socket 行**保留**（避免凭据丢失），instance/list 响应项 +redundantSocket:boolean 标注（同 engine 本机 TCP 档案存在且可达时派生 true），引导用户改配 TCP 行后手动 remove；**不做凭据自动迁移**。identity_key 语义不变（D-01）、instance/list 与 rescan 接口形态不变（rescan 响应 +merged:n 统计字段， additive）；远程 TCP 实例不受影响；D-07 探测时机/审计口径不变 | 用户 2026-11-18 二次拍板：宝塔等面板均走 TCP，socket 平行铺行冗余困惑；完全砍 socket 漏 skip-networking 违背 R-15 发现哲学，故 TCP 优先+兜底而非删除；保守清理防误删已配凭据档案（凭据无法从实况推导，D-02 哲学）；代码锚点 prober.go:42 ProbeAll/:66 probeOnce/:95 CredentialsSet()、instance.go:60 Rescan |
+| D-22 | **MySQL 表级治理通道与行写约束（v2.3，Q3）**：表清单/结构走 information_schema（TABLES/COLUMNS 实况投影，零台账 D-04 同构）；行数据分页=CLI query() 通道 **JSON_OBJECT 逐行聚合**——先取列名（结构查询）再构造 `SELECT JSON_OBJECT('col1',col1,...) FROM ... LIMIT ?,?`，batch 转义还原后 JSON.parse（避免 TSV 对含换行/制表符值的解析脆弱）；分页 page/pageSize 默认 20 上限 100（TABLE_PAGE_LIMIT 常量）；**行写仅限单列主键表**（结构键信息判定：恰好 1 列 PRIMARY KEY）——WHERE 主键=旧值参数化定位（quoteString A-DB3 标识符白名单、引擎侧 SQL 裁定 A-DB10 沿既有口径），无单列主键 → DBM_023 禁用并如实提示；行编辑按列文本输入（MySQL 隐式类型转换；null 值→NULL 语义，列值 JSON null≠TS undefined 逐形状标注）；主键列不可编辑（定位键）；删表=DROP TABLE 不可逆强确认；**本轮不做插入行/建表/多列主键行写**（OUT） | PRD FR-24~29/待对齐-11 关闭：JSON_OBJECT 构造细节（列名转义/键序）归实现，契约锁定逐行 JSON 形态；单列主键约束=稳定行标识的最小充分条件（多列主键/无主键表行定位歧义，从紧）；数据内容 admin 专属（D-24） |
+| D-23 | **MongoDB 集合与文档治理（v2.3，Q4）**：集合清单=ListCollections 实况投影（集合名/文档数/大小，estimatedDocumentCount+collStats 口径）；建集合=createCollection 显式（隐式建库语义——库随首集合写入产生，UI 如实说明，无独立建库接口 D-25）；删集合=dropCollection；文档分页=find skip/limit（默认 20 上限 100，DOC_PAGE_LIMIT 常量），JSON 呈现 _id 置顶；文档插入=InsertOne、编辑=ReplaceOne（按 _id 定位，_id 不可变更）、删除=DeleteOne（按 _id）；**JSON 校验双层**——前端拦截+服务端校验（非法 JSON → DBM_026，R-14）；通道沿用 dbmongo 进程内 mongo-driver（D-15，既有 dial/withClient）；本轮不做聚合管道/索引/分片（OUT） | PRD FR-31~37/待对齐-11 关闭；ReplaceOne 整体替换语义（非字段级 patch，MVP 克制）；_id 为文档稳定标识（domain-model v1.23 mongo_document 实体判定） |
+| D-24 | **角色口径 Q6（v2.3）：元数据两角色 / 数据内容+写操作 admin 专属**——元数据 GET（table/list、table/structure、mcoll/list、mdb/list 既有）admin+readonly；数据内容 GET（row/list、mdoc/list）admin 专属（沿 key/list D0 先例「key 值属数据内容取出」）；全部新增 POST admin+CSRF；readonly 进入浏览页可见元数据，数据区负空间「数据内容仅管理员可见」（前端不请求数据内容接口；越界请求 AUTH_008 全局边界拒绝） | D0 Q6 拍板；ADR-018 全可看口径在数据内容维度的从紧细化，与既有 key 浏览判例一致；权限矩阵见 3.3 |
+| D-25 | **D-18 修订（ADR-031）+ Mongo 系统库删除保护（v2.3）**：库清单由只读投影改为可管理——mdb/list DTO 不变（前端操作列承载），+mdb/dropdb（dropDatabase 不可逆强确认）；**系统库 admin/config/local 拒绝删除**（DBM_028，服务端硬校验——删除 admin 库将摧毁面板纳管凭据语境，config/local 为引擎内部库）；无独立建库接口（隐式建库经 mcoll/create 达成，D-23）；集合/文档治理见 D-23 | ADR-031（kb design-decisions）：D-18 把「隐式建库语义」过度解读为「不可管理」，用户要管理（F4）；系统库保护为本域推导（防自毁纳管根基，R-14 服务端校验不信任前端） |
+| D-26 | **资源段命名与编号裁定（v2.3，关闭待对齐-11）**：新增资源段 table（MySQL 表元数据+删表）/row（MySQL 行数据+行写）/mcoll（Mongo 集合，mc 前缀沿 mdb/muser 先例）/mdoc（Mongo 文档）；删库复用既有资源段 mdb（mdb/dropdb，与 mdb/list 同资源）；全三段式 /db/{resource}/{action}（G1-08/M2）；错误码续编 DBM_022~028（7 个）；审计动作码 +10（table_dropped/row_updated/row_deleted/mongo_database_dropped/mongo_collection_created/mongo_collection_dropped/mongo_document_inserted/mongo_document_updated/mongo_document_deleted/instance_merged）；总接口 30→44（GET 18/POST 26） | 资源段语义自洽（table=元数据面、row=数据内容面，权限分裂自然映射 D-24）；mcoll/mdoc 与 mdb/muser 复合缩写同构保三段式；编号接续既有最大值（DBM_021/动作码 18 个）不复用 |
 
 ### 1.4 领域对象总览
 
@@ -56,6 +62,10 @@
 | database（域内对象-实体，引擎实况投影，无表） | — | — | — |
 | db_user（域内对象-实体，引擎实况投影，无表） | 授权关系（值对象投影：{database, level}[]） | — | — |
 | key 条目/慢日志条目/进程列表条目/概览摘要 | 过程数据（引擎实况只读投影，不入领域模型，PRD 第九部分） | — | — |
+| data_table（域内对象-实体，引擎实况投影，无表，v2.3） | 列结构（元数据字段组：列名/类型/可空/键/默认/额外/注释） | — | — |
+| table_row（域内对象-实体，引擎实况投影，无表，v2.3） | 列值（JSON 内容；标识=单列主键值，D-22） | — | — |
+| mongo_collection（域内对象-实体，引擎实况投影，无表，v2.3） | — | — | — |
+| mongo_document（域内对象-实体，引擎实况投影，无表，v2.3） | JSON 内容（标识=_id，D-23） | — | — |
 
 ### 1.5 上下文映射
 
@@ -66,19 +76,25 @@
 | cron-backup（M8，后续模块） | 被依赖（预期） | 数据库备份源拟复用 DbGateway.DumpDatabase（4.1.5）；契约口径由该模块 D2/D3 定义，本模块不预先建模 |
 | **env-mgmt（v2.2 安装后配置就绪）** | **被消费（进程内 OHS 提供）** | **本模块提供 BootstrapAfterInstall OHS（§5.1/§4.6）：env-mgmt worker 数据库类环境安装成功后消费——建管理账户/设随机强密码 + 注册 db_instance 与凭据密文（装完即可管）；单向依赖 env-mgmt→db-mgmt（与 cron-backup 消费 DumpStream 同构）；引导通道（MySQL socket root auth_socket / Redis 免认证 / MongoDB localhost exception）区别于 TCP+密码治理通道；幂等保守不覆盖用户已有配置；引导结果 BootstrapOutcome 回传（不含密码）** |
 | service-mgmt | 边界互斥 | 实例进程启停/自启经 systemd 归 service-mgmt；本模块对 unreachable 实例只如实呈现与报错（DBM_003），不操作进程（**安装后配置就绪的服务启动归 env-mgmt 经 SysdGateway，本模块不操作进程**） |
+| **panel-core（v2.3 呈现层消费）** | **消费方（呈现能力，非领域集成）** | **顶栏面包屑返回导航（F5）：本模块多级页面（数据库→治理·identity→库→表/集合）消费 panel-core S-09-01 通用面包屑能力——动态段 identity 取 instance/list 既有 DTO（dbStore 档案缓存）、database/table/collection 取路由 params；本 API 文档零新增接口承载（呈现层变更归 D4 PageSpec 与 panel-core）；能力本体增量归 panel-core（跨模块待同步项，D1 AA 附录B 登记）** |
 
 ## 2. 跨聚合根设计
 
 ### 2.1 聚合根关系图
 
 ```
-db_instance（档案，engine ∈ mysql|mariadb）     redis_instance（档案，engine=redis）
-    │ 1:N 经实例连接寻址（无 FK，投影链路）          │ 1:N 只读寻址（SCAN 游标）
-    ├── database（实况投影，零台账）                 └── key 条目（实况投影，过程数据）
+db_instance（档案，engine ∈ mysql|mariadb|mongodb）   redis_instance（档案，engine=redis）
+    │ 1:N 经实例连接寻址（无 FK，投影链路）                │ 1:N 只读寻址（SCAN 游标）
+    ├── database（实况投影，零台账）                       └── key 条目（实况投影，过程数据）
+    │     ├── data_table（MySQL 族，实况投影，零台账，v2.3）
+    │     │     └── table_row（实况投影，标识=单列主键值，v2.3）
+    │     └── mongo_collection（mongodb，实况投影，零台账，v2.3）
+    │           └── mongo_document（实况投影，标识=_id，v2.3）
     └── db_user（实况投影，零台账）
               └── 授权关系 {database, level}（值对象投影）
 两聚合根共驻合一档案表 db_instance（D-01，engine 列区分，identity_key 唯一）；
-database/db_user 不落库：事实源在引擎实况，恒经 DbGateway 实时读取（I-04）
+database/db_user/data_table/table_row/mongo_collection/mongo_document 不落库：
+事实源在引擎实况，恒经 DbGateway/MongoGateway 实时读取（I-04）
 ```
 
 ### 2.2 跨聚合根不变量
@@ -88,19 +104,24 @@ database/db_user 不落库：事实源在引擎实况，恒经 DbGateway 实时�
 | I-01 | identity_key 全表唯一（探测消重锚点，D-01）；探测/纠正连接目标均按 identity_key 归并 | UNIQUE 约束 + DBM_020（纠正冲突） |
 | I-02 | 凭据只进不出：cred_cipher 任何接口不回显、审计 detail 不含密码/密文、密钥不经接口下发（⚠️A18，D-02/D-13） | 接口层保证（响应字段白名单） |
 | I-03 | conn_state 为探测态：仅探测动作（自动探测/rescan）整值覆盖，无流转语义；观测/治理接口不修改它 | 读取侧保证（D-07/D-08） |
-| I-04 | 零台账一致性：database/db_user/key/慢日志/进程列表恒为当次 DbGateway 实况读取，无缓存陈旧回退；GET 观测接口对 db_instance 表零写副作用（version 仅 credentials/rescan 刷新，D-04） | 读取侧保证（每请求实时） |
-| I-05 | 治理操作统一前置链：instanceId 形态（DBM_001）→ 档案存在（DBM_002）→ 引擎匹配（DBM_018：mysql/database/dbuser/backup 接口要求 engine∈mysql/mariadb，redis/key 接口要求 engine=redis）→ reachable（DBM_003）→ 凭据已配置（DBM_004）→ 执行 | 统一前置校验链 |
+| I-04 | 零台账一致性：database/db_user/key/慢日志/进程列表恒为当次 DbGateway 实况读取，无缓存陈旧回退；GET 观测接口对 db_instance 表零写副作用（version 仅 credentials/rescan 刷新，D-04）；**v2.3 扩展：data_table/table_row/mongo_collection/mongo_document 同构（DbGateway/MongoGateway 实况读取，零台账无缓存）** | 读取侧保证（每请求实时） |
+| I-05 | 治理操作统一前置链：instanceId 形态（DBM_001）→ 档案存在（DBM_002）→ 引擎匹配（DBM_018：mysql/database/dbuser/backup 接口要求 engine∈mysql/mariadb，redis/key 接口要求 engine=redis；**v2.3：table/row 接口要求 engine∈mysql/mariadb，mcoll/mdoc/mdb/dropdb 接口要求 engine=mongodb**）→ reachable（DBM_003）→ 凭据已配置（DBM_004）→ 执行 | 统一前置校验链 |
 | I-06 | 改密同步：引擎侧改密成功与面板密文 UPSERT 于同一请求编排（D-05）；同步失败不回滚引擎侧（改密是用户意图），返回 DBM_19 显式恢复路径 | 接口编排保证 |
+| I-10（v2.3） | 单列主键行写约束：row/update、row/delete 仅对「恰好 1 列 PRIMARY KEY」的表开放（结构键信息服务端判定）；无单列主键 → DBM_023 拒绝（不进入引擎执行）；行定位 WHERE 主键=旧值（参数化，quoteString A-DB3）；主键列值不可编辑 | 服务端校验（D-22，R-14 不信任前端禁用态） |
+| I-11（v2.3） | 数据内容 admin 专属（Q6）：row/list、mdoc/list 与全部新增 POST 仅 admin（readonly AUTH_008）；元数据 GET（table/list、table/structure、mcoll/list）两角色；readonly 负空间由前端呈现（不请求数据内容接口），服务端边界为最终守卫 | 角色中间件 + 前端负空间（D-24） |
+| I-12（v2.3） | Mongo 系统库删除保护：mdb/dropdb 对 admin/config/local 一律 DBM_028 拒绝（服务端硬校验，防自毁纳管凭据语境） | 服务端校验（D-25） |
 
 ### 2.3 跨聚合根编排
 
 | 编排 | 触发 | 步骤 |
 |------|------|------|
-| 探测纳管编排 | 进程内首次 list / 手动 rescan（D-07） | DISCOVERY_PROBE_SET 探测 → 新 identity INSERT 档案（engine/conn_mode/identity_key，无凭据）→ 既有档案 conn_state 整值更新 → version 随可达连接实况刷新 →（仅 rescan）审计 instance_rescanned |
+| 探测纳管编排 | 进程内首次 list / 手动 rescan（D-07） | **v2.3 两阶段（D-21）**：阶段 1 DISCOVERY_PROBE_SET TCP 目标探测 → 记录各 engine 本机 TCP 可达性 → 新 identity INSERT 档案（engine/conn_mode/identity_key，无凭据）→ 既有档案 conn_state 整值更新 → version 随可达连接实况刷新；阶段 2 socket 目标探测 → 该 engine 本机 TCP 可达则跳过登记（既有 socket 档案 conn_state 仍整值刷新）→ 否则兜底登记；**（仅 rescan）保守清理**：同 engine 本机 TCP 可达且 !CredentialsSet() 的 socket 档案 DELETE + 审计 instance_merged（同事务）→ 审计 instance_rescanned（detail +merged 统计） |
 | 凭据接管编排 | POST /db/instance/credentials（D-03） | 组装连接目标 → DbGateway 连接验证（DBM_005/006 不落库）→ 成功：加密凭据（AES-GCM，D-02）UPSERT + conn_state=reachable + version 刷新 → 审计（脱敏） |
 | 改密同步编排 | root-password / redis/password（D-05） | I-05 前置链 → 引擎侧改密 → 面板凭据密文 UPSERT（同请求）→ 失败返回 DBM_019（不回滚引擎侧）→ 审计（脱敏） |
 | 备份导出编排 | POST /db/backup/export（D-06/D-12） | I-05 前置链 + 库实况存在（DBM_007）+ 在途检查（DBM_016）→ 标记 busy → mysqldump 参数数组执行 → 流式响应（成功流/失败 JSON 双形态）→ 解除 busy → 审计（detail 含 sizeBytes） |
 | 备份导入编排 | POST /db/backup/import（D-06/D-12） | I-05 前置链 + 库存在 + 文件大小校验（DBM_014）→ 标记 busy → 落临时文件（用后即删）→ mysql 客户端参数数组执行 → 解除 busy → 审计；**导入非幂等**（SQL 重放语义，交互层二次确认前置，PRD FR-16） |
+| 表行写编排（v2.3） | POST /db/row/update、/db/row/delete（D-22） | I-05 前置链（mysql/mariadb）+ 库存在（DBM_007）+ 表存在（DBM_022）+ 单列主键判定（I-10，无则 DBM_023）→ WHERE 主键=旧值参数化执行（quoteString A-DB3）→ 匹配 0 行如实反馈（DBM_024，不静默成功）→ 审计 row_updated/row_deleted（同事务脱敏，detail 不含行数据明文） |
+| Mongo 文档写编排（v2.3） | POST /db/mdoc/insert、/db/mdoc/update、/db/mdoc/delete（D-23） | I-05 前置链（mongodb）+ 库/集合存在（DBM_007/025）+ JSON 服务端校验（DBM_026，insert/update）→ InsertOne/ReplaceOne(by _id)/DeleteOne(by _id) → _id 不存在/匹配 0 如实反馈（DBM_027，update/delete）→ 审计 mongo_document_inserted/updated/deleted（同事务脱敏，detail 不含文档内容明文） |
 
 ## 3. 应用/基础设施层设计
 
@@ -108,7 +129,7 @@ database/db_user 不落库：事实源在引擎实况，恒经 DbGateway 实时�
 
 | 项 | 规范 |
 |----|------|
-| 路径格式 | `/db/{resource}/{action}` 三段式（G1-08/M2，无双级资源例外）；资源单数（instance/database/dbuser/backup/mysql/redis/key + v2.0 新增 mongo/mdb/muser——mdb=MongoDB 库、muser=MongoDB 用户；复合缩写与 dbuser 先例同构，保三段式 G1-08） |
+| 路径格式 | `/db/{resource}/{action}` 三段式（G1-08/M2，无双级资源例外）；资源单数（instance/database/dbuser/backup/mysql/redis/key + v2.0 新增 mongo/mdb/muser——mdb=MongoDB 库、muser=MongoDB 用户；复合缩写与 dbuser 先例同构，保三段式 G1-08）；**v2.3 新增 table/row/mcoll/mdoc（D-26：table=MySQL 表元数据面、row=MySQL 行数据面、mcoll=Mongo 集合、mdoc=Mongo 文档；删库复用 mdb 资源段 mdb/dropdb）** |
 | HTTP 方法 | 读=GET，写=POST（面板内部契约，account-auth D-07 同款）；backup/export 为 POST（数据取出动作+审计，D-06） |
 | 响应格式 | `{"code": 0, "message": "ok", "data": {...}}`；code=0 成功，非 0 见 3.4；**例外**：backup/export 成功=application/octet-stream 文件流（Content-Disposition: attachment; filename=`{engine-host-port}_{db}_{yyyyMMddHHmmss}.sql`），失败=JSON 错误体（双形态，D-06）；backup/import=multipart/form-data 请求 |
 | 时间格式 | ISO-8601 UTC；TTL 为整数秒（-1=无过期，Redis 语义如实透传） |
@@ -131,7 +152,7 @@ database/db_user 不落库：事实源在引擎实况，恒经 DbGateway 实时�
 
 角色：admin / readonly（panel_role 固定枚举）；无公开接口。
 
-**接口权限矩阵**（30 接口，v2.0 +mongo 7）：
+**接口权限矩阵**（44 接口，v2.3 +table/row 6 +mcoll/mdoc/mdb-dropped 8；v2.0 +mongo 7）：
 
 | 接口 | admin | readonly | CSRF |
 |------|-------|----------|------|
@@ -157,12 +178,22 @@ database/db_user 不落库：事实源在引擎实况，恒经 DbGateway 实时�
 | GET /db/muser/list | ✓ | ✓（解释性决策：与 dbuser/list 同判，凭据不回显） | — |
 | POST /db/muser/create / delete | ✓ | ✗（AUTH_008） | ✓ |
 | POST /db/muser/grant / revoke | ✓ | ✗（AUTH_008） | ✓ |
+| GET /db/table/list（v2.3） | ✓ | ✓（元数据 Q6，D-24） | — |
+| GET /db/table/structure（v2.3） | ✓ | ✓（元数据 Q6，D-24） | — |
+| POST /db/table/drop（v2.3） | ✓ | ✗（AUTH_008） | ✓ |
+| GET /db/row/list（v2.3） | ✓ | ✗（AUTH_008：行数据属数据内容取出，Q6 沿 key/list 先例，I-11） | —（GET 只读） |
+| POST /db/row/update / delete（v2.3） | ✓ | ✗（AUTH_008） | ✓ |
+| GET /db/mcoll/list（v2.3） | ✓ | ✓（元数据 Q6，D-24） | — |
+| POST /db/mcoll/create / drop（v2.3） | ✓ | ✗（AUTH_008） | ✓ |
+| POST /db/mdb/dropdb（v2.3） | ✓ | ✗（AUTH_008） | ✓ |
+| GET /db/mdoc/list（v2.3） | ✓ | ✗（AUTH_008：文档属数据内容取出，Q6 沿 key/list 先例，I-11） | —（GET 只读） |
+| POST /db/mdoc/insert / update / delete（v2.3） | ✓ | ✗（AUTH_008） | ✓ |
 
-数据权限规则：无行级隔离——readonly「全可看」含全部实例/库/用户行；变更与数据取出能力即角色边界本身（ADR-018）。敏感字段脱敏：任何响应不含 cred_cipher/cred_username 之外的凭据形态（cred_username 可见——连接账户名非秘密；密码/密文/密钥零出口，I-02）。
+数据权限规则：无行级隔离——readonly「全可看」含全部实例/库/用户行；变更与数据取出能力即角色边界本身（ADR-018）。**v2.3 Q6 细化（D-24/I-11）：readonly「全可看」扩展至表清单/表结构/集合清单（元数据），数据内容（行/文档）与全部写操作 admin 专属——readonly 浏览页数据区负空间「数据内容仅管理员可见」（前端不请求 row/list、mdoc/list），越界请求 AUTH_008 全局边界拒绝。**敏感字段脱敏：任何响应不含 cred_cipher/cred_username 之外的凭据形态（cred_username 可见——连接账户名非秘密；密码/密文/密钥零出口，I-02）。
 
 ### 3.4 公共规范
 
-**错误码**（DBM_ 前缀为本模块新增 21 个；鉴权/CSRF/越界/参数校验复用 account-auth 码族 AUTH_001/002/003/008/012）：
+**错误码**（DBM_ 前缀本模块共 29 个：v2.3 +DBM_022~028，v2.3.1 补记 DBM_029〔A-DB13 编号裁定，后端 errcode 已实现、前端映射已同步〕；鉴权/CSRF/越界/参数校验复用 account-auth 码族 AUTH_001/002/003/008/012）：
 
 | code | 标识 | HTTP 语义 | 说明 |
 |------|------|----------|------|
@@ -187,18 +218,27 @@ database/db_user 不落库：事实源在引擎实况，恒经 DbGateway 实时�
 | DBM_019 | CRED_SYNC_FAILED | 部分失败 | 引擎侧改密成功、面板密文同步失败（D-05；data.recoverHint=credentials；不回滚引擎侧） |
 | DBM_020 | IDENTITY_CONFLICT | 参数冲突 | 连接目标纠正后 identity_key 与既有档案冲突（I-01，D-03） |
 | DBM_021 | CHANNEL_UNAVAILABLE | 操作失败 | 引擎客户端通道不可用（宿主机未检出 mysql/redis-cli 二进制；data.reason；区别于 DBM_006——实例可能正常，缺的是客户端；v1.2 补齐——此前该哨兵无映射裸落 INTERNAL） |
+| DBM_022（v2.3） | TABLE_NOT_FOUND | 拒绝 | 目标表不存在（实况校验；table/structure、table/drop、row/* 前置） |
+| DBM_023（v2.3） | NO_SINGLE_PK | 拒绝 | 表无单列主键，行写禁用（I-10/D-22；data.reason 如实提示原因——无主键/复合主键；前端入口禁用态同源判定，服务端为最终守卫） |
+| DBM_024（v2.3） | ROW_NOT_FOUND | 拒绝 | 行定位失败（WHERE 主键=旧值匹配 0 行——行已删除或主键值已被面板外修改；不静默成功，PRD N2 v1.2） |
+| DBM_025（v2.3） | COLLECTION_NOT_FOUND | 拒绝 | 目标集合不存在（实况校验；mcoll/drop、mdoc/* 前置） |
+| DBM_026（v2.3） | INVALID_DOCUMENT_JSON | 参数错误 | 文档 JSON 非法（服务端校验 R-14；前端拦截为先，服务端为最终守卫；mdoc/insert、mdoc/update） |
+| DBM_027（v2.3） | DOCUMENT_NOT_FOUND | 拒绝 | 目标文档不存在（_id 定位匹配 0——已删除/从未存在；mdoc/update、mdoc/delete；不静默成功） |
+| DBM_028（v2.3） | SYSTEM_DATABASE_PROTECTED | 拒绝 | Mongo 系统库（admin/config/local）删除保护（I-12/D-25；mdb/dropdb 服务端硬校验） |
+| DBM_029（v2.3.1 补记） | ENGINE_UNAUTHORIZED | 拒绝 | 引擎操作被拒——凭据账户权限不足（身份对但无权执行该命令，区别于 DBM_005 认证被拒〔身份错〕；data.reason=引擎原文，如 MongoDB Unauthorized code 13；触达 mongo/status、muser/*、v2.3 全部 mongo 治理接口〔translateGatewayErr 对 dbmongo.ErrUnauthorized 统一翻译〕。编号沿革 A-DB13：v0.1.4 修复轮原占 DBM_022，v2.3 定稿 DBM_022=TABLE_NOT_FOUND 后续接空号改 DBM_029，符号 ErrDBMEngineUnauthorized/语义不变；本行为设计侧补记——后端已实发、前端 DBM_ERROR_TEXT/两 Mongo 弹窗判定已同步〔Gate 2 E1/AL-005 闭环〕） |
 
-**枚举**（引用均在 workspace/01-solution/04-business-enum.md 定稿；本模块 D2 定稿 3 项 + 本次 D3 新增 1 项）：
+**枚举**（引用均在 workspace/01-solution/04-business-enum.md 定稿；本模块 D2 定稿 3 项 + D3 新增 grant_level/mongo_role 2 项；**v2.3 零新增枚举**——表存储引擎/排序规则为实例实况开放集合沿字符集先例不入池，审计动作码为常量非池枚举；v2.0 遗漏本表补正：db_engine +mongodb、mongo_role 行补列）：
 
 | 枚举标识 | 取值 | 用途 |
 |---------|------|------|
-| db_engine | mysql \| mariadb \| redis | 档案引擎列/清单筛选/接口路由（I-05） |
+| db_engine | mysql \| mariadb \| redis \| mongodb | 档案引擎列/清单筛选/接口路由（I-05；mongodb v2.0 扩值，迁移 011） |
 | db_conn_mode | socket \| tcp | 连接方式（identity_key 组装，D-01） |
 | instance_conn_state | reachable \| unreachable | 探测态（I-03；无流转语义） |
-| grant_level | readonly \| write \| all | 库级授权三档（D-10；**本次入池**） |
+| grant_level | readonly \| write \| all | 库级授权三档（D-10；v1.0 入池） |
+| mongo_role | read \| readWrite \| dbAdmin | MongoDB 库级角色三档（D-19；v2.0 入池，本表 v2.3 补列） |
 | audit_result（复用） | success \| failure | 审计结果（OHS 契约） |
 
-**业务常量**：审计动作码（D-13 基础 13 个 + v2.0 mongo_user_created/deleted/granted/revoked 4 个 + **v2.2 instance_bootstrapped**，action 列存码、category=change；instance_bootstrapped detail={engine, connMode, status}，**不含密码**，安装后配置就绪注册审计 §4.6）；DISCOVERY_PROBE_SET（D-07 探测集）；MYSQL_STATUS_FIELDS / REDIS_INFO_FIELDS（D-08 白名单）；KEY_SCAN_COUNT=200、SLOWLOG_LIMIT 默认 50 上限 200（D-09）；DUMP_SIZE_LIMIT=512MiB、mysqldump 参数模板 `--single-transaction --routines --triggers --hex-blob`（D-06）；grant_level→权限映射表（D-10：readonly→SELECT、write→SELECT,INSERT,UPDATE,DELETE、all→ALL PRIVILEGES，库级 `db.*`）；建库默认 charset=utf8mb4（D-11）。
+**业务常量**：审计动作码（D-13 基础 13 个 + v2.0 mongo_user_created/deleted/granted/revoked 4 个 + v2.2 instance_bootstrapped + **v2.3 新增 10 个：table_dropped/row_updated/row_deleted/mongo_database_dropped/mongo_collection_created/mongo_collection_dropped/mongo_document_inserted/mongo_document_updated/mongo_document_deleted/instance_merged**，共 28 个，action 列存码、category=change；instance_bootstrapped detail={engine, connMode, status}，**不含密码**，安装后配置就绪注册审计 §4.6；**v2.3 detail 脱敏口径：行写/文档写 detail 仅含对象定位（instanceId/database/table/主键值或 _id）与动作结果，不含行数据/文档内容明文**；instance_merged detail={engine, identityKey, reason:"redundant_socket_tcp_reachable"}，rescan 保守清理专用 D-21）；**v2.3 分页常量：TABLE_PAGE_LIMIT/DOC_PAGE_LIMIT 默认 20 上限 100（D-22/D-23）**；DISCOVERY_PROBE_SET（D-07 探测集）；MYSQL_STATUS_FIELDS / REDIS_INFO_FIELDS（D-08 白名单）；KEY_SCAN_COUNT=200、SLOWLOG_LIMIT 默认 50 上限 200（D-09）；DUMP_SIZE_LIMIT=512MiB、mysqldump 参数模板 `--single-transaction --routines --triggers --hex-blob`（D-06）；grant_level→权限映射表（D-10：readonly→SELECT、write→SELECT,INSERT,UPDATE,DELETE、all→ALL PRIVILEGES，库级 `db.*`）；建库默认 charset=utf8mb4（D-11）。
 
 ## 4. 聚合根与领域对象详细设计
 
@@ -266,8 +306,8 @@ db_instance：
 
 **接口详情**（全部 POST 隐含 CSRF 与 AUTH_008 角色边界；mysql 族接口隐含 I-05 引擎匹配 DBM_018、redis 族同理；观测/治理接口隐含 reachable/凭据前置 DBM_003/004，不再逐条重复）：
 
-- **GET /db/instance/list**：query `{engine?(db_engine)}`。处理：进程内未探测过则先触发自动探测（系统机制不写审计，D-07）→ 读表按 discovered_at 排序 → engine 筛选。响应 data=`{items:[{id, engine, connMode, socketPath?, host?, port?, version?, connState, credentialsSet:boolean, credUsername?, credUpdatedAt?, discoveredAt}], generatedAt}`（cred_cipher/密钥零下发，I-02）。审计：—（查看类）。
-- **POST /db/instance/rescan**：无 req。处理：探测编排（2.3）：新 identity INSERT（无凭据档案）→ 既有档案 conn_state/version 整值更新。响应 data=`{discovered:n, updated:n}`。审计：instance_rescanned（change，detail={discovered,updated}）。
+- **GET /db/instance/list**：query `{engine?(db_engine)}`。处理：进程内未探测过则先触发自动探测（系统机制不写审计，D-07；**v2.3 两阶段 TCP 优先登记 D-21**）→ 读表按 discovered_at 排序 → engine 筛选。响应 data=`{items:[{id, engine, connMode, socketPath?:string|null, host?:string|null, port?:number|null, version?:string|null, connState, credentialsSet:boolean, credUsername?:string|null, credUpdatedAt?:string|null, discoveredAt, redundantSocket:boolean（v2.3 新增，D-21：conn_mode=socket 且同 engine 本机 TCP 档案存在且可达时派生 true，其余 false——已配凭据冗余 socket 行保留+标注口径）}], generatedAt}`（cred_cipher/密钥零下发，I-02；**可空字段 JSON null≠TS undefined，前端类型须显式 | null——children:null 先例同口径**）。审计：—（查看类）。**v2.3 呈现注（F1/F2，D4 承载）**：TCP 优先登记下常见情况天然一行 TCP；清单说明文案与状态/凭据 Tag 语义 tooltip+图例归前端（绿=可达/橙=不可达，仅连通性不代表凭据正确），本接口 DTO 除 redundantSocket 外零变更。
+- **POST /db/instance/rescan**：无 req。处理：探测编排（2.3，**v2.3 两阶段 D-21**）：TCP 目标探测登记/更新 → socket 目标按引擎 TCP 可达性跳过登记或兜底 → **保守清理：同 engine 本机 TCP 可达且 !credentialsSet 的 socket 档案 DELETE（审计 instance_merged 同事务）；已配凭据 socket 行保留（redundantSocket 标注经 list 呈现）**。响应 data=`{discovered:n, updated:n, merged:n（v2.3 新增：本轮保守清理的冗余 socket 行数，additive 字段）}`。审计：instance_rescanned（change，detail={discovered,updated,merged}）+ 每清理行 instance_merged（change，同事务）。
 - **POST /db/instance/credentials**：req `{instanceId, connMode?, socketPath?, host?, port?, username, password}`（连接目标纠正字段可选，D-03）。校验：instanceId（DBM_001/002）；纠正字段 I-07/I-08（AUTH_012）；identity 重算冲突 DBM_020。执行：凭据接管编排（2.3）——DbGateway 连接验证：认证失败 DBM_005（不落库）、网络层失败 DBM_006（不落库，含未分类引擎失败归并）、客户端通道不可用 DBM_021（不落库）；成功：CredentialVault 加密 UPSERT + conn_state=reachable + version 实况刷新。响应 data=`{instanceId, connState:"reachable", version}`。审计：instance_credentials_set（change，detail={engine, connMode}，**不含密码**）。
 - **POST /db/instance/remove**：req `{instanceId}`。校验：DBM_001/002；在途检查 DBM_016（D-12）。执行：DELETE 档案行（连带凭据密文；不卸载实例/不停进程/不删数据，⚠️A20；交互层二次确认文案明示「不删除数据」）。响应 data=`{instanceId}`。审计：instance_removed（change，detail={engine, identityKey}）。
 - **GET /db/mysql/status**：query `{instanceId}`。I-05 前置（engine∈mysql/mariadb）。响应 data=`{version, variables:{...MYSQL_STATUS_FIELDS 白名单 ≤10 项}}`（实时读取，不落库不缓存，D-04/D-08）。审计：—。
@@ -312,8 +352,21 @@ DbGateway（MySQL/MariaDB 由 dbmysql 承载、Redis 由 dbredis 承载）{
   SetRequirepass(inst, newPassword) error
   ScanKeys(inst, cursor, pattern, count) (nextCursor, []{key, type}, error)  // D-09；禁 KEYS
   KeyTTL(inst, key) (ttlSec int64, error)             // -1=无过期；不存在→DBM_015
+  // MySQL 表级治理（v2.3，D-22；dbmysql 承载，CLI query() 通道 R-08 参数数组）
+  ListTables(inst, db) ([]{name, engine, rowEstimate, dataSizeBytes, collation, comment}, error)
+      // information_schema.TABLES 实况投影；行数估算（TABLE_ROWS，InnoDB 统计值如实标注估算语义）
+  TableStructure(inst, db, table) ([]{column, type, nullable, key, default, extra, comment}, error)
+      // information_schema.COLUMNS 实况投影；key 含 PRI 判定单列主键（I-10）
+  TableRows(inst, db, table, offset, limit) (rows []map[string]any, total int64, error)
+      // JSON_OBJECT 逐行聚合（先取列名再构造 SELECT JSON_OBJECT(...) LIMIT ?,?，batch 转义还原后解析）
+      // 列值 JSON null=NULL 语义（≠TS undefined）；total=COUNT(*) 实况
+  DropTable(inst, db, table) error                    // DROP TABLE（不存在→DBM_022；不可逆）
+  UpdateRow(inst, db, table, pkColumn, pkValue, values map[string]any) (affected int64, error)
+      // WHERE pkColumn=pkValue 参数化（quoteString A-DB3）；values 含 null→SET col=NULL；affected=0→DBM_024
+  DeleteRow(inst, db, table, pkColumn, pkValue) (affected int64, error)
+      // WHERE pkColumn=pkValue 参数化；affected=0→DBM_024
 }
-InstanceProber 组合 DISCOVERY_PROBE_SET 探测 + InstanceRepository 归并登记（D-07）
+InstanceProber 组合 DISCOVERY_PROBE_SET 两阶段探测（TCP 优先/socket 兜底，D-21）+ InstanceRepository 归并登记（D-07）+ rescan 保守清理（D-21）
 ```
 
 约束：全部引擎命令/查询经 dbmysql/dbredis 适配器执行，外部命令一律参数数组（R-08，D-06）；凭据明文仅在网关内解密后建连使用，不外泄任何调用方（⚠️A18，D-02）；引擎方言（SQL 转义/协议错误）翻译为 DBM_ 错误语义，不渗透接口层。
@@ -411,13 +464,32 @@ InstanceProber 组合 DISCOVERY_PROBE_SET 探测 + InstanceRepository 归并登�
 #### 4.5.1 领域对象与网关
 
 - 领域对象：mongodb 实例=db_instance 聚合根 engine 扩值（D-01 合一表迁移 011）；mongo 库/用户=实况实时投影零落库（I-04 同构，D-18/D-19）。
-- 网关契约：**MongoGateway**（进程内 mongo-driver 通道，D-15）——Available（恒 nil，无二进制依赖）/Ping/ServerVersion/ListDatabases/StatusSummary/ListUsers/CreateUser/DropUser/GrantRole/RevokeRole；哨兵复用 dbmysql 族（ErrAuthRejected/ErrConnFailed/ErrQueryFailed 归一）由 translateGatewayErr/translatePingErr 翻译（D-16）。
-- 前置链：I-05 同构——mongo 族接口要求 engine=mongodb（DBM_018）；reachable/凭据前置（DBM_003/004）。
+- 网关契约：**MongoGateway**（进程内 mongo-driver 通道，D-15）——Available（恒 nil，无二进制依赖）/Ping/ServerVersion/ListDatabases/StatusSummary/ListUsers/CreateUser/DropUser/GrantRole/RevokeRole；哨兵复用 dbmysql 族（ErrAuthRejected/ErrConnFailed/ErrQueryFailed 归一）由 translateGatewayErr/translatePingErr 翻译（D-16）。**v2.3 扩展（D-23/D-25，dbmongo 承载，既有 dial/withClient）**：
+
+```
+MongoGateway 扩展方法（v2.3）{
+  DropDatabase(inst, db) error                        // dropDatabase（系统库保护 I-12 由服务层前置，DBM_028）
+  ListCollections(inst, db) ([]{name, docCount, sizeBytes}, error)
+      // ListCollections 实况 + estimatedDocumentCount/collStats（文档数估算语义如实）
+  CreateCollection(inst, db, name) error              // createCollection（重名→DBM_008 语义复用）
+  DropCollection(inst, db, name) error                // dropCollection（不存在→DBM_025）
+  ListDocuments(inst, db, coll, skip, limit) (docs []map[string]any, total int64, error)
+      // find skip/limit + CountDocuments；_id 置顶呈现由前端排序（响应保引擎自然序）
+  InsertDocument(inst, db, coll, doc map[string]any) (insertedId any, error)
+      // InsertOne；_id 冲突→引擎错误如实（DBM_008 语义复用，data.reason）
+  ReplaceDocument(inst, db, coll, id any, doc map[string]any) (matched int64, error)
+      // ReplaceOne by _id（_id 不可变更，服务层剥离/校验）；matched=0→DBM_027
+  DeleteDocument(inst, db, coll, id any) (deleted int64, error)
+      // DeleteOne by _id；deleted=0→DBM_027
+}
+```
+
+- 前置链：I-05 同构——mongo 族接口要求 engine=mongodb（DBM_018）；reachable/凭据前置（DBM_003/004）。**v2.3：mcoll/mdoc/mdb/dropdb 同链（I-05 扩展）+ 集合存在 DBM_025（mdoc/* 与 mcoll/drop）+ JSON 校验 DBM_026（mdoc/insert/update）+ 系统库保护 DBM_028（mdb/dropdb）**。
 
 #### 4.5.2 接口详情（7 接口；POST 隐含 CSRF+admin，D-19 角色矩阵见 3.3）
 
 - **GET /db/mongo/status**：query `{instanceId}`。响应 data=`{version, uptimeSec, connections:{current,available}, memResidentMb, opcounters:{insert,query,update,delete}}`（serverStatus 白名单 D-08 同构 ≤10 项：version/uptime/connections.current/connections.available/mem.resident/opcounters.insert/query/update/delete）。审计：—。
-- **GET /db/mdb/list**：query `{instanceId}`。响应 data=`{items:[{name, sizeBytes, collections}], generatedAt}`（ListDatabases 只读投影，D-18；系统库 admin/config/local 如实返回）。审计：—。
+- **GET /db/mdb/list**：query `{instanceId}`。响应 data=`{items:[{name, sizeBytes, collections}], generatedAt}`（ListDatabases 实况投影；系统库 admin/config/local 如实返回）。审计：—。**v2.3 修订（rule_changed，ADR-031/D-25）**：D-18「只读投影」口径废止——本清单为可管理清单（前端行操作「浏览集合」→mcoll/list、「删除库」→mdb/dropdb，admin 专属）；**DTO 零变更**（操作入口归前端呈现，系统库删除保护 DBM_028 服务端承载）。
 - **GET /db/muser/list**：query `{instanceId}`。响应 data=`{items:[{username, mechanisms:[...], roles:[{db, role}]}], generatedAt}`（admin 库 users 实况投影；密码/凭证零下发 I-02）。审计：—。
 - **POST /db/muser/create**：req `{instanceId, username, password, db, role}`。校验：username/db 标识符白名单（R-14，AUTH_012）；role∈mongo_role（AUTH_012）；重名 DBM_010（实况）。执行：db.createUser（首库首角色 D-19）；密码止步网关（I-02）。响应 data=`{instanceId, username}`。审计：mongo_user_created（change，detail={username, db, role}，不含密码）。
 - **POST /db/muser/delete**：req `{instanceId, username}`。校验：DBM_009（不存在，实况）。执行：db.dropUser（连带回收全部角色）。响应 data=`{instanceId, username}`。审计：mongo_user_deleted。
@@ -480,6 +552,90 @@ MongoBootstrap {
 
 无 MQ、无领域事件。出站：AuditService.Record（instance_bootstrapped，同事务脱敏）。消费方：env-mgmt BootstrapTrigger（进程内 OHS，单向）。仓储复用 InstanceRepository（UpsertDiscovered/UpdateCredentials/GetByIdentity）+ CredentialVault。
 
+### 4.7 MySQL 表级治理（data_table/table_row 实况投影，v2.3 新增）
+
+#### 4.7.1 领域模型
+
+**表结构组合**：无表（domain-model v1.23 D2 判定零表/行台账——事实源在 MySQL/MariaDB 实况，information_schema 与行数据恒经 DbGateway 实时读取，I-04 扩展）。投影对象：data_table（标识=所属实例+库名+表名；字段=表名/引擎/行数估/大小/排序规则/注释/列结构）、table_row（标识=所属实例+库+表+单列主键值；字段=各列值 JSON）。
+
+**不变量**：I-04（零台账）；I-10（单列主键行写约束，D-22）；I-11（行数据 admin 专属，D-24）；表名/库名标识符白名单 quoteString（A-DB3）、引擎侧 SQL 裁定（A-DB10）沿既有口径。
+
+**领域服务**：TableGovernanceService（表清单/结构/行分页/行写/删表编排，复用 DbGateway v2.3 扩展方法 4.1.5 + 单列主键判定 + 审计同事务）。
+
+#### 4.7.2 状态模型 / 4.7.3 子流程设计
+
+无状态机（表/行为无状态实况对象，PRD v1.2 第六部分辨析）；无子流程（行写为单动作过程）。
+
+#### 4.7.4 接口设计（6 接口；POST 隐含 CSRF+admin；mysql 族隐含 I-05 引擎匹配 DBM_018 与 reachable/凭据前置 DBM_003/004）
+
+| 接口 | 方法 | 权限 | 说明 |
+|------|------|------|------|
+| /db/table/list | GET | admin+readonly | 表清单（元数据 Q6，实时投影） |
+| /db/table/structure | GET | admin+readonly | 表结构（元数据 Q6，含单列主键判定） |
+| /db/table/drop | POST | admin | 删表（DROP TABLE 不可逆，强确认前置） |
+| /db/row/list | GET | admin | 行数据分页（数据内容 Q6 专属，I-11） |
+| /db/row/update | POST | admin | 行编辑（单列主键约束 I-10） |
+| /db/row/delete | POST | admin | 行删除（单列主键约束 I-10） |
+
+**接口详情**（DTO 逐形状；**可空字段显式 string|null/number|null 标注——JSON null≠TS undefined，前端类型须 | null，children:null 先例同口径**）：
+
+- **GET /db/table/list**：query `{instanceId, database}`。校验：I-05 前置；库存在 DBM_007（实况）。执行：DbGateway.ListTables（information_schema.TABLES）。响应 data=`{items:[{name:string, engine:string, rowEstimate:number|null, dataSizeBytes:number|null, collation:string|null, comment:string|null}], generatedAt:string}`（rowEstimate=TABLE_ROWS 统计估算——InnoDB 非精确值如实标注估算语义，视图/特殊引擎可空；comment 无注释时 null）。审计：—（查看类，元数据两角色）。
+- **GET /db/table/structure**：query `{instanceId, database, table}`。校验：I-05 前置；库 DBM_007/表 DBM_022（实况）。执行：DbGateway.TableStructure（information_schema.COLUMNS）。响应 data=`{table:string, columns:[{column:string, type:string, nullable:boolean, key:string, default:string|null, extra:string, comment:string|null}], singlePk:boolean, pkColumn:string|null, generatedAt:string}`（key=引擎 COLUMN_KEY 原值 ""/PRI/UNI/MUL 开放字符串非枚举；default=COLUMN_DEFAULT 无默认 null；singlePk=恰好 1 列 key=PRI 派生，pkColumn 无单列主键时 null——前端行写入口禁用判定同源，服务端 I-10 为最终守卫）。审计：—。
+- **GET /db/row/list**：query `{instanceId, database, table, page?(默认 1), pageSize?(默认 20，上限 100，TABLE_PAGE_LIMIT)}`。校验：I-05 前置；库 DBM_007/表 DBM_022；page/pageSize 形态（AUTH_012，超限截断至上限）。执行：DbGateway.TableRows（JSON_OBJECT 逐行聚合，D-22；offset=(page-1)*pageSize）。响应 data=`{columns:[string], rows:[{[column:string]: string|number|boolean|null}], total:number, page:number, pageSize:number, generatedAt:string}`（columns 来自结构列序；**行值 JSON null=NULL 语义（≠TS undefined）**，类型随列类型 JSON_OBJECT 原生映射；total=COUNT(*) 实况；长文本截断归前端呈现）。审计：—（查看类；**admin 专属——行数据属数据内容取出，I-11/D-24，readonly AUTH_008**）。
+- **POST /db/table/drop**：req `{instanceId, database, table}`。校验：I-05 前置；库 DBM_007/表 DBM_022（不静默成功）。执行：DbGateway.DropTable（DROP TABLE，标识符 quoteString A-DB3）。响应 data=`{instanceId, database, table}`。审计：table_dropped（change，detail={instanceId, database, table}；不可逆操作，交互层强制二次确认）。
+- **POST /db/row/update**：req `{instanceId, database, table, pkValue:string, values:{[column:string]: string|null}}`。校验：I-05 前置；库 DBM_007/表 DBM_022；**单列主键判定 I-10（无则 DBM_023，data.reason 如实提示）**；values 非空且不含主键列（主键为定位键不可编辑，AUTH_012）；列名 ∈ 结构列集（AUTH_012）；pkValue 非空（AUTH_012）。执行：DbGateway.UpdateRow（WHERE 主键=旧值参数化；values 文本值经 MySQL 隐式类型转换，**null→SET col=NULL**）；affected=0 → DBM_024（行已删除/主键值已变更，不静默成功）。响应 data=`{instanceId, database, table, pkValue, affected:1}`。审计：row_updated（change，detail={instanceId, database, table, pkValue, columns:[列名]}，**不含行值明文**，同事务脱敏）。
+- **POST /db/row/delete**：req `{instanceId, database, table, pkValue:string}`。校验：同 row/update（I-10/DBM_023；pkValue 非空）。执行：DbGateway.DeleteRow（WHERE 主键=旧值参数化）；affected=0 → DBM_024。响应 data=`{instanceId, database, table, pkValue, affected:1}`。审计：row_deleted（change，detail={instanceId, database, table, pkValue}，同事务脱敏；交互层确认前置）。
+
+**幂等语义**：table/drop 非幂等（不存在 DBM_022）；row/update、row/delete 按主键旧值定位（匹配 0 行 DBM_024 如实，不静默）；重复提交同一行编辑（值未变）affected=1 成功（引擎语义如实）。防重复提交为前端在途态（P3）。
+
+#### 4.7.5 领域事件与集成
+
+无 MQ、无领域事件（R-09）。出站：AuditService.Record（table_dropped/row_updated/row_deleted，同事务脱敏）。网关：DbGateway v2.3 扩展（4.1.5，dbmysql CLI query() 通道 R-08 参数数组；JSON_OBJECT 构造与 batch 转义还原细节归实现，D-22）。
+
+### 4.8 MongoDB 集合与文档治理（mongo_collection/mongo_document 实况投影 + mdb/dropdb，v2.3 新增）
+
+#### 4.8.1 领域模型
+
+**表结构组合**：无表（domain-model v1.23 零集合/文档台账——事实源在 MongoDB 实况，恒经 MongoGateway 实时读取，I-04 扩展）。投影对象：mongo_collection（标识=所属实例+库名+集合名；字段=集合名/文档数/大小）、mongo_document（标识=所属实例+库+集合+_id；字段=JSON 内容）。
+
+**不变量**：I-04（零台账）；I-11（文档内容 admin 专属，D-24）；I-12（系统库删除保护，D-25）；_id 为文档定位键不可变更（D-23）；JSON 双层校验（前端拦截+服务端 DBM_026，R-14）。
+
+**领域服务**：MongoGovernanceService（集合清单/建删集合/删库/文档分页/CRUD 编排，复用 MongoGateway v2.3 扩展方法 4.5.1 + 审计同事务）。
+
+#### 4.8.2 状态模型 / 4.8.3 子流程设计
+
+无状态机（集合/文档为无状态实况对象）；无子流程（文档 CRUD 为单动作过程）。
+
+#### 4.8.4 接口设计（8 接口；POST 隐含 CSRF+admin；mongo 族隐含 I-05 引擎匹配 DBM_018 与 reachable/凭据前置 DBM_003/004）
+
+| 接口 | 方法 | 权限 | 说明 |
+|------|------|------|------|
+| /db/mcoll/list | GET | admin+readonly | 集合清单（元数据 Q6，实时投影） |
+| /db/mcoll/create | POST | admin | 建集合（createCollection；隐式建库经此达成，D-25） |
+| /db/mcoll/drop | POST | admin | 删集合（dropCollection 不可逆，强确认前置） |
+| /db/mdb/dropdb | POST | admin | 删库（dropDatabase 不可逆；系统库保护 DBM_028） |
+| /db/mdoc/list | GET | admin | 文档分页（数据内容 Q6 专属，I-11） |
+| /db/mdoc/insert | POST | admin | 文档插入（InsertOne，JSON 校验） |
+| /db/mdoc/update | POST | admin | 文档编辑（ReplaceOne by _id，JSON 校验） |
+| /db/mdoc/delete | POST | admin | 文档删除（DeleteOne by _id，强确认前置） |
+
+**接口详情**（DTO 逐形状；可空字段显式标注，JSON null≠TS undefined）：
+
+- **GET /db/mcoll/list**：query `{instanceId, database}`。校验：I-05 前置（engine=mongodb）；库存在 DBM_007（实况）。执行：MongoGateway.ListCollections。响应 data=`{items:[{name:string, docCount:number, sizeBytes:number}], generatedAt:string}`（docCount=estimatedDocumentCount 估算语义如实；空库返回空列表非错误）。审计：—（查看类，元数据两角色）。
+- **POST /db/mcoll/create**：req `{instanceId, database, name}`。校验：I-05 前置；name 集合名形态白名单（R-14，AUTH_012——非空/禁 $ 前缀/禁空字符等引擎规则服务端校验）；同名集合实况校验 DBM_008（语义复用，data.reason）。执行：MongoGateway.CreateCollection（**隐式建库语义：库随首集合写入产生，无独立建库接口，D-25；UI 如实说明归 D4**）。响应 data=`{instanceId, database, name}`。审计：mongo_collection_created（change，detail={instanceId, database, name}）。
+- **POST /db/mcoll/drop**：req `{instanceId, database, name}`。校验：I-05 前置；集合存在 DBM_025（不静默成功）。执行：MongoGateway.DropCollection。响应 data=`{instanceId, database, name}`。审计：mongo_collection_dropped（change；不可逆，交互层强制二次确认）。
+- **POST /db/mdb/dropdb**：req `{instanceId, database}`。校验：I-05 前置；**系统库 admin/config/local → DBM_028（I-12 服务端硬校验）**；库存在 DBM_007（实况，不静默成功）。执行：MongoGateway.DropDatabase（dropDatabase，连同全部集合与文档移除）。响应 data=`{instanceId, database}`。审计：mongo_database_dropped（change，detail={instanceId, database}；不可逆，交互层强制二次确认）。
+- **GET /db/mdoc/list**：query `{instanceId, database, collection, page?(默认 1), pageSize?(默认 20，上限 100，DOC_PAGE_LIMIT)}`。校验：I-05 前置；库 DBM_007/集合 DBM_025；page/pageSize 形态（AUTH_012，超限截断至上限）。执行：MongoGateway.ListDocuments（find skip/limit，skip=(page-1)*pageSize；total=CountDocuments）。响应 data=`{documents:[{[field:string]: any}], total:number, page:number, pageSize:number, generatedAt:string}`（documents 保引擎自然序，**_id 置顶呈现归前端排序**；文档值为 BSON→JSON 映射——ObjectId 呈 `{"$oid":"hex"}` 扩展 JSON 形态透传，日期 `{"$date":...}`，**JSON null≠TS undefined**；嵌套对象/数组如实）。审计：—（查看类；**admin 专属——文档属数据内容取出，I-11/D-24，readonly AUTH_008**）。
+- **POST /db/mdoc/insert**：req `{instanceId, database, collection, document:object}`。校验：I-05 前置；库 DBM_007/集合 DBM_025；**document 为合法 JSON 对象（服务端解析校验，非法 DBM_026；前端拦截为先）**；document._id 可选（缺省引擎自动生成 ObjectId）；_id 冲突 → DBM_008 语义复用（data.reason 引擎原文）。执行：MongoGateway.InsertDocument。响应 data=`{instanceId, database, collection, insertedId:any}`（insertedId=插入文档 _id 的 JSON 形态，ObjectId 为 `{"$oid":"hex"}`）。审计：mongo_document_inserted（change，detail={instanceId, database, collection, insertedId}，**不含文档内容明文**，同事务脱敏）。
+- **POST /db/mdoc/update**：req `{instanceId, database, collection, id:any, document:object}`。校验：I-05 前置；库 DBM_007/集合 DBM_025；document 合法 JSON（DBM_026）；**id=mdoc/list 响应中 _id 原值透传（ObjectId `{"$oid":"hex"}`/字符串/数值等，网关内还原 BSON）**；document._id 若存在必须与 id 一致（_id 不可变更，不一致 AUTH_012；缺省由服务端以 id 补入）。执行：MongoGateway.ReplaceDocument（ReplaceOne by _id 整体替换，非字段级 patch）；matched=0 → DBM_027（文档已删除/从未存在，不静默成功）。响应 data=`{instanceId, database, collection, id, matched:1}`。审计：mongo_document_updated（change，detail={instanceId, database, collection, id}，不含文档内容明文）。
+- **POST /db/mdoc/delete**：req `{instanceId, database, collection, id:any}`。校验：I-05 前置；库 DBM_007/集合 DBM_025；id 形态同 update。执行：MongoGateway.DeleteDocument（DeleteOne by _id）；deleted=0 → DBM_027。响应 data=`{instanceId, database, collection, id, deleted:1}`。审计：mongo_document_deleted（change，detail={instanceId, database, collection, id}；交互层强确认前置）。
+
+**幂等语义**：mcoll/create 非幂等（同名 DBM_008）；mcoll/drop、mdb/dropdb 非幂等（不存在 DBM_025/007）；mdoc/insert _id 冲突报错（缺省 _id 时每次插入为新文档，非幂等语义如实）；mdoc/update、mdoc/delete 按 _id 定位（不存在 DBM_027 如实，不静默）。防重复提交为前端在途态（P3）。
+
+#### 4.8.5 领域事件与集成
+
+无 MQ、无领域事件（R-09，mongo-driver 进程内库非外部集成）。出站：AuditService.Record（mongo_database_dropped/mongo_collection_created/mongo_collection_dropped/mongo_document_inserted/mongo_document_updated/mongo_document_deleted，同事务脱敏）。网关：MongoGateway v2.3 扩展（4.5.1，dbmongo 既有 dial/withClient，D-15）。
+
 ## 5. 模块清单汇总
 
 ### 5.1 对外服务清单（进程内 OHS/内部服务）
@@ -488,7 +644,8 @@ MongoBootstrap {
 |---------|--------|---------|
 | AuditService.Record(entry)（account-auth OHS，消费） | 本模块 → account-auth | R-03 四要素；同事务；凭据脱敏（D-13）；见 api-account-auth.md 4.3.4 |
 | DbGateway.DumpDatabase（预期暴露） | cron-backup（M8，待其 D2/D3 定义） | 数据库备份源复用方向（1.5）；本模块内为唯一实例——导出接口与未来备份任务共用同一网关方法与参数模板（D-06），届时按其模块契约正式登记 |
-| InstanceProber / CredentialVault / BackupService | 本模块内部 | 4.1.1 领域服务；busy 任务表 D-12 |
+| InstanceProber / CredentialVault / BackupService | 本模块内部 | 4.1.1 领域服务；busy 任务表 D-12；**v2.3 InstanceProber 两阶段 TCP 优先探测 + rescan 保守清理（D-21）** |
+| **TableGovernanceService / MongoGovernanceService（v2.3 新增）** | **本模块内部** | **4.7.1/4.8.1 领域服务：表级治理（单列主键判定 I-10 + JSON_OBJECT 行分页 D-22）与集合文档治理（_id 定位 + JSON 校验 D-23 + 系统库保护 I-12）；审计同事务脱敏（行/文档内容不入 detail）** |
 | **BootstrapAfterInstall(ctx, engine, actorName) → BootstrapOutcome（v2.2 提供）** | **env-mgmt（安装后配置就绪 worker 消费）** | **进程内 OHS（§4.6/D-20）：建管理账户/设随机强密码 + 注册 db_instance 与凭据密文（装完即可管）；幂等保守（已配置/已存在跳过不覆盖）；治理通道 TCP 验证后落库（D-03 哲学）；BootstrapOutcome{Status,Note,InstanceID} 回传（Note 不含密码）；审计 instance_bootstrapped 同事务脱敏；引擎引导窄接口注入（零 runner 实况依赖）** |
 | 中间件 AuthRequired / CsrfGuard / RoleRequired | 复用 account-auth | 顺序见 3.1 |
 
@@ -503,9 +660,11 @@ MongoBootstrap {
 | 5 | DELETE FROM db_instance WHERE id=? | 移除纳管（⚠️A20，连带凭据密文） |
 | 6 | SELECT * FROM db_instance WHERE identity_key=? | 连接目标纠正冲突校验（DBM_020） |
 
-（库/用户/key/慢日志/进程列表零 SQL——引擎实况经 DbGateway 读取，I-04。）
+（库/用户/key/慢日志/进程列表零 SQL——引擎实况经 DbGateway 读取，I-04。**v2.3：表/行/集合/文档同为零 SQL——引擎实况经 DbGateway/MongoGateway 读取；rescan 保守清理复用 SQL #5 DELETE（D-21，按 id 参数绑定，同事务审计 instance_merged）；本轮零新增 SQL 语句、零 DDL 变更、零迁移**。）
 
 ### 5.3 DDL
+
+**v2.3 声明：DDL 零变更**——表/行/集合/文档为零台账投影（domain-model v1.23），无新表、无列变更、无迁移；db_instance 合一档案表与迁移 011 维持 v2.0 定稿如下。
 
 ```sql
 CREATE TABLE IF NOT EXISTS db_instance (
@@ -570,6 +729,8 @@ CREATE INDEX IF NOT EXISTS idx_dbinst_engine ON db_instance(engine);
 | v1.2 | 2026-11-17 | rule_added | v0.1.4 用户反馈 bug 修复轮（凭据验证返回裸 INTERNAL）：①错误映射补齐——ErrUnavailable（客户端二进制未检出）新增 DBM_021 承载；credentials Ping 语境未分类引擎失败（ErrQueryFailed/ErrCommandFailed）归 DBM_006（D-03 契约「连接类失败一律业务码」落实）；②tcp 模式连接参数显式 --protocol=TCP（mysql 客户端对 -h localhost 特例走 Unix socket 忽略 -P，tcp 语义被静默改道）；接口无增删改 | 3.4 / 4.1 / 6.1 |
 | v2.1 | 2026-11-17 | rule_changed | v0.1.6 后实测反馈 DBM_005 诊断轮（d0-clarification-2026-11-17-dbm005.md）：读码复核确认面板验证链路无缺陷（传参/MYSQL_PWD env 注入/错误映射逐环核验），DBM_005 为服务器真实 1045 拒绝的如实呈现；UX 规则增强——①DBM_005/006 凭据弹窗内联追加 data.reason 服务器原文（此前固定文案丢弃 reason）；②DBM_005 按引擎族呈现可操作排查指引（MySQL 族：账户存在性/host 形态覆盖连接来源/密码一致三则；redis：requirepass/ACL；mongodb：admin 库 authSource）；③DBM_005 文案订正——不再断言「用户名或密码错误」（1045 不区分账户不存在/host 落空/密码不符）；④dbmErrorText toast 路径 DBM_005/006 追加 reason。接口/DTO/错误码语义零变更（D-03 先验证后落库不动）；根因归属待服务器取证裁决 | 3.4 / 6.1 |
 | v2.2 | 2026-11-17 | rule_added + event_added（OHS） | 安装后配置就绪联动增量（env-mgmt 主导轮，d0-clarification-2026-11-17-bootstrap.md 拍板 Q1~Q4，api-env-mgmt.md v1.2 消费方）：**新增进程内 OHS BootstrapAfterInstall（§4.6/D-20）供 env-mgmt worker 消费**——建管理账户/设随机强密码 + 注册 db_instance 与凭据密文（装完即可管）；①D-20 引导编排（幂等前置 credentialsSet→skipped / 引导通道建账户〔MySQL socket root auth_socket→dougong@localhost ALL WITH GRANT OPTION、Redis CONFIG SET requirepass+REWRITE、MongoDB localhost exception admin root〕/ 治理通道 TCP 验证 / 加密 UPSERT+审计）；②引擎引导窄接口 MySQLBootstrap/RedisBootstrap/MongoBootstrap（与治理接口分离，注入替身零 runner 实况依赖）；③审计动作码 +instance_bootstrapped（脱敏）；④1.5 上下文映射 +env-mgmt 被消费行；⑤5.1 OHS 清单 +BootstrapAfterInstall。**HTTP 接口/DTO/错误码/DDL 零变更**（复用 db_instance 聚合与 cred_cipher 密文列、CredentialVault、InstanceRepository；无新表无新聚合根）；服务就绪归 env-mgmt（本模块不操作进程）；密码零回显（I-02） | 1.3（D-20）/ 1.5 / 3.4（审计动作码）/ 4.6（新增）/ 5.1 / 6.1 |
+| v2.3 | 2026-11-18 | interface_added / rule_changed / rule_added | database-mgmt v1.4 用户实机反馈轮（d0-clarification-database-mgmt-ux-2026-11-18.md 拍板 Q1~Q6，prd v1.2 FR-24~39/domain-model v1.23，关闭待对齐-11）：**①interface_added +14 接口（总 30→44，GET 18/POST 26）**——MySQL 6：table/{list,structure,drop} + row/{list,update,delete}（4.7 新增；行写单列主键约束 I-10，JSON_OBJECT 逐行聚合 D-22，分页默认 20 上限 100）；Mongo 8：mcoll/{list,create,drop} + mdb/dropdb + mdoc/{list,insert,update,delete}（4.8 新增；ReplaceOne/DeleteOne by _id，JSON 双层校验，系统库保护 I-12）；资源段 table/row/mcoll/mdoc 裁定 D-26 全三段式；GET 元数据两角色/数据内容 GET admin 专属/POST admin+CSRF（D-24/I-11，Q6 沿 redis key 先例）；**②rule_changed**——D-18 修订（ADR-031/D-25：mdb/list 只读投影→可管理清单，DTO 零变更）、探测登记策略 TCP 优先两阶段+socket 兜底+rescan 保守清理无凭据冗余 socket 行（D-21：instance/list +redundantSocket:boolean、rescan +merged:n 均 additive，identity_key 语义不变，已配凭据 socket 行保留+标注不做凭据自动迁移）；**③rule_added**——错误码 +DBM_022~028（TABLE_NOT_FOUND/NO_SINGLE_PK/ROW_NOT_FOUND/COLLECTION_NOT_FOUND/INVALID_DOCUMENT_JSON/DOCUMENT_NOT_FOUND/SYSTEM_DATABASE_PROTECTED）、审计动作码 +10（table_dropped/row_updated/row_deleted/mongo_database_dropped/mongo_collection_created/mongo_collection_dropped/mongo_document_inserted/mongo_document_updated/mongo_document_deleted/instance_merged，共 28；行/文档内容不入 detail）、不变量 +I-10~I-12、DbGateway/MongoGateway 扩展方法（4.1.5/4.5.1）、分页常量 TABLE_PAGE_LIMIT/DOC_PAGE_LIMIT；**④DDL 零变更/零迁移/零新表**（4 投影实体零台账）；**⑤零新增枚举**（存储引擎/排序规则实况开放集合沿字符集先例）；3.4 枚举表补正 v2.0 遗漏（db_engine +mongodb/mongo_role 行）；1.5 +panel-core 面包屑呈现层消费（F5 零接口承载，归 D4/panel-core）；F2 tooltip/图例归前端呈现（D4） | 1.1 / 1.2 / 1.3（D-18 修订+D-21~D-26）/ 1.4 / 1.5 / 2.1 / 2.2 / 2.3 / 3.1 / 3.3 / 3.4 / 4.1.4 / 4.1.5 / 4.5.1 / 4.5.2 / 4.7（新增）/ 4.8（新增）/ 5.1 / 5.2 / 5.3 / 6.1 |
+| v2.3.1 | 2026-11-18 | rule_added（补记） | Gate 2 E1/AL-005 闭环（A-DB13「统一门控前须同步」项）：§3.4 错误码表补记 DBM_029 ENGINE_UNAUTHORIZED 行——引擎操作被拒（凭据账户权限不足，身份对但无权执行；data.reason=引擎原文；区别 DBM_005 认证被拒）。编号沿革：v0.1.4 修复轮 ErrDBMEngineUnauthorized 原占 DBM_022，与 v2.3 定稿 DBM_022=TABLE_NOT_FOUND 冲突，后端增量轮按 A-DB13 裁定改编号 DBM_029（续接空号不复用，符号/语义不变，errcode/dbmgmt.go + service.go translateGatewayErr 对 dbmongo.ErrUnauthorized code 13 翻译上线，触达 mongo/status、muser/*、v2.3 全部 mongo 治理接口）；本行为设计侧补记（此前 §3.4 缺行致机械 diff BE=29/FE=28）。跨层同步已闭环：前端 types/database.ts DBM_ERROR_TEXT +DBM_029（dbmErrorText 不再 null 静默吞错，reason 追加分支 +029）、MongoCreateUserModal/MongoRoleManageModal 旧 DBM_022 判定/语义映射改判 DBM_029、vitest +4 用例（含 DBM_001~029 全覆盖锚点）。**HTTP 接口/DTO/DDL/枚举零变更**（错误码补记非新码——后端已实发） | 3.4 / 6.1 |
 
 ### 6.2 变更类型词汇表
 

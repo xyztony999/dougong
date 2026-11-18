@@ -87,7 +87,8 @@ async function onSubmit(): Promise<void> {
         inlineError.value = `同名用户已存在（admin 库唯一域）：${form.value.username}`
         return
       }
-      if (e.is('DBM_022')) {
+      // DBM_029 引擎操作被拒（A-DB13：旧 DBM_022 判定已随编号裁定改判，DBM_022=表不存在）
+      if (e.is('DBM_029')) {
         inlineError.value = '引擎操作被拒：当前凭据账户权限不足（需用户管理权限，如 userAdminAnyDatabase）'
         return
       }

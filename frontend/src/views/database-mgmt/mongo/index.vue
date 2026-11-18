@@ -1,19 +1,27 @@
 <script setup lang="ts">
 /**
- * MongoDB 治理页 mongo-manage（PageSpec v1.2 6.3，路由 /databases/mongo/:instanceId；
+ * MongoDB 治理页 mongo-manage（PageSpec v1.4 6.3，路由 /databases/mongo/:instanceId；
  * engineGuard 已在路由守卫校验 engine=mongodb）。hybrid 三 Tab：
- * 状态概览（两视角全等只读）/数据库（只读投影 D-18——隐式建库语义无建/删库，
- * admin 亦无工具栏与操作列）/用户（admin 工具栏+操作列）。
- * readonly 负空间（readonly 文档 6.3）：无「新建用户」按钮、无用户 Tab 工具栏与操作列。
+ * 状态概览（两视角全等只读）/数据库（v1.4 D-18 废止 ADR-031/D-25：可管理清单——
+ * 「浏览集合」两角色可见 +「删除库」admin only，系统库禁用态 DBM_028/I-12；
+ * 无工具栏——隐式建库经集合清单页「新建集合」达成）/用户（admin 工具栏+操作列）。
+ * readonly 负空间（readonly 文档 6.3）：无「新建用户」按钮、无用户 Tab 工具栏与操作列；
+ * 数据库 Tab 仅「浏览集合」入口（删除库负空间）。
  * 无页面级改密入口（MongoDB 改密经用户治理承载，MVP 不设面板建连账户改密同步）。
  * 刷新纪律（D-04/I-04）：进入/切 Tab 拉取，写动作成功重拉。
  */
 import { computed, h, onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useMessage } from 'naive-ui'
-import { NButton, NPopconfirm, NTag } from 'naive-ui'
+import { NButton, NPopconfirm, NTag, NTooltip } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
-import { mongoDatabaseList, mongoStatus, mongoUserDelete, mongoUserList } from '@/api/database'
+import {
+  mongoDatabaseDrop,
+  mongoDatabaseList,
+  mongoStatus,
+  mongoUserDelete,
+  mongoUserList
+} from '@/api/database'
 import { ApiError } from '@/api/http'
 import { useAuthStore } from '@/stores/auth'
 import { useDbStore } from '@/stores/database'
@@ -23,13 +31,14 @@ import type {
   MongoStatusData,
   MongoUserItem
 } from '@/types/database'
-import { dbmErrorText } from '@/types/database'
+import { dbmErrorText, isMongoSystemDatabase } from '@/types/database'
 import { formatBytes, formatDateTime } from '@/utils/format'
 import { ConnStateTag, EngineTag, identityText } from '../render'
 import MongoCreateUserModal from './components/MongoCreateUserModal.vue'
 import MongoRoleManageModal from './components/MongoRoleManageModal.vue'
 
 const route = useRoute()
+const router = useRouter()
 const message = useMessage()
 const authStore = useAuthStore()
 const dbStore = useDbStore()
@@ -77,7 +86,7 @@ async function loadStatus(): Promise<void> {
   try {
     status.value = await mongoStatus(instanceId.value)
   } catch (e) {
-    toastDbm(e) // DBM_022（权限不足）/DBM_003 等
+    toastDbm(e) // DBM_003 不可达/DBM_004 未配置 等
   } finally {
     statusLoading.value = false
   }
@@ -99,7 +108,7 @@ const statusItems = computed(() => {
   ]
 })
 
-/** ---- Tab 2 数据库（只读投影 D-18：无工具栏/无操作列——admin 与 readonly 一致） ---- */
+/** ---- Tab 2 数据库（v1.4 D-18 废止 ADR-031/D-25：可管理清单；无工具栏——隐式建库经集合页） ---- */
 
 const databases = ref<MongoDatabaseItem[]>([])
 const databasesLoading = ref(false)
@@ -118,18 +127,105 @@ async function loadDatabases(): Promise<void> {
   }
 }
 
-const dbColumns: DataTableColumns<MongoDatabaseItem> = [
-  { title: '序号', key: 'index', width: 60, render: (_row, index) => index + 1 },
-  { title: '库名', key: 'name', width: 260 },
-  {
-    title: '大小',
-    key: 'sizeBytes',
-    width: 140,
-    align: 'right',
-    render: (row) => formatBytes(row.sizeBytes)
-  },
-  { title: '集合数', key: 'collections', width: 120, align: 'right' }
-]
+/** 「浏览集合」入口（v1.4 F4，PageSpec 6.3）：库行 → mongo-collections 集合清单页（两角色，Q6 元数据） */
+function navigateToBrowse(row: MongoDatabaseItem): void {
+  void router.push(
+    `/databases/mongo/${instanceId.value}/browse/${encodeURIComponent(row.name)}`
+  )
+}
+
+/** 删除库（5.15：dropDatabase 不可逆强确认；系统库 admin/config/local 禁用态 I-12/DBM_028 前端镜像） */
+async function onDeleteDatabase(row: MongoDatabaseItem): Promise<void> {
+  try {
+    await mongoDatabaseDrop({ instanceId: instanceId.value, database: row.name })
+    message.success(`数据库 ${row.name} 已删除（连同全部集合与文档，不可逆）`)
+    void loadDatabases()
+  } catch (e) {
+    toastDbm(e) // DBM_028 系统库保护（服务端硬校验兜底）/DBM_007 不存在 等
+  }
+}
+
+const dbColumns = computed<DataTableColumns<MongoDatabaseItem>>(() => {
+  const cols: DataTableColumns<MongoDatabaseItem> = [
+    { title: '序号', key: 'index', width: 60, render: (_row, index) => index + 1 },
+    { title: '库名', key: 'name', width: 240 },
+    {
+      title: '大小',
+      key: 'sizeBytes',
+      width: 140,
+      align: 'right',
+      render: (row) => formatBytes(row.sizeBytes)
+    },
+    { title: '集合数', key: 'collections', width: 120, align: 'right' }
+  ]
+  // 操作列：「浏览集合」两角色可见；「删除库」admin only（readonly 整列仅浏览入口）
+  const browseBtn = (row: MongoDatabaseItem): import('vue').VNode =>
+    h(
+      NButton,
+      { size: 'small', onClick: () => navigateToBrowse(row) },
+      { default: () => '浏览集合' }
+    )
+  if (authStore.isAdmin) {
+    cols.push({
+      title: '操作',
+      key: 'actions',
+      width: 200,
+      fixed: 'right',
+      render: (row) => {
+        const nodes = [browseBtn(row)]
+        if (isMongoSystemDatabase(row.name)) {
+          // 系统库删除保护前端镜像（I-12）：禁用态+tooltip，服务端 DBM_028 为最终守卫
+          nodes.push(
+            h(
+              NTooltip,
+              null,
+              {
+                trigger: () =>
+                  h(
+                    'span',
+                    null,
+                    h(
+                      NButton,
+                      { size: 'small', type: 'error', ghost: true, disabled: true },
+                      { default: () => '删除库' }
+                    )
+                  ),
+                default: () => '系统库（admin/config/local）不可删除'
+              }
+            )
+          )
+        } else {
+          nodes.push(
+            h(
+              NPopconfirm,
+              { onPositiveClick: () => void onDeleteDatabase(row) },
+              {
+                trigger: () =>
+                  h(
+                    NButton,
+                    { size: 'small', type: 'error', ghost: true },
+                    { default: () => '删除库' }
+                  ),
+                default: () =>
+                  `不可逆：连同库内全部集合与文档移除（dropDatabase）${row.name}，确认？`
+              }
+            )
+          )
+        }
+        return nodes
+      }
+    })
+  } else {
+    cols.push({
+      title: '操作',
+      key: 'actions',
+      width: 120,
+      fixed: 'right',
+      render: (row) => browseBtn(row)
+    })
+  }
+  return cols
+})
 
 /** ---- Tab 3 用户（admin 工具栏：新建用户；操作列：角色管理/删除；无密码字段 I-02） ---- */
 
@@ -302,18 +398,19 @@ onMounted(() => {
           </n-spin>
         </n-tab-pane>
 
-        <!-- Tab 2 数据库（只读投影 D-18：无工具栏/操作列，admin 与 readonly 一致） -->
+        <!-- Tab 2 数据库（v1.4 可管理清单 ADR-031：浏览集合两角色+删除库 admin；无独立建库入口） -->
         <n-tab-pane name="databases" tab="数据库">
           <div class="meta-row">
             <span class="meta" v-if="databasesGeneratedAt !== null">
               共 {{ databases.length }} 个库 · 快照 {{ formatDateTime(databasesGeneratedAt) }} ·
-              只读投影（MongoDB 隐式建库，无建/删库操作）
+              MongoDB 库随首集合写入产生（建库经集合清单页「新建集合」达成）
             </span>
           </div>
           <n-data-table
             :columns="dbColumns"
             :data="databases"
             :loading="databasesLoading"
+            :scroll-x="authStore.isAdmin ? 820 : 740"
             :row-key="(r: MongoDatabaseItem) => r.name"
             size="small"
           >

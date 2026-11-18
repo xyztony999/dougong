@@ -335,6 +335,28 @@ W1/W2 维持报告原判（WARN 非本轮 FAIL 修复项）：views/monitoring �
 - `npx vitest run`：✅ 7 files / 61 tests passed（无回归；本模块无新增纯函数——dbmErrorText/reasonOf 为声明式映射+两行收窄，逻辑由 typecheck 与消费方路径覆盖）
 - frontend-rules §6 扫描：F-01/F-02/F-03/F-04/F-05 全 0 命中；database-mgmt views 定时器 0 命中（无轮询 D-04）；hex 仅 KeyBrowse.vue:213 CSS 注释内色值引用 1 命中（非应用色，应用值为 rgba）
 
+## v1.4 增量（2026-11-18 用户实机反馈轮，PageSpec admin/readonly v1.4 + api v2.3，D0 Q1~Q6）
+
+| 任务 | 状态 | 产物 | 备注 |
+|------|------|------|------|
+| F02 类型增量 | [x] | types/database.ts | DbInstanceItem +redundantSocket:boolean（D-21）/RescanResult +merged；table/row/mcoll/mdoc 14 接口 DTO 逐形状（可空显式 \| null——JSON null≠TS undefined）；DBM_022~028 七码（**DBM_022 按 api v2.3 裁定 TABLE_NOT_FOUND——与既有实现轮 ErrDBMEngineUnauthorized 占用的 DBM_022 冲突，后端增量轮须重编号该哨兵，前端以 api v2.3 唯一事实源为准**）；纯函数 clampBrowsePageSize/validateCollectionName/isMongoSystemDatabase/rowCellText/parseDocumentJson/formatDocId/docWithIdFirst/buildChangedRowValues/rescanToastText + 常量 BROWSE_PAGE_SIZE_DEFAULT=20/LIMIT=100/MONGO_SYSTEM_DATABASES/CONN_STATE_TOOLTIP/CREDENTIALS_TOOLTIP/TCP_FIRST_LEGEND/REDUNDANT_SOCKET_TOOLTIP/NO_SINGLE_PK_TOOLTIP |
+| F03 api 增量 | [x] | api/database.ts +14 函数（44 Action S7） | tableList/tableStructure/tableDrop/rowList/rowUpdate/rowDelete + mongoCollectionList/Create/Drop + mongoDatabaseDrop + mongoDocumentList/Insert/Update/Delete；GET 元数据两角色/数据内容 GET（rowList/mongoDocumentList）admin 专属 Q6；POST 统一 CSRF（http.ts 既有注入）；mongoDatabaseList 注释订正（D-18 废止 ADR-031） |
+| F04 页面增量 | [x] | mysql/{tables.vue, table-detail.vue, components/RowEditModal.vue} + mongo/{collections.vue, documents.vue, components/CreateCollectionModal.vue, DocumentEditModal.vue} | 6.4 表清单（行数估列头 tooltip/行点击进详情/admin 浏览数据·结构·删除表）；6.5 表详情两 Tab（数据浏览动态列+NULL tag+单列主键行写禁用态 tooltip+分页 20/50/100；结构两角色全等；readonly 数据区 NEmpty 负空间不请求 rowList、默认结构 Tab）；6.6 集合清单（新建集合隐式建库说明/删集合强确认）；6.7 文档浏览（_id 置顶 ObjectId 缩写+tooltip/JSON 摘要截断+格式化全文 tooltip/插入编辑弹窗 JSON.parse 前端拦截+_id 不可变更校验/分页）；5.12 行编辑（主键只读/逐列 NInput+NULL 勾选/仅变更列提交/DBM_024 内联+刷新）；5.15 五强确认行内动作 |
+| F1/F2 呈现增量 | [x] | index.vue + render.ts + mysql/redis/mongo 摘要条 | TCP 优先天然一行（无归并展开 UI——初版方案废止）；清单图例说明行（TCP_FIRST_LEGEND+可达/不可达色例）；connStateTag/credentialsTag 外包 NTooltip（治理页摘要条复用同一助手，redis/mysql 内联凭据 tag 改 CredentialsTag）；redundantSocket=true 行「冗余 Socket」tag+tooltip；rescan toast merged>0 追加清理统计 |
+| F5 面包屑 | [x] | composables/useDbCrumbs.ts（buildDbCrumbs 纯函数+响应式包装）+ MainLayout n-breadcrumb + router meta.crumb | crumb 链 数据库→{引擎}治理·{identity}→{database}→{table\|collection}；末级不可点；identity=dbStore 档案（缺失兜底 instanceId 原值 I-05）；params 原值（vue-router 已解码不二次 decode）；其余模块单标题兜底；治理/浏览页保留「返回实例清单」冗余文字按钮 |
+| F06 路由增量 | [x] | router/index.ts +4 browse 路由 | engineGuard 同链（mysql 族/mongodb）+ crumb meta（browse-database/browse-table/browse-collection）；守卫逻辑零改动（既有第 5 步按 meta.engineGuard+params.instanceId 校验） |
+| Q6 readonly 负空间 | [x] | 4 新页面 + mongo/mysql 库 Tab | 元数据（tableList/tableStructure/mongoCollectionList）两角色；数据内容 rowList/mongoDocumentList 请求 isAdmin 守卫（readonly 不请求）+NEmpty「数据内容仅管理员可见」；写操作列整列不渲染（删表/行写/建删集合/删库/文档 CRUD）；库行浏览/浏览集合入口两角色可见；系统库删除禁用态+tooltip（I-12 前端镜像） |
+| F07 合规检查 | [x] | — | F-01~F-05 grep 全 0 命中；`npm run build`（vue-tsc --noEmit && vite build）exit 0（35.43s）+ `npx vitest run` 19 files/225 tests 全过（+types 纯函数/错误码用例、store redundantSocket 透传 1 用例、useDbCrumbs 11 用例）；dist 同步 backend/web/dist |
+
+### v1.4 已声明的实现决策与偏差
+
+1. **DBM_022 编号冲突（如实上报）**：api v2.3 D-26 裁定 DBM_022=TABLE_NOT_FOUND（「编号接续既有最大值 DBM_021 不复用」——设计时未计入实现轮 mongo 增量占用的 DBM_022=引擎操作被拒）。前端按唯一事实源 api v2.3 落码（DBM_ERROR_TEXT/types 测试同步订正）；backend/internal/errcode/dbmgmt.go:56 ErrDBMEngineUnauthorized 仍占 DBM_022，**后端增量轮须重编号**（建议 DBM_029，归后端裁定），否则 mongo 权限不足错误将误呈现「目标表不存在」。
+2. **后端 v2.3 接口尚未落仓（本轮前端按契约先行）**：取证 backend 无 table/row/mcoll/mdoc 路由、prober 无 TCP 优先两阶段、instance/list 无 redundantSocket、rescan 无 merged（grep 实跑）。前端类型按 v2.3 契约（redundantSocket/merged 必填）；渲染侧 `row.redundantSocket === true` 与 `merged ?? 0` 对旧响应宽容不崩。运行时联调依赖后端增量轮落地。
+3. **浏览页 params 不二次 decode**：vue-router 4 已解码 params——页面/composable 取原值（含 % 名称安全），导航 push 侧 encodeURIComponent。
+4. **readonly 表详情默认结构 Tab**（readonly 文档 6.5「结构 Tab 为默认可见内容」）；admin 默认数据浏览（query.tab 显式指定优先）。
+5. **行键无主键表兜底**：table-detail 行键=当前页内引用序号（rows.indexOf）；文档页行键=JSON.stringify(_id)。
+6. **面包屑能力归属**：PageSpec 7.2 声明能力本体归 panel-core S-09-01（跨模块待同步项）——本轮以 database-mgmt 域 composable + MainLayout 条件渲染落地消费口径（其余模块单标题兜底不强制改），panel-core 三文档同步归后续轮。
+
 
 # terminal 前端生成任务清单（F01~F07）
 

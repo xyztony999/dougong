@@ -20,7 +20,7 @@ func (s *Service) ListInstances(ctx context.Context, engine string) (*InstanceLi
 			Field: "engine", Message: "engine 须为 mysql|mariadb|redis|mongodb"})
 	}
 	s.discoverOnce.Do(func() {
-		if _, _, err := s.prober.ProbeAll(ctx); err != nil {
+		if _, err := s.prober.ProbeAll(ctx); err != nil {
 			slogWarn(ctx, "dbmgmt: initial auto discovery failed", err)
 		}
 	})
@@ -28,11 +28,29 @@ func (s *Service) ListInstances(ctx context.Context, engine string) (*InstanceLi
 	if err != nil {
 		return nil, err
 	}
+	// redundantSocket 派生（D-21）：同 engine 本机 TCP 档案存在且可达 →
+	// socket 行标注冗余（已配凭据行保留+标注口径；读路径零写副作用 I-04）。
+	localTCPReachable := map[string]bool{}
+	for i := range rows {
+		r := &rows[i]
+		if r.ConnMode == storedb.ConnModeTCP && r.ConnState == storedb.ConnStateReachable &&
+			r.Host != nil && isLocalTCPHost(*r.Host) {
+			localTCPReachable[r.Engine] = true
+		}
+	}
 	items := make([]InstanceItem, 0, len(rows))
 	for i := range rows {
-		items = append(items, projectInstance(&rows[i]))
+		item := projectInstance(&rows[i])
+		item.RedundantSocket = rows[i].ConnMode == storedb.ConnModeSocket && localTCPReachable[rows[i].Engine]
+		items = append(items, item)
 	}
 	return &InstanceListData{Items: items, GeneratedAt: s.clock().UTC()}, nil
+}
+
+// isLocalTCPHost 本机 TCP 主机判据（redundantSocket 派生用——远程 TCP 档案
+// 不触发冗余标注，D-21「远程 TCP 实例不受影响」）。
+func isLocalTCPHost(host string) bool {
+	return host == "localhost" || host == "127.0.0.1" || host == "::1"
 }
 
 // projectInstance 档案行 → 响应条目（cred_cipher 零下发 I-02；版本/凭据
@@ -55,16 +73,22 @@ func projectInstance(inst *storedb.Instance) InstanceItem {
 	return item
 }
 
-// Rescan POST /db/instance/rescan：手动探测编排（2.3）+ 审计
-// instance_rescanned（admin 显式动作写审计，D-07）。
+// Rescan POST /db/instance/rescan：手动探测编排（2.3，v2.3 TCP 优先两阶段
+// D-21）+ 保守清理（同 engine 本机 TCP 本轮可达且无凭据的 socket 档案
+// DELETE，审计 instance_merged 同事务；已配凭据保留）+ 审计
+// instance_rescanned（admin 显式动作写审计，detail 含 merged 统计，D-07）。
 func (s *Service) Rescan(ctx context.Context, actor *authsvc.Identity) (*RescanData, error) {
-	discovered, updated, err := s.prober.ProbeAll(ctx)
+	res, err := s.prober.ProbeAll(ctx)
+	if err != nil {
+		return nil, err
+	}
+	merged, err := s.prober.MergeRedundantSockets(ctx, res.TCPReachable, actor)
 	if err != nil {
 		return nil, err
 	}
 	s.recordAudit(ctx, auditEntry(actor, ActionInstanceRescanned, ObjectTypeInstance, "",
-		map[string]int{"discovered": discovered, "updated": updated}, true))
-	return &RescanData{Discovered: discovered, Updated: updated}, nil
+		map[string]int{"discovered": res.Discovered, "updated": res.Updated, "merged": merged}, true))
+	return &RescanData{Discovered: res.Discovered, Updated: res.Updated, Merged: merged}, nil
 }
 
 // SetCredentials POST /db/instance/credentials：凭据接管编排（D-03 先验证

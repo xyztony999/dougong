@@ -250,8 +250,8 @@ func TestProbeEngineRefreshBranches(t *testing.T) {
 	prober := NewProber(e.svc.store, e.mysql, e.redis, e.mongo, e.vault, reach)
 
 	// Ping 成功 → reachable + version 实况刷新（双引擎）。
-	if _, updated, err := prober.ProbeAll(ctx); err != nil || updated < 2 {
-		t.Fatalf("probe refresh: updated=%d err=%v", updated, err)
+	if res, err := prober.ProbeAll(ctx); err != nil || res.Updated < 2 {
+		t.Fatalf("probe refresh: updated=%d err=%v", res.Updated, err)
 	}
 	row, _ := e.svc.store.Instance().GetByID(ctx, inst.ID)
 	if row.Version == nil || *row.Version != "8.0.36" {
@@ -264,7 +264,7 @@ func TestProbeEngineRefreshBranches(t *testing.T) {
 
 	// 网络层失败 → unreachable（I-03 整值覆盖）。
 	e.mysql.pingErr = dbmysql.ErrConnFailed
-	if _, _, err := prober.ProbeAll(ctx); err != nil {
+	if _, err := prober.ProbeAll(ctx); err != nil {
 		t.Fatal(err)
 	}
 	row, _ = e.svc.store.Instance().GetByID(ctx, inst.ID)
@@ -274,7 +274,7 @@ func TestProbeEngineRefreshBranches(t *testing.T) {
 
 	// 认证失败 → reachable 保持（实例活着，凭据问题归治理链 A-DB4）。
 	e.mysql.pingErr = dbmysql.ErrAuthRejected
-	if _, _, err := prober.ProbeAll(ctx); err != nil {
+	if _, err := prober.ProbeAll(ctx); err != nil {
 		t.Fatal(err)
 	}
 	row, _ = e.svc.store.Instance().GetByID(ctx, inst.ID)
@@ -294,7 +294,7 @@ func TestProbeEngineRefreshBranches(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := prober.ProbeAll(ctx); err != nil {
+	if _, err := prober.ProbeAll(ctx); err != nil {
 		t.Fatal(err)
 	}
 	row, _ = e.svc.store.Instance().GetByID(ctx, inst.ID)
@@ -304,7 +304,7 @@ func TestProbeEngineRefreshBranches(t *testing.T) {
 
 	// 网关缺席（nil）防御分支：传输可达即 reachable、无 version。
 	nilProber := NewProber(e.svc.store, nil, nil, nil, e.vault, reach)
-	if _, _, err := nilProber.ProbeAll(ctx); err != nil {
+	if _, err := nilProber.ProbeAll(ctx); err != nil {
 		t.Fatal(err)
 	}
 	row, _ = e.svc.store.Instance().GetByID(ctx, inst.ID)
@@ -327,9 +327,9 @@ func TestProbeAllContinuesOnStoreError(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := NewProber(AdaptStore(st), &fakeMySQL{}, &fakeRedis{}, &fakeMongo{}, nil, func(dbconn.Target) bool { return true })
-	discovered, updated, err := p.ProbeAll(context.Background())
-	if err != nil || discovered != 0 || updated != 0 {
-		t.Fatalf("probe must degrade to 0/0 nil on store failure: %d %d %v", discovered, updated, err)
+	res, err := p.ProbeAll(context.Background())
+	if err != nil || res.Discovered != 0 || res.Updated != 0 {
+		t.Fatalf("probe must degrade to 0/0 nil on store failure: %d %d %v", res.Discovered, res.Updated, err)
 	}
 	// ports.go BeginTx 错误分支（关库后 BeginTx 如实报错）。
 	if _, err := AdaptStore(st).BeginTx(context.Background()); err == nil {

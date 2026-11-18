@@ -2,7 +2,7 @@
   "_generated": {
     "version": 3,
     "note": "本文件由 engine-gui 文档中心根据项目架构自动生成，可手工编辑（编辑后原样生效）；删除本文件后下次访问将按最新架构重新生成。",
-    "generatedAt": "2026-11-17T11:31:12.300Z",
+    "generatedAt": "2026-11-18T03:23:27.920Z",
     "generator": "engine-gui doc-center 生成器（/dc/api/domains · /api/projects/:id/funcview）"
   },
   "names-map": {},
@@ -481,7 +481,7 @@
         ]
       },
       "数据库管理（database-mgmt）": {
-        "description": "存量多引擎实例自动探测与纳管（MySQL/MariaDB/Redis/MongoDB——R-15 发现即接管，⚠️A19 限定本机探测不扫网段；mongodb v1.21 增量：探测集扩 mongod 默认 socket+27017）、凭据密文治理（⚠️A18 只进不出：不回显/审计脱敏/密文落库，验证失败不生效）、MySQL 库/用户/库级授权/root 密码治理（零库用户台账实时投影）、状态概览/进程列表/慢日志只读观测（两角色同等 ADR-018）、mysqldump 备份导出导入（R-08 参数数组，admin 专属）、Redis 密码设置与 key 只读浏览（MVP 严格只读）、MongoDB 治理线（v1.21 增量：状态概览/库清单只读投影（名称/大小/集合数，隐式建库语义无建删库）/用户与角色治理（db.createUser/dropUser + mongo_role 三档库级角色授予回收）；通道=进程内 mongo-driver Go 库，R-09 零外呼维持仅连本机）",
+        "description": "存量多引擎实例自动探测与纳管（MySQL/MariaDB/Redis/MongoDB——R-15 发现即接管，⚠️A19 限定本机探测不扫网段；mongodb v1.21 增量：探测集扩 mongod 默认 socket+27017；**v1.23 TCP 优先两阶段登记+socket 兜底+rescan 保守清理无凭据冗余 socket 行，Q1 二次拍板，identity_key 语义不变**）、凭据密文治理（⚠️A18 只进不出：不回显/审计脱敏/密文落库，验证失败不生效）、MySQL 库/用户/库级授权/root 密码治理（零库用户台账实时投影）、**MySQL 表级治理（v1.23：表清单/结构/分页数据浏览/单列主键行写/删表，零表行台账；元数据两角色/行数据 admin 专属 Q6）**、状态概览/进程列表/慢日志只读观测（两角色同等 ADR-018）、mysqldump 备份导出导入（R-08 参数数组，admin 专属）、Redis 密码设置与 key 只读浏览（MVP 严格只读）、MongoDB 治理线（v1.21 增量，**v1.23 修订 ADR-031 推翻 D-18 只读**：状态概览/库清单可管理（名称/大小/集合数+浏览集合入口+删库 dropDatabase，隐式建库经显式建集合达成）/用户与角色治理（db.createUser/dropUser + mongo_role 三档库级角色授予回收）/**集合与文档治理（集合清单/建集合/删集合/文档分页浏览/插入/编辑/删除，零集合文档台账；文档内容 admin 专属 Q6）**；通道=进程内 mongo-driver Go 库，R-09 零外呼维持仅连本机）、**呈现层（v1.23：清单 TCP 优先呈现+状态语义 tooltip/图例 F2、顶栏面包屑返回导航 F5 消费 panel-core S-09-01）**",
         "tablePrefix": "",
         "tableCount": 6,
         "aggregateRoot": "db_instance",
@@ -524,6 +524,38 @@
             "type": "entity",
             "relation": "内嵌于 db_instance / redis_instance",
             "parent": null,
+            "condition": ""
+          },
+          {
+            "name": "data_table（数据表）",
+            "table": "",
+            "type": "child",
+            "relation": "1:N 隶属 database（经实例+库连接寻址）",
+            "parent": "database",
+            "condition": ""
+          },
+          {
+            "name": "table_row（数据行）",
+            "table": "",
+            "type": "child",
+            "relation": "1:N 隶属 data_table（经实例+库+表寻址）",
+            "parent": "data_table",
+            "condition": ""
+          },
+          {
+            "name": "mongo_collection（集合）",
+            "table": "",
+            "type": "child",
+            "relation": "1:N 隶属 database（mongodb 项，经实例+库连接寻址）",
+            "parent": "database",
+            "condition": ""
+          },
+          {
+            "name": "mongo_document（文档）",
+            "table": "",
+            "type": "child",
+            "relation": "1:N 隶属 mongo_collection（经实例+库+集合寻址）",
+            "parent": "mongo_collection",
             "condition": ""
           }
         ]

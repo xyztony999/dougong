@@ -8,7 +8,6 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useDialog, useMessage } from 'naive-ui'
-import { NTag } from 'naive-ui'
 import type { DataTableColumns, SelectOption } from 'naive-ui'
 import { redisInfo, redisPassword, redisSlowlog } from '@/api/database'
 import { ApiError } from '@/api/http'
@@ -19,7 +18,7 @@ import { REDIS_INFO_FIELD_TEXT, dbmErrorText } from '@/types/database'
 import { formatDateTime } from '@/utils/format'
 import InstanceCredentialsModal from '../components/InstanceCredentialsModal.vue'
 import PasswordSetModal from '../components/PasswordSetModal.vue'
-import { ConnStateTag, EngineTag, identityText } from '../render'
+import { ConnStateTag, CredentialsTag, EngineTag, identityText } from '../render'
 import KeyBrowse from './components/KeyBrowse.vue'
 
 const route = useRoute()
@@ -218,13 +217,7 @@ onMounted(() => {
           <span class="muted">版本 {{ instance.version ?? '—' }}</span>
           <span class="muted">
             凭据
-            <n-tag
-              :type="instance.credentialsSet ? 'success' : 'default'"
-              size="small"
-              :bordered="false"
-            >
-              {{ instance.credentialsSet ? '已配置' : '未配置' }}
-            </n-tag>
+            <CredentialsTag :credentials-set="instance.credentialsSet" />
           </span>
         </template>
         <span class="spacer" />

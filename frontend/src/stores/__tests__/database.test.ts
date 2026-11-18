@@ -48,6 +48,7 @@ function makeItem(overrides: Partial<DbInstanceItem> = {}): DbInstanceItem {
     credentialsSet: true,
     credUsername: 'root',
     discoveredAt: '2026-11-16T00:00:00Z',
+    redundantSocket: false, // v2.3 D-21 additive 字段（默认非冗余）
     ...overrides
   }
 }
@@ -184,5 +185,34 @@ describe('dbStore applyCredentials / governableIds', () => {
     // 凭据配置成功后行 3 转可治理。
     store.applyCredentials({ instanceId: 3, connState: 'reachable', version: '' })
     expect(store.governableIds.has(3)).toBe(true)
+  })
+})
+
+describe('dbStore redundantSocket 透传（v1.4 F1/D-21）', () => {
+  it('已配凭据冗余 socket 行标注原样入清单（保守清理口径——保留不自动迁移）', async () => {
+    const store = useDbStore()
+    const data = freshList()
+    data.items.push(
+      makeItem({
+        id: 4,
+        engine: 'mysql',
+        connMode: 'socket',
+        socketPath: '/var/run/mysqld/mysqld.sock',
+        host: undefined,
+        port: undefined,
+        connState: 'reachable',
+        credentialsSet: true,
+        redundantSocket: true
+      })
+    )
+    mockList.mockResolvedValue(data)
+    await store.loadList()
+    const row = store.findById(4)
+    expect(row?.redundantSocket).toBe(true)
+    expect(row?.connMode).toBe('socket')
+    // 冗余标注不影响治理前置判定（reachable+credentialsSet 仍可治理）
+    expect(store.governableIds.has(4)).toBe(true)
+    // TCP 行 redundantSocket 默认 false（不误标注）
+    expect(store.findById(1)?.redundantSocket).toBe(false)
   })
 })

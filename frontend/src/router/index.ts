@@ -22,10 +22,16 @@ declare module 'vue-router' {
     roles?: PanelRole[]
     /**
      * 数据库治理页引擎守卫（database-mgmt PageSpec 第 7 节）：以 dbStore 档案校验——
-     * 'mysql'=engine∈mysql/mariadb（mariadb 同 mysql 路由）；'redis'=engine=redis。
-     * 不匹配 → DBM_018 语义提示 + 返回 /databases；档案不存在 → DBM_002 语义 + 返回。
+     * 'mysql'=engine∈mysql/mariadb（mariadb 同 mysql 路由）；'redis'=engine=redis；
+     * 'mongodb'=engine=mongodb。不匹配 → DBM_018 语义提示 + 返回 /databases；
+     * 档案不存在 → DBM_002 语义 + 返回。v1.4 browse 路由继承同链守卫。
      */
     engineGuard?: 'mysql' | 'redis' | 'mongodb'
+    /**
+     * 数据库域面包屑静态段声明（database-mgmt PageSpec v1.4 7.2，F5）：
+     * MainLayout 按 route.name+params+dbStore 组装 crumb 链（动态段不虚构）。
+     */
+    crumb?: 'browse-database' | 'browse-table' | 'browse-collection'
   }
 }
 
@@ -174,6 +180,31 @@ const router = createRouter({
           name: 'db-mongo-manage',
           component: () => import('@/views/database-mgmt/mongo/index.vue'),
           meta: { title: 'MongoDB 治理', engineGuard: 'mongodb' }
+        },
+        // v1.4 浏览页三/四级路由（不占菜单位，返回导航经面包屑 7.2；engineGuard 同链）
+        {
+          path: 'databases/mysql/:instanceId/browse/:database',
+          name: 'db-mysql-tables',
+          component: () => import('@/views/database-mgmt/mysql/tables.vue'),
+          meta: { title: '表清单', engineGuard: 'mysql', crumb: 'browse-database' }
+        },
+        {
+          path: 'databases/mysql/:instanceId/browse/:database/:table',
+          name: 'db-mysql-table-detail',
+          component: () => import('@/views/database-mgmt/mysql/table-detail.vue'),
+          meta: { title: '表详情', engineGuard: 'mysql', crumb: 'browse-table' }
+        },
+        {
+          path: 'databases/mongo/:instanceId/browse/:database',
+          name: 'db-mongo-collections',
+          component: () => import('@/views/database-mgmt/mongo/collections.vue'),
+          meta: { title: '集合清单', engineGuard: 'mongodb', crumb: 'browse-database' }
+        },
+        {
+          path: 'databases/mongo/:instanceId/browse/:database/:collection',
+          name: 'db-mongo-documents',
+          component: () => import('@/views/database-mgmt/mongo/documents.vue'),
+          meta: { title: '文档浏览', engineGuard: 'mongodb', crumb: 'browse-collection' }
         },
         // ---- firewall（PageSpec 第 7 节：requiresAuth 继承布局路由；admin+readonly 同路由，
         // 组件内按角色渲染子集——readonly 无添加按钮+操作列整列不渲染（2 负空间，ADR-018）；

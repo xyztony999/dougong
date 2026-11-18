@@ -4,8 +4,12 @@
  * readonly 负空间（readonly 文档 4.1）：无工具栏（无重新探测）、操作列仅「查看」；
  * 查询条件/表格列与 admin 完全一致（ADR-018 全可看，凭据列仅布尔标注无任何凭据值）。
  * 行点击/查看 → 按引擎进入治理页（mysql/mariadb→mysql-manage、redis→redis-manage、mongodb→mongo-manage，v1.2）。
+ * v1.4 F1/F2（D-21）：TCP 优先登记下清单天然一行 TCP（socket-only 一行 socket）——无归并展开 UI
+ * （初版合并展开方案经用户二次拍板废止，后端探测策略承载去重）；说明行图例文案+connState/credentialsSet
+ * NTooltip 语义（render.ts 助手）；redundantSocket=true 行「冗余 Socket」标注；rescan toast merged 统计。
  */
 import { computed, h, onMounted, ref } from 'vue'
+import type { VNode } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMessage } from 'naive-ui'
 import { NButton, NPopconfirm } from 'naive-ui'
@@ -17,10 +21,17 @@ import { useDbStore } from '@/stores/database'
 import { DB_ENGINE } from '@/types/enums'
 import type { DbEngine } from '@/types/enums'
 import type { DbInstanceItem } from '@/types/database'
-import { dbmErrorText } from '@/types/database'
+import { TCP_FIRST_LEGEND, dbmErrorText, rescanToastText } from '@/types/database'
 import { formatDateTime } from '@/utils/format'
 import InstanceCredentialsModal from './components/InstanceCredentialsModal.vue'
-import { connModeTag, connStateTag, credentialsTag, engineTag, identityText } from './render'
+import {
+  connModeTag,
+  connStateTag,
+  credentialsTag,
+  engineTag,
+  identityText,
+  redundantSocketTag
+} from './render'
 
 const router = useRouter()
 const message = useMessage()
@@ -48,7 +59,8 @@ async function onRescan(): Promise<void> {
   rescanLoading.value = true
   try {
     const data = await instanceRescan()
-    message.success(`重新探测完成：新增 ${data.discovered} 个实例，更新 ${data.updated} 个状态`)
+    // v1.4 D-21：merged>0 追加「清理 k 个冗余 Socket 档案」（仅无凭据行保守清理）
+    message.success(rescanToastText(data))
     void store.loadList()
   } catch (e) {
     toastDbm(e)
@@ -123,16 +135,22 @@ const columns = computed<DataTableColumns<DbInstanceItem>>(() => {
       key: 'identity',
       width: 240,
       fixed: 'left',
-      render: (row) =>
-        h(
-          NButton,
-          {
-            text: true,
-            type: 'primary',
-            onClick: stopAnd(() => navigateToManage(row))
-          },
-          { default: () => identityText(row) }
-        )
+      render: (row) => {
+        // v1.4 F1/D-21：redundantSocket=true（已配凭据冗余 socket 行）追加标注+tooltip
+        const nodes: VNode[] = [
+          h(
+            NButton,
+            {
+              text: true,
+              type: 'primary',
+              onClick: stopAnd(() => navigateToManage(row))
+            },
+            { default: () => identityText(row) }
+          )
+        ]
+        if (row.redundantSocket === true) nodes.push(redundantSocketTag())
+        return h('div', { class: 'identity-cell' }, nodes)
+      }
     },
     { title: '连接方式', key: 'connMode', width: 100, render: (row) => connModeTag(row.connMode) },
     {
@@ -266,6 +284,15 @@ onMounted(() => {
           共 {{ store.items.length }} 个实例 · 数据生成于 {{ formatDateTime(store.generatedAt) }}
         </span>
       </template>
+      <!-- v1.4 F1/F2 图例说明行：TCP 优先纳管口径（D-21）+ 状态色语义（仅连通性） -->
+      <div class="legend">
+        {{ TCP_FIRST_LEGEND }}
+        <span class="legend-state">
+          <n-tag type="success" size="small" :bordered="false">可达</n-tag>
+          <n-tag type="warning" size="small" :bordered="false">不可达</n-tag>
+          仅反映连通性，不代表凭据正确
+        </span>
+      </div>
       <n-data-table
         :columns="columns"
         :data="store.items"
@@ -314,6 +341,25 @@ onMounted(() => {
 .meta {
   font-size: 12px;
   opacity: 0.6;
+}
+.legend {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  opacity: 0.75;
+  margin-bottom: 10px;
+}
+.legend-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.identity-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 .empty {
   padding: 24px 0;

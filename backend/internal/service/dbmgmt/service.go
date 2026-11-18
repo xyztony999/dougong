@@ -3,6 +3,7 @@ package dbmgmt
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strconv"
 	"sync"
@@ -196,7 +197,7 @@ func translateGatewayErr(err error) error {
 	case errors.Is(err, dbmysql.ErrUnavailable), errors.Is(err, dbredis.ErrUnavailable):
 		return errcode.ErrDBMChannelUnavailable.WithData(map[string]string{"reason": reasonOf(err)})
 	case errors.Is(err, dbmongo.ErrUnauthorized):
-		// DBM_022：身份对但无权执行（区别 DBM_005 认证被拒）。
+		// DBM_029：身份对但无权执行（区别 DBM_005 认证被拒；A-DB13 编号裁定）。
 		return errcode.ErrDBMEngineUnauthorized.WithData(map[string]string{"reason": reasonOf(err)})
 	case errors.Is(err, dbmysql.ErrDatabaseExists):
 		return errcode.ErrDBMDatabaseExists
@@ -214,6 +215,17 @@ func translateGatewayErr(err error) error {
 		return errcode.ErrDBMDumpFailed.WithData(map[string]string{"reason": reasonOf(err)})
 	case errors.Is(err, dbmysql.ErrImportFailed):
 		return errcode.ErrDBMImportFailed.WithData(map[string]string{"reason": reasonOf(err)})
+	// v2.3 表级/集合文档治理哨兵（D-22/D-23）。
+	case errors.Is(err, dbmysql.ErrTableNotFound):
+		return errcode.ErrDBMTableNotFound
+	case errors.Is(err, dbmongo.ErrCollectionNotFound):
+		return errcode.ErrDBMCollectionNotFound
+	case errors.Is(err, dbmongo.ErrCollectionExists):
+		// DBM_008 语义复用（同名集合已存在，data.reason 引擎原文）。
+		return errcode.ErrDBMDatabaseExists.WithData(map[string]string{"reason": reasonOf(err)})
+	case errors.Is(err, dbmongo.ErrDocumentExists):
+		// DBM_008 语义复用（_id 冲突，data.reason 引擎原文）。
+		return errcode.ErrDBMDatabaseExists.WithData(map[string]string{"reason": reasonOf(err)})
 	default:
 		return err
 	}
@@ -279,6 +291,29 @@ func (s *Service) recordAudit(ctx context.Context, e audit.Entry) {
 func (s *Service) txAudit(ctx context.Context, tx TxAPI, e audit.Entry) error {
 	if err := tx.Audit().Append(ctx, e, s.clock()); err != nil {
 		return err
+	}
+	return nil
+}
+
+// txAuditOnly 引擎侧治理动作审计独立事务写入（v2.3 零台账动作无档案变更，
+// 事务内唯一写入=审计行——R-03 同事务语义，A-DB16）。失败返回错误不虚构
+// 成功：引擎侧动作已执行的事实进运行日志可追溯（D-05「不虚构原子性」哲学
+// 同构），响应如实报错。
+func (s *Service) txAuditOnly(ctx context.Context, e audit.Entry) error {
+	tx, err := s.store.BeginTx(ctx)
+	if err != nil {
+		return fmt.Errorf("dbmgmt: audit begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }() // Commit 后为 no-op
+	if err := s.txAudit(ctx, tx, e); err != nil {
+		slog.ErrorContext(ctx, "dbmgmt: engine action succeeded but audit append failed",
+			"action", e.Action, "object", e.ObjectID, "err", err)
+		return fmt.Errorf("dbmgmt: audit %s: %w", e.Action, err)
+	}
+	if err := tx.Commit(); err != nil {
+		slog.ErrorContext(ctx, "dbmgmt: engine action succeeded but audit commit failed",
+			"action", e.Action, "object", e.ObjectID, "err", err)
+		return fmt.Errorf("dbmgmt: audit %s commit: %w", e.Action, err)
 	}
 	return nil
 }

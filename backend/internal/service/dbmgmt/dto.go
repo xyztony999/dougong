@@ -1,6 +1,9 @@
 package dbmgmt
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // ---- instance（§4.1.4）----
 
@@ -19,6 +22,10 @@ type InstanceItem struct {
 	CredUsername   *string    `json:"credUsername,omitempty"`
 	CredUpdatedAt  *time.Time `json:"credUpdatedAt,omitempty"`
 	DiscoveredAt   time.Time  `json:"discoveredAt"`
+	// RedundantSocket v2.3 additive（D-21）：conn_mode=socket 且同 engine
+	// 本机 TCP 档案存在且可达时派生 true（已配凭据冗余 socket 行保留+标注，
+	// 引导改配 TCP 后手动 remove）；其余 false。
+	RedundantSocket bool `json:"redundantSocket"`
 }
 
 // InstanceListData 是 instance/list data。
@@ -27,10 +34,12 @@ type InstanceListData struct {
 	GeneratedAt time.Time      `json:"generatedAt"`
 }
 
-// RescanData 是 instance/rescan data（{discovered, updated}）。
+// RescanData 是 instance/rescan data（{discovered, updated, merged}；
+// merged 为 v2.3 additive——本轮保守清理的冗余 socket 行数，D-21）。
 type RescanData struct {
 	Discovered int `json:"discovered"`
 	Updated    int `json:"updated"`
+	Merged     int `json:"merged"`
 }
 
 // CredentialsRequest 是 instance/credentials 请求（连接目标纠正字段可选 D-03）。
@@ -348,4 +357,228 @@ type ImportData struct {
 	InstanceID int64  `json:"instanceId"`
 	Database   string `json:"database"`
 	SizeBytes  int64  `json:"sizeBytes"`
+}
+
+// ---- table/row（v2.3 §4.7.4；可空字段显式 null——JSON null≠TS undefined，
+// children:null 先例同口径，不用 omitempty 省略）----
+
+// TableItem 是 table/list items 条目（rowEstimate=TABLE_ROWS 统计估算，
+// InnoDB 非精确值；视图/特殊引擎可空如实；comment 无注释 null）。
+type TableItem struct {
+	Name          string  `json:"name"`
+	Engine        string  `json:"engine"`
+	RowEstimate   *int64  `json:"rowEstimate"`
+	DataSizeBytes *int64  `json:"dataSizeBytes"`
+	Collation     *string `json:"collation"`
+	Comment       *string `json:"comment"`
+}
+
+// TableListData 是 table/list data。
+type TableListData struct {
+	Items       []TableItem `json:"items"`
+	GeneratedAt time.Time   `json:"generatedAt"`
+}
+
+// ColumnItem 是 table/structure columns 条目（key=引擎 COLUMN_KEY 原值
+// ""/PRI/UNI/MUL 开放字符串非枚举；default 无默认 null）。
+type ColumnItem struct {
+	Column   string  `json:"column"`
+	Type     string  `json:"type"`
+	Nullable bool    `json:"nullable"`
+	Key      string  `json:"key"`
+	Default  *string `json:"default"`
+	Extra    string  `json:"extra"`
+	Comment  *string `json:"comment"`
+}
+
+// TableStructureData 是 table/structure data（singlePk=恰好 1 列 key=PRI
+// 派生；pkColumn 无单列主键时 null——前端行写入口禁用判定同源，I-10）。
+type TableStructureData struct {
+	Table       string       `json:"table"`
+	Columns     []ColumnItem `json:"columns"`
+	SinglePk    bool         `json:"singlePk"`
+	PkColumn    *string      `json:"pkColumn"`
+	GeneratedAt time.Time    `json:"generatedAt"`
+}
+
+// RowListData 是 row/list data（columns 来自结构列序；行值 JSON null=NULL
+// 语义；total=COUNT(*) 实况）。
+type RowListData struct {
+	Columns     []string         `json:"columns"`
+	Rows        []map[string]any `json:"rows"`
+	Total       int64            `json:"total"`
+	Page        int              `json:"page"`
+	PageSize    int              `json:"pageSize"`
+	GeneratedAt time.Time        `json:"generatedAt"`
+}
+
+// TableDropRequest 是 table/drop 请求。
+type TableDropRequest struct {
+	InstanceID int64  `json:"instanceId"`
+	Database   string `json:"database"`
+	Table      string `json:"table"`
+}
+
+// TableDropData 是 table/drop data。
+type TableDropData struct {
+	InstanceID int64  `json:"instanceId"`
+	Database   string `json:"database"`
+	Table      string `json:"table"`
+}
+
+// RowUpdateRequest 是 row/update 请求（values 文本值 string|null——null→
+// SET col=NULL；主键列不可编辑 I-10；pkValue 为定位旧值）。
+type RowUpdateRequest struct {
+	InstanceID int64          `json:"instanceId"`
+	Database   string         `json:"database"`
+	Table      string         `json:"table"`
+	PKValue    string         `json:"pkValue"`
+	Values     map[string]any `json:"values"`
+}
+
+// RowUpdateData 是 row/update data。
+type RowUpdateData struct {
+	InstanceID int64  `json:"instanceId"`
+	Database   string `json:"database"`
+	Table      string `json:"table"`
+	PKValue    string `json:"pkValue"`
+	Affected   int64  `json:"affected"`
+}
+
+// RowDeleteRequest 是 row/delete 请求。
+type RowDeleteRequest struct {
+	InstanceID int64  `json:"instanceId"`
+	Database   string `json:"database"`
+	Table      string `json:"table"`
+	PKValue    string `json:"pkValue"`
+}
+
+// RowDeleteData 是 row/delete data。
+type RowDeleteData struct {
+	InstanceID int64  `json:"instanceId"`
+	Database   string `json:"database"`
+	Table      string `json:"table"`
+	PKValue    string `json:"pkValue"`
+	Affected   int64  `json:"affected"`
+}
+
+// ---- mcoll/mdoc/mdb-dropdb（v2.3 §4.8.4）----
+
+// MongoCollectionItem 是 mcoll/list items 条目（docCount=estimatedDocumentCount
+// 估算语义如实）。
+type MongoCollectionItem struct {
+	Name      string `json:"name"`
+	DocCount  int64  `json:"docCount"`
+	SizeBytes int64  `json:"sizeBytes"`
+}
+
+// MongoCollectionListData 是 mcoll/list data（空库返回空列表非错误）。
+type MongoCollectionListData struct {
+	Items       []MongoCollectionItem `json:"items"`
+	GeneratedAt time.Time             `json:"generatedAt"`
+}
+
+// MongoCollectionCreateRequest 是 mcoll/create 请求（隐式建库语义——库随
+// 首集合写入产生，无独立建库接口，D-25）。
+type MongoCollectionCreateRequest struct {
+	InstanceID int64  `json:"instanceId"`
+	Database   string `json:"database"`
+	Name       string `json:"name"`
+}
+
+// MongoCollectionCreateData 是 mcoll/create data。
+type MongoCollectionCreateData struct {
+	InstanceID int64  `json:"instanceId"`
+	Database   string `json:"database"`
+	Name       string `json:"name"`
+}
+
+// MongoCollectionDropRequest 是 mcoll/drop 请求。
+type MongoCollectionDropRequest struct {
+	InstanceID int64  `json:"instanceId"`
+	Database   string `json:"database"`
+	Name       string `json:"name"`
+}
+
+// MongoCollectionDropData 是 mcoll/drop data。
+type MongoCollectionDropData struct {
+	InstanceID int64  `json:"instanceId"`
+	Database   string `json:"database"`
+	Name       string `json:"name"`
+}
+
+// MongoDatabaseDropRequest 是 mdb/dropdb 请求（系统库保护 I-12/DBM_028）。
+type MongoDatabaseDropRequest struct {
+	InstanceID int64  `json:"instanceId"`
+	Database   string `json:"database"`
+}
+
+// MongoDatabaseDropData 是 mdb/dropdb data。
+type MongoDatabaseDropData struct {
+	InstanceID int64  `json:"instanceId"`
+	Database   string `json:"database"`
+}
+
+// MongoDocumentListData 是 mdoc/list data（documents 保引擎自然序，_id 置顶
+// 呈现归前端排序；BSON→扩展 JSON 形态 $oid/$date 透传）。
+type MongoDocumentListData struct {
+	Documents   []map[string]any `json:"documents"`
+	Total       int64            `json:"total"`
+	Page        int              `json:"page"`
+	PageSize    int              `json:"pageSize"`
+	GeneratedAt time.Time        `json:"generatedAt"`
+}
+
+// MongoDocumentInsertRequest 是 mdoc/insert 请求（document 为 JSON 对象文本
+// ——服务端解析校验 DBM_026；_id 可选缺省引擎自动生成）。
+type MongoDocumentInsertRequest struct {
+	InstanceID int64           `json:"instanceId"`
+	Database   string          `json:"database"`
+	Collection string          `json:"collection"`
+	Document   json.RawMessage `json:"document"`
+}
+
+// MongoDocumentInsertData 是 mdoc/insert data（insertedId=插入文档 _id 的
+// JSON 形态，ObjectId 为 {"$oid":"hex"}）。
+type MongoDocumentInsertData struct {
+	InstanceID int64  `json:"instanceId"`
+	Database   string `json:"database"`
+	Collection string `json:"collection"`
+	InsertedID any    `json:"insertedId"`
+}
+
+// MongoDocumentUpdateRequest 是 mdoc/update 请求（id=mdoc/list 响应 _id
+// 原值透传；document._id 若存在必须与 id 一致——_id 不可变更 D-23）。
+type MongoDocumentUpdateRequest struct {
+	InstanceID int64           `json:"instanceId"`
+	Database   string          `json:"database"`
+	Collection string          `json:"collection"`
+	ID         any             `json:"id"`
+	Document   json.RawMessage `json:"document"`
+}
+
+// MongoDocumentUpdateData 是 mdoc/update data。
+type MongoDocumentUpdateData struct {
+	InstanceID int64  `json:"instanceId"`
+	Database   string `json:"database"`
+	Collection string `json:"collection"`
+	ID         any    `json:"id"`
+	Matched    int64  `json:"matched"`
+}
+
+// MongoDocumentDeleteRequest 是 mdoc/delete 请求。
+type MongoDocumentDeleteRequest struct {
+	InstanceID int64  `json:"instanceId"`
+	Database   string `json:"database"`
+	Collection string `json:"collection"`
+	ID         any    `json:"id"`
+}
+
+// MongoDocumentDeleteData 是 mdoc/delete data。
+type MongoDocumentDeleteData struct {
+	InstanceID int64  `json:"instanceId"`
+	Database   string `json:"database"`
+	Collection string `json:"collection"`
+	ID         any    `json:"id"`
+	Deleted    int64  `json:"deleted"`
 }

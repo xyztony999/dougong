@@ -36,6 +36,27 @@ type fakeMongo struct {
 	revokeErr   error
 	revoked     []string
 	lastCreds   dbconn.Creds
+	// v2.3 集合/文档治理（记忆实况+行为注入；零值=成功路径）。
+	colls         map[string][]dbmongo.CollectionInfo // key db
+	docs          map[string][]map[string]any         // key "db.coll"
+	collErr       error
+	dropDBErr     error
+	createCollErr error
+	dropCollErr   error
+	insertErr     error
+	replaceErr    error
+	deleteDocErr  error
+	insertedID    any   // InsertDocument 返回 _id（缺省 fake ObjectId 形态）
+	matched       int64 // ReplaceDocument matched（-1=按记忆实况判定）
+	deletedCount  int64 // DeleteDocument deleted（-1=按记忆实况判定）
+	droppedDBs    []string
+	createdColls  []string
+	droppedColls  []string
+	insertedDocs  []string
+	replacedDocs  []string
+	deletedDocs   []string
+	lastDoc       map[string]any
+	lastID        any
 }
 
 func (f *fakeMongo) Available() error { return nil }
@@ -120,10 +141,10 @@ func TestMongoObservationPaths(t *testing.T) {
 	if err != nil || st.Version != "7.0.14" || st.UptimeSec != 100 || st.OpQuery != 5 {
 		t.Fatalf("mongo status: %+v %v", st, err)
 	}
-	// 权限不足（Unauthorized code 13）→ DBM_022（非裸 INTERNAL）。
+	// 权限不足（Unauthorized code 13）→ DBM_029（非裸 INTERNAL；A-DB13 编号裁定）。
 	e.mongo.statusErr = fmt.Errorf("%w: not authorized on admin to execute command", dbmongo.ErrUnauthorized)
-	if _, err := e.svc.MongoStatus(ctx, itoa(inst.ID)); errCode(t, err) != "DBM_022" {
-		t.Fatalf("unauthorized want DBM_022, got %v", err)
+	if _, err := e.svc.MongoStatus(ctx, itoa(inst.ID)); errCode(t, err) != "DBM_029" {
+		t.Fatalf("unauthorized want DBM_029, got %v", err)
 	}
 	e.mongo.statusErr = nil
 
@@ -259,26 +280,45 @@ func TestMongoCredentialsAndProbe(t *testing.T) {
 		t.Fatalf("mongo cred username = %q", *row.CredUsername)
 	}
 
-	// 探测：mongo 分支（注入 reachable；Ping 失败=连接层 → unreachable；成功 → reachable+version）。
+	// 探测：mongo 分支（注入 reachable；v2.3 TCP 优先 D-21——全可达时仅
+	// TCP 登记一行，socket 视为冗余通道跳过登记）。
 	reach := func(dbconn.Target) bool { return true }
 	prober := NewProber(e.svc.store, e.mysql, e.redis, e.mongo, e.vault, reach)
-	if _, _, err := prober.ProbeAll(ctx); err != nil {
+	if _, err := prober.ProbeAll(ctx); err != nil {
 		t.Fatal(err)
 	}
-	mongoRows := []storedb.Instance{}
 	rows, _ := e.svc.store.Instance().List(ctx, storedb.EngineMongoDB)
-	mongoRows = append(mongoRows, rows...)
-	if len(mongoRows) == 0 {
-		t.Fatal("probe set must discover mongodb targets (tcp+socket)")
-	}
-	for _, r := range mongoRows {
-		if r.ConnState != "reachable" {
-			t.Fatalf("mongo probe state = %s", r.ConnState)
+	var probeRow *storedb.Instance
+	for i := range rows {
+		if rows[i].ConnMode == storedb.ConnModeSocket {
+			t.Fatalf("TCP-first must skip socket registration, got %+v", rows[i])
 		}
+		if rows[i].IdentityKey == "mongodb|tcp:localhost:27017" {
+			probeRow = &rows[i]
+		}
+	}
+	if probeRow == nil || probeRow.ConnState != "reachable" {
+		t.Fatalf("probe set tcp row missing or wrong state: %+v", rows)
+	}
+	// socket 兜底（skip-networking 形态）：TCP 不可达、socket 可达 → 登记。
+	sockOnly := func(t dbconn.Target) bool { return t.ConnMode == storedb.ConnModeSocket }
+	p2 := NewProber(e.svc.store, e.mysql, e.redis, e.mongo, e.vault, sockOnly)
+	if _, err := p2.ProbeAll(ctx); err != nil {
+		t.Fatal(err)
+	}
+	rows, _ = e.svc.store.Instance().List(ctx, storedb.EngineMongoDB)
+	var sockRow *storedb.Instance
+	for i := range rows {
+		if rows[i].ConnMode == storedb.ConnModeSocket {
+			sockRow = &rows[i]
+		}
+	}
+	if sockRow == nil || sockRow.ConnState != "reachable" {
+		t.Fatalf("socket fallback must register when no local TCP reachable: %+v", rows)
 	}
 	// 连接层失败 → unreachable 整值更新。
 	e.mongo.pingErr = fmt.Errorf("%w: connection refused", dbmongo.ErrConnFailed)
-	if _, _, err := prober.ProbeAll(ctx); err != nil {
+	if _, err := prober.ProbeAll(ctx); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -292,7 +332,7 @@ func TestTranslateMongoSentinels(t *testing.T) {
 	}{
 		{dbmongo.ErrAuthRejected, "DBM_005"},
 		{dbmongo.ErrConnFailed, "DBM_006"},
-		{dbmongo.ErrUnauthorized, "DBM_022"},
+		{dbmongo.ErrUnauthorized, "DBM_029"}, // A-DB13：原 DBM_022 改编号（api v2.3 定稿 022=TABLE_NOT_FOUND）
 		{dbmongo.ErrUserExists, "DBM_010"},
 		{dbmongo.ErrUserNotFound, "DBM_009"},
 		{errors.New("boom"), "@"},

@@ -3,8 +3,10 @@
  * MySQL/MariaDB 治理页 mysql-manage（PageSpec 6.1，路由 /databases/mysql/:instanceId；
  * engineGuard 已在路由守卫校验 engine∈mysql/mariadb）。hybrid 三 Tab：
  * 库（admin 工具栏+操作列）/用户（同）/状态与进程（两视角全等只读观测）。
- * readonly 负空间（readonly 文档 6.1）：无「修改 root 密码」按钮、无两 Tab 工具栏与操作列；
+ * readonly 负空间（readonly 文档 6.1）：无「修改 root 密码」按钮、无两 Tab 工具栏；
+ * 库 Tab 操作列仅「浏览」入口（v1.4 F3 两角色可见，元数据 Q6）；
  * unreachable NAlert 与状态观测全等。刷新纪律（D-04/I-04）：进入/切 Tab 拉取，写动作成功重拉。
+ * v1.4：摘要条 connState/credentialsSet Tag 复用 render.ts tooltip 助手（F2 自动获益）。
  */
 import { computed, h, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -36,7 +38,7 @@ import { formatBytes, formatDateTime } from '@/utils/format'
 import type { VNode } from 'vue'
 import InstanceCredentialsModal from '../components/InstanceCredentialsModal.vue'
 import PasswordSetModal from '../components/PasswordSetModal.vue'
-import { ConnStateTag, EngineTag, identityText } from '../render'
+import { ConnStateTag, CredentialsTag, EngineTag, identityText } from '../render'
 import CreateDatabaseModal from './components/CreateDatabaseModal.vue'
 import CreateUserModal from './components/CreateUserModal.vue'
 import GrantManageModal from './components/GrantManageModal.vue'
@@ -149,6 +151,13 @@ async function loadDatabases(): Promise<void> {
 
 const createDbShow = ref(false)
 
+/** 「浏览」入口（v1.4 F3，PageSpec 6.1）：库行 → mysql-tables 表清单页（admin+readonly 均可见，Q6 元数据） */
+function navigateToBrowse(row: DbDatabaseItem): void {
+  void router.push(
+    `/databases/mysql/${instanceId.value}/browse/${encodeURIComponent(row.name)}`
+  )
+}
+
 /** 导出（5.8：POST 文件流直接触发；在途禁用 DBM_016；失败 DBM_012 展示 reason） */
 const exportingDb = ref<string | null>(null)
 
@@ -190,15 +199,24 @@ const dbColumns = computed<DataTableColumns<DbDatabaseItem>>(() => {
     { title: '库名', key: 'name', width: 240 },
     { title: '字符集', key: 'charset', width: 140 }
   ]
+  // v1.4 F3：操作列两角色均渲染——「浏览」入口可见（Q6 元数据）；
+  // readonly 仅浏览（导出/导入/删除负空间，readonly 文档 6.1）
+  const browseBtn = (row: DbDatabaseItem): VNode =>
+    h(
+      NButton,
+      { size: 'small', onClick: () => navigateToBrowse(row) },
+      { default: () => '浏览' }
+    )
   if (authStore.isAdmin) {
     cols.push({
       title: '操作',
       key: 'actions',
-      width: 200,
+      width: 260,
       fixed: 'right',
       render: (row) => {
         const busy = exportingDb.value !== null
         return [
+          browseBtn(row),
           h(
             NButton,
             {
@@ -233,6 +251,14 @@ const dbColumns = computed<DataTableColumns<DbDatabaseItem>>(() => {
           )
         ]
       }
+    })
+  } else {
+    cols.push({
+      title: '操作',
+      key: 'actions',
+      width: 100,
+      fixed: 'right',
+      render: (row) => browseBtn(row)
     })
   }
   return cols
@@ -422,13 +448,7 @@ onMounted(() => {
           <span class="muted">版本 {{ instance.version ?? '—' }}</span>
           <span class="muted">
             凭据
-            <n-tag
-              :type="instance.credentialsSet ? 'success' : 'default'"
-              size="small"
-              :bordered="false"
-            >
-              {{ instance.credentialsSet ? '已配置' : '未配置' }}
-            </n-tag>
+            <CredentialsTag :credentials-set="instance.credentialsSet" />
           </span>
         </template>
         <span class="spacer" />
@@ -480,7 +500,7 @@ onMounted(() => {
             :columns="dbColumns"
             :data="databases"
             :loading="databasesLoading"
-            :scroll-x="authStore.isAdmin ? 640 : 440"
+            :scroll-x="authStore.isAdmin ? 700 : 540"
             :row-key="(row: DbDatabaseItem) => row.name"
           >
             <template #empty>

@@ -12,7 +12,9 @@ import (
 	"github.com/dougong/dougong/internal/adapter/dbmysql"
 )
 
-// ---- 审计动作码（D-13：13 个，category 全部=change；detail 不含密码/密文/密钥）----
+// ---- 审计动作码（D-13 基础 13 + v2.0 mongo 4 + v2.2 bootstrap 1〔bootstrap.go〕
+// + v2.3 治理 10 = 28 个，category 全部=change；detail 不含密码/密文/密钥，
+// 行/文档内容明文不入 detail）----
 
 const (
 	ActionInstanceRescanned   = "instance_rescanned"
@@ -33,14 +35,52 @@ const (
 	ActionMongoUserDeleted = "mongo_user_deleted"
 	ActionMongoUserGranted = "mongo_user_granted"
 	ActionMongoUserRevoked = "mongo_user_revoked"
+	// v2.3 表级/集合文档治理 + 探测保守清理（D-26 +10，共 28；行写/文档写
+	// detail 仅含对象定位与动作结果，不含行数据/文档内容明文，D-13 脱敏）。
+	ActionTableDropped           = "table_dropped"
+	ActionRowUpdated             = "row_updated"
+	ActionRowDeleted             = "row_deleted"
+	ActionMongoDatabaseDropped   = "mongo_database_dropped"
+	ActionMongoCollectionCreated = "mongo_collection_created"
+	ActionMongoCollectionDropped = "mongo_collection_dropped"
+	ActionMongoDocumentInserted  = "mongo_document_inserted"
+	ActionMongoDocumentUpdated   = "mongo_document_updated"
+	ActionMongoDocumentDeleted   = "mongo_document_deleted"
+	ActionInstanceMerged         = "instance_merged"
 )
 
 // 审计对象类型（audit_log.object_type 业务扩展取值）。
 const (
-	ObjectTypeInstance = "db_instance"
-	ObjectTypeDatabase = "database"
-	ObjectTypeDBUser   = "db_user"
+	ObjectTypeInstance        = "db_instance"
+	ObjectTypeDatabase        = "database"
+	ObjectTypeDBUser          = "db_user"
+	ObjectTypeDataTable       = "data_table"
+	ObjectTypeTableRow        = "table_row"
+	ObjectTypeMongoDatabase   = "mongo_database"
+	ObjectTypeMongoCollection = "mongo_collection"
+	ObjectTypeMongoDocument   = "mongo_document"
 )
+
+// ---- 表级/文档分页（v2.3，D-22/D-23）----
+
+const (
+	// TablePageDefault 行数据分页默认页大小（TABLE_PAGE_LIMIT 默认值）。
+	TablePageDefault = 20
+	// TablePageLimit 行数据分页页大小上限（超限截断至上限）。
+	TablePageLimit = 100
+	// DocPageDefault 文档分页默认页大小（DOC_PAGE_LIMIT 默认值）。
+	DocPageDefault = 20
+	// DocPageLimit 文档分页页大小上限（超限截断至上限）。
+	DocPageLimit = 100
+)
+
+// MongoSystemDatabases 是 mdb/dropdb 删除保护集（I-12/D-25：admin 承载面板
+// 纳管凭据语境，config/local 为引擎内部库——服务端硬校验，不信任前端）。
+var MongoSystemDatabases = map[string]bool{
+	"admin":  true,
+	"config": true,
+	"local":  true,
+}
 
 // ---- 探测（D-07）----
 
@@ -161,4 +201,12 @@ const (
 	maxPasswordLen = 128
 	// maxKeyLen Redis key 长度上限（TTL 查询入参）。
 	maxKeyLen = 512
+	// maxTableNameLen MySQL 表名长度上限（v2.3 表级治理白名单）。
+	maxTableNameLen = 64
+	// maxColumnNameLen MySQL 列名长度上限（v2.3 行写列名校验）。
+	maxColumnNameLen = 64
+	// maxCollectionNameLen Mongo 集合名长度上限（引擎命名规则服务端校验）。
+	maxCollectionNameLen = 120
+	// maxPKValueLen 行定位主键值长度上限（自由文本 quoteString 转义入 SQL）。
+	maxPKValueLen = 1024
 )

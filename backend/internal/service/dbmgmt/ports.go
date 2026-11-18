@@ -56,6 +56,19 @@ type MySQLGateway interface {
 	DumpDatabase(ctx context.Context, t dbconn.Target, c dbconn.Creds, db, charset string) (io.ReadCloser, error)
 	// ImportDatabase mysql 客户端导入（临时文件由调用方治理）。
 	ImportDatabase(ctx context.Context, t dbconn.Target, c dbconn.Creds, db string, r io.Reader) error
+	// ---- 表级治理（v2.3，D-22；§4.1.5 扩展）----
+	// ListTables 表清单实况投影（information_schema.TABLES；估算/可空如实）。
+	ListTables(ctx context.Context, t dbconn.Target, c dbconn.Creds, db string) ([]dbmysql.TableInfo, error)
+	// TableStructure 表结构实况投影（COLUMNS 列序；表不存在 → dbmysql.ErrTableNotFound）。
+	TableStructure(ctx context.Context, t dbconn.Target, c dbconn.Creds, db, table string) ([]dbmysql.ColumnInfo, error)
+	// TableRows 行数据分页（JSON_OBJECT 逐行聚合；total=COUNT(*) 实况）。
+	TableRows(ctx context.Context, t dbconn.Target, c dbconn.Creds, db, table string, offset, limit int) ([]map[string]any, int64, error)
+	// DropTable 删表（不存在 → dbmysql.ErrTableNotFound；不可逆）。
+	DropTable(ctx context.Context, t dbconn.Target, c dbconn.Creds, db, table string) error
+	// UpdateRow 单列主键行编辑（WHERE pk=旧值 quoteString；null→NULL；affected=0 → DBM_024）。
+	UpdateRow(ctx context.Context, t dbconn.Target, c dbconn.Creds, db, table, pkColumn, pkValue string, values map[string]any) (int64, error)
+	// DeleteRow 单列主键行删除（affected=0 → DBM_024）。
+	DeleteRow(ctx context.Context, t dbconn.Target, c dbconn.Creds, db, table, pkColumn, pkValue string) (int64, error)
 }
 
 // RedisGateway 是 §4.1.5 DbGateway 契约 Redis 族方法（adapter/dbredis.Gateway
@@ -102,6 +115,23 @@ type MongoGateway interface {
 	GrantRole(ctx context.Context, t dbconn.Target, c dbconn.Creds, username, db, role string) error
 	// RevokeRole 回收库级角色（授权关系不存在语义由 service 前置校验承载——引擎不必然报错）。
 	RevokeRole(ctx context.Context, t dbconn.Target, c dbconn.Creds, username, db, role string) error
+	// ---- 集合与文档治理（v2.3，D-23/D-25；§4.5.1 扩展）----
+	// DropDatabase 删库（dropDatabase 不可逆；系统库保护 I-12 由 service 前置）。
+	DropDatabase(ctx context.Context, t dbconn.Target, c dbconn.Creds, db string) error
+	// ListCollections 集合清单实况投影（名称/文档数估算/大小）。
+	ListCollections(ctx context.Context, t dbconn.Target, c dbconn.Creds, db string) ([]dbmongo.CollectionInfo, error)
+	// CreateCollection 建集合（隐式建库语义；重名 → dbmongo.ErrCollectionExists）。
+	CreateCollection(ctx context.Context, t dbconn.Target, c dbconn.Creds, db, name string) error
+	// DropCollection 删集合（不存在 → dbmongo.ErrCollectionNotFound）。
+	DropCollection(ctx context.Context, t dbconn.Target, c dbconn.Creds, db, name string) error
+	// ListDocuments 文档分页（find skip/limit + CountDocuments；扩展 JSON 形态）。
+	ListDocuments(ctx context.Context, t dbconn.Target, c dbconn.Creds, db, coll string, skip, limit int) ([]map[string]any, int64, error)
+	// InsertDocument 文档插入（InsertOne；_id 冲突 → dbmongo.ErrDocumentExists）。
+	InsertDocument(ctx context.Context, t dbconn.Target, c dbconn.Creds, db, coll string, doc map[string]any) (any, error)
+	// ReplaceDocument 文档编辑（ReplaceOne by _id 整体替换；matched=0 → DBM_027）。
+	ReplaceDocument(ctx context.Context, t dbconn.Target, c dbconn.Creds, db, coll string, id any, doc map[string]any) (int64, error)
+	// DeleteDocument 文档删除（DeleteOne by _id；deleted=0 → DBM_027）。
+	DeleteDocument(ctx context.Context, t dbconn.Target, c dbconn.Creds, db, coll string, id any) (int64, error)
 }
 
 // InstanceRepoAPI 是 db_instance 仓储契约（§4.1.5 InstanceRepository；实现

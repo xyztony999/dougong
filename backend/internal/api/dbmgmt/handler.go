@@ -1,10 +1,11 @@
-// Package dbmgmt 是数据库管理（database-mgmt）模块 HTTP 传输层（23 接口
-// 薄壳：绑定 → service → 包络响应；api-database-mgmt.md §3.1/§3.3/§4.*）。
+// Package dbmgmt 是数据库管理（database-mgmt）模块 HTTP 传输层（44 接口
+// 薄壳：绑定 → service → 包络响应；api-database-mgmt.md v2.3 §3.1/§3.3/§4.*）。
 // backup/export 为双形态响应（D-06：成功=application/octet-stream 文件流 +
 // Content-Disposition，失败=JSON 错误体）；backup/import 为 multipart。
 package dbmgmt
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"strconv"
@@ -478,6 +479,211 @@ func (h *Handler) MongoRevokeRole(c *gin.Context) {
 		return
 	}
 	data, err := h.svc.MongoRevokeRole(c.Request.Context(), identity(c), req)
+	if err != nil {
+		response.Fail(c, err)
+		return
+	}
+	response.OK(c, data)
+}
+
+// ---- table/row（v2.3 §4.7.4；元数据 GET 两角色 / 数据内容 GET admin 专属 /
+// POST admin+CSRF，D-24/I-11 路由层承载）----
+
+// TableList GET /db/table/list：query {instanceId, database}。
+func (h *Handler) TableList(c *gin.Context) {
+	data, err := h.svc.TableList(c.Request.Context(), c.Query("instanceId"), c.Query("database"))
+	if err != nil {
+		response.Fail(c, err)
+		return
+	}
+	response.OK(c, data)
+}
+
+// TableStructure GET /db/table/structure：query {instanceId, database, table}。
+func (h *Handler) TableStructure(c *gin.Context) {
+	data, err := h.svc.TableStructure(c.Request.Context(),
+		c.Query("instanceId"), c.Query("database"), c.Query("table"))
+	if err != nil {
+		response.Fail(c, err)
+		return
+	}
+	response.OK(c, data)
+}
+
+// DropTable POST /db/table/drop。
+func (h *Handler) DropTable(c *gin.Context) {
+	var req dbmgmtsvc.TableDropRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, bindError(err))
+		return
+	}
+	data, err := h.svc.DropTable(c.Request.Context(), identity(c), req)
+	if err != nil {
+		response.Fail(c, err)
+		return
+	}
+	response.OK(c, data)
+}
+
+// TableRows GET /db/row/list：query {instanceId, database, table, page?, pageSize?}。
+func (h *Handler) TableRows(c *gin.Context) {
+	data, err := h.svc.TableRows(c.Request.Context(),
+		c.Query("instanceId"), c.Query("database"), c.Query("table"),
+		c.Query("page"), c.Query("pageSize"))
+	if err != nil {
+		response.Fail(c, err)
+		return
+	}
+	response.OK(c, data)
+}
+
+// UpdateRow POST /db/row/update。
+func (h *Handler) UpdateRow(c *gin.Context) {
+	var req dbmgmtsvc.RowUpdateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, bindError(err))
+		return
+	}
+	data, err := h.svc.UpdateRow(c.Request.Context(), identity(c), req)
+	if err != nil {
+		response.Fail(c, err)
+		return
+	}
+	response.OK(c, data)
+}
+
+// DeleteRow POST /db/row/delete。
+func (h *Handler) DeleteRow(c *gin.Context) {
+	var req dbmgmtsvc.RowDeleteRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, bindError(err))
+		return
+	}
+	data, err := h.svc.DeleteRow(c.Request.Context(), identity(c), req)
+	if err != nil {
+		response.Fail(c, err)
+		return
+	}
+	response.OK(c, data)
+}
+
+// ---- mcoll/mdoc/mdb-dropdb（v2.3 §4.8.4）----
+
+// MongoListCollections GET /db/mcoll/list：query {instanceId, database}。
+func (h *Handler) MongoListCollections(c *gin.Context) {
+	data, err := h.svc.MongoListCollections(c.Request.Context(), c.Query("instanceId"), c.Query("database"))
+	if err != nil {
+		response.Fail(c, err)
+		return
+	}
+	response.OK(c, data)
+}
+
+// MongoCreateCollection POST /db/mcoll/create。
+func (h *Handler) MongoCreateCollection(c *gin.Context) {
+	var req dbmgmtsvc.MongoCollectionCreateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, bindError(err))
+		return
+	}
+	data, err := h.svc.MongoCreateCollection(c.Request.Context(), identity(c), req)
+	if err != nil {
+		response.Fail(c, err)
+		return
+	}
+	response.OK(c, data)
+}
+
+// MongoDropCollection POST /db/mcoll/drop。
+func (h *Handler) MongoDropCollection(c *gin.Context) {
+	var req dbmgmtsvc.MongoCollectionDropRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, bindError(err))
+		return
+	}
+	data, err := h.svc.MongoDropCollection(c.Request.Context(), identity(c), req)
+	if err != nil {
+		response.Fail(c, err)
+		return
+	}
+	response.OK(c, data)
+}
+
+// MongoDropDatabase POST /db/mdb/dropdb。
+func (h *Handler) MongoDropDatabase(c *gin.Context) {
+	var req dbmgmtsvc.MongoDatabaseDropRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, bindError(err))
+		return
+	}
+	data, err := h.svc.MongoDropDatabase(c.Request.Context(), identity(c), req)
+	if err != nil {
+		response.Fail(c, err)
+		return
+	}
+	response.OK(c, data)
+}
+
+// MongoListDocuments GET /db/mdoc/list：query {instanceId, database, collection,
+// page?, pageSize?}。
+func (h *Handler) MongoListDocuments(c *gin.Context) {
+	data, err := h.svc.MongoListDocuments(c.Request.Context(),
+		c.Query("instanceId"), c.Query("database"), c.Query("collection"),
+		c.Query("page"), c.Query("pageSize"))
+	if err != nil {
+		response.Fail(c, err)
+		return
+	}
+	response.OK(c, data)
+}
+
+// bindUseNumber JSON 绑定（UseNumber 保数值精度——mdoc _id 大整数 int64
+// 不经 float64 失真，A-DB18；document 为 json.RawMessage 原始载荷透传
+// service 层 DBM_026 校验）。
+func bindUseNumber(c *gin.Context, req any) error {
+	dec := json.NewDecoder(c.Request.Body)
+	dec.UseNumber()
+	return dec.Decode(req)
+}
+
+// MongoInsertDocument POST /db/mdoc/insert。
+func (h *Handler) MongoInsertDocument(c *gin.Context) {
+	var req dbmgmtsvc.MongoDocumentInsertRequest
+	if err := bindUseNumber(c, &req); err != nil {
+		response.Fail(c, bindError(err))
+		return
+	}
+	data, err := h.svc.MongoInsertDocument(c.Request.Context(), identity(c), req)
+	if err != nil {
+		response.Fail(c, err)
+		return
+	}
+	response.OK(c, data)
+}
+
+// MongoReplaceDocument POST /db/mdoc/update。
+func (h *Handler) MongoReplaceDocument(c *gin.Context) {
+	var req dbmgmtsvc.MongoDocumentUpdateRequest
+	if err := bindUseNumber(c, &req); err != nil {
+		response.Fail(c, bindError(err))
+		return
+	}
+	data, err := h.svc.MongoReplaceDocument(c.Request.Context(), identity(c), req)
+	if err != nil {
+		response.Fail(c, err)
+		return
+	}
+	response.OK(c, data)
+}
+
+// MongoDeleteDocument POST /db/mdoc/delete。
+func (h *Handler) MongoDeleteDocument(c *gin.Context) {
+	var req dbmgmtsvc.MongoDocumentDeleteRequest
+	if err := bindUseNumber(c, &req); err != nil {
+		response.Fail(c, bindError(err))
+		return
+	}
+	data, err := h.svc.MongoDeleteDocument(c.Request.Context(), identity(c), req)
 	if err != nil {
 		response.Fail(c, err)
 		return
