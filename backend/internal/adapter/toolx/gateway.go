@@ -20,10 +20,12 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -39,6 +41,7 @@ type Deps struct {
 	RemoveAll  func(path string) error
 	Rename     func(old, new string) error
 	CreateTemp func(dir, pattern string) (*os.File, error)
+	ProbePort  func(port int) (bool, error)
 }
 
 // Gateway 是 ToolDeployGateway 适配器（并发安全：注入函数只读）。
@@ -52,6 +55,7 @@ type Gateway struct {
 	removeAll  func(string) error
 	rename     func(old, new string) error
 	createTemp func(dir, pattern string) (*os.File, error)
+	probePort  func(port int) (bool, error)
 }
 
 // NewGateway 构造生产网关。
@@ -69,6 +73,7 @@ func NewGatewayWithDeps(d Deps) *Gateway {
 		removeAll:  os.RemoveAll,
 		rename:     os.Rename,
 		createTemp: os.CreateTemp,
+		probePort:  probePortAvailable,
 	}
 	if d.LookPath != nil {
 		g.lookPath = d.LookPath
@@ -96,6 +101,9 @@ func NewGatewayWithDeps(d Deps) *Gateway {
 	}
 	if d.CreateTemp != nil {
 		g.createTemp = d.CreateTemp
+	}
+	if d.ProbePort != nil {
+		g.probePort = d.ProbePort
 	}
 	return g
 }
@@ -447,6 +455,26 @@ func (g *Gateway) Rename(old, new string) error {
 		return fmt.Errorf("toolx: rename %s → %s: %w", old, new, err)
 	}
 	return nil
+}
+
+// ProbePortAvailable 端口占用探针（v1.3，D-19③：net.Listen("tcp", :port)
+// 即探即放——占用→false 如实；探针通过不保证 nginx 绑定成功，nginx -t/
+// reload 失败仍沿 R-06 回滚兜底）。
+func (g *Gateway) ProbePortAvailable(port int) (bool, error) {
+	return g.probePort(port)
+}
+
+// probePortAvailable 生产探针实现（绑定失败=占用或不可绑，均按不可用如实；
+// 成功即关闭释放——不持有端口）。
+func probePortAvailable(port int) (bool, error) {
+	ln, err := net.Listen("tcp", net.JoinHostPort("", strconv.Itoa(port)))
+	if err != nil {
+		return false, nil
+	}
+	if cerr := ln.Close(); cerr != nil {
+		return false, fmt.Errorf("toolx: probe port close: %w", cerr)
+	}
+	return true, nil
 }
 
 // run 执行外部命令（字面量参数数组 R-08；超时调用方注入；stdout+stderr 合并）。

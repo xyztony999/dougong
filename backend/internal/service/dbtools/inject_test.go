@@ -4,6 +4,7 @@ package dbtools
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -13,8 +14,8 @@ import (
 	storedbt "github.com/dougong/dougong/internal/store/dbtools"
 )
 
-// TestLandingSelection 落点选择四形态（bind_domain 匹配/proxy 回退/多候选/
-// 无候选）。
+// TestLandingSelection 落点选择形态（bind_domain 匹配/proxy 回退/多候选/
+// 0 匹配自动建块〔v1.3 D-19〕/https scheme）。
 func TestLandingSelection(t *testing.T) {
 	ctx := context.Background()
 	t.Run("bind-domain-match", func(t *testing.T) {
@@ -75,12 +76,18 @@ func TestLandingSelection(t *testing.T) {
 			t.Fatalf("reason should list candidates: %s", reason)
 		}
 	})
-	t.Run("no-candidate", func(t *testing.T) {
+	t.Run("no-candidate-auto-create", func(t *testing.T) {
+		// v1.3 D-19：0 匹配不再 DBT_012 拒绝——自动创建专用工具落地块。
 		f := defaultFakes()
 		f.panel.pa.BindDomain = "absent.example.test"
 		svc, _ := newTestService(t, f)
-		if _, err := svc.selectLanding(ctx, f.panel.pa); symbolOf(err) != "DBT_012" {
-			t.Fatalf("no candidate: %v", err)
+		ref, err := svc.selectLanding(ctx, f.panel.pa)
+		if err != nil {
+			t.Fatalf("0 匹配应自动建块: %v", err)
+		}
+		if !ref.AutoCreated || ref.Port != ToolLandingPort || ref.Scheme != "http" ||
+			ref.ServerName != "absent.example.test" || filepath.Base(ref.File) != ToolLandingConfName {
+			t.Fatalf("auto landing ref = %+v", ref)
 		}
 	})
 	t.Run("https-scheme", func(t *testing.T) {

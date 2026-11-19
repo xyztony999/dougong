@@ -2,9 +2,9 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v1.0 |
+| 版本 | v1.1 |
 | 状态 | 稳定 |
-| 最后更新 | 2026-11-19（db-tools 集成初始轮） |
+| 最后更新 | 2026-11-19（v1.1 自动 nginx 落地增量轮：IP 直连可用+域名联动+HostGuard 内部端点豁免+reason 可见，d0-clarification-dbtools-auto-landing-2026-11-19.md） |
 
 ## 第一部分：文档概述
 
@@ -34,14 +34,18 @@
 > - ⚠️A3 异步任务口径：安装/升级/卸载为异步变更任务（下载/npm 安装可达数分钟）：任务状态 pending → running → succeeded / failed；同工具同时至多一个在途任务（互斥）；失败原因与输出尾部如实呈现；任务取消 MVP 不做（OUT——中断态不安全，沿 env-mgmt ⚠️A3 同判）。
 > - ⚠️A4 升级口径：升级=部署到面板目录钉死的新版本（面板版本迭代携带新工具版本），非「拉取上游最新」；phpMyAdmin 升级保留 config.inc.php 与 signon 密钥（配置不覆盖，conffile 保守先例）；mongo-express 升级重装 npm 包并重启服务；「检测上游新版本并提示」MVP 不做（OUT）；降级/自选版本不做（OUT）。
 > - ⚠️A5 卸载口径：卸载=解除工具部署（程序目录/npm 包 + systemd 服务〔mongo-express〕+ 站点配置 + 工具凭据密文），**绝不删除数据库数据**（沿 database-mgmt instanceRemove 哲学）；卸载前强确认（呈现「高级管理入口将不可用，面板内轻量浏览不受影响」知情提示）；卸载动作审计留痕。
-> - ⚠️A6 localhost 绑定口径：工具进程仅绑 localhost——mongo-express 监听 127.0.0.1:8081（端口面板编译期定死）；phpMyAdmin 无独立监听端口（PHP-FPM pool 经 nginx FastCGI 承载）；工具不暴露任何独立公网端口，唯一访问路径=面板域下工具路径反代（⚠️A7）。
-> - ⚠️A7 会话 gating 口径：面板 nginx 工具路径经 auth_request 子请求到面板鉴权端点，校验面板会话 cookie + 管理员角色——200 放行 / 401 拒绝；无面板管理员会话者工具不可达（含直接访问工具路径）；工具路径位于面板域下（会话 cookie scope 覆盖），受面板入口路径/域名绑定既有约束（panel-core HostGuard/EntryPathGuard 同链生效）。
+> - ⚠️A6 localhost 绑定口径：工具进程仅绑 localhost——mongo-express 监听 127.0.0.1:8081（端口面板编译期定死）；phpMyAdmin 无独立监听端口（PHP-FPM pool 经 nginx FastCGI 承载）；工具进程不暴露任何独立公网端口。**v1.1 修订**：唯一访问路径=面板 nginx 工具路径反代——既有面板域落地块（⚠️A7）或自动落地块（⚠️A14，nginx 接入层 listen ToolLandingPort，非工具进程端口）；工具本体 localhost 绑定不变。
+> - ⚠️A7 会话 gating 口径：面板 nginx 工具路径经 auth_request 子请求到面板鉴权端点，校验面板会话 cookie + 管理员角色——200 放行 / 401 拒绝；无面板管理员会话者工具不可达（含直接访问工具路径）；工具路径位于面板域下（会话 cookie scope 覆盖）。**v1.1 修订**：既有面板域落地块形态下面板入口路径/域名绑定约束同链生效；自动落地块形态（⚠️A14）下域名约束经块内 server_name+非匹配 Host 404 镜像 HostGuard 语义（⚠️A15），入口路径约束不适用于独立工具端口（工具路径不含面板入口前缀）；gating/signon 内部鉴权端点豁免 HostGuard/EntryPathGuard（⚠️A16，安全由 loopback+秘密头+会话/令牌承载）——豁免不削弱 gating：每请求会话+admin 校验不变。
 > - ⚠️A8 signon 桥接口径：phpMyAdmin 以 signon 认证模式桥接面板会话——面板生成签名令牌（HMAC 签名防伪 + 短时效 + 一次性消费防重放），经面板 API 校验后由服务端回调通道将 vault 取出的 MySQL 凭据注入 phpMyAdmin 会话；凭据仅在面板与 PHP-FPM 间的 loopback 服务端通道流转，**永不进入浏览器**（零回显，I-02 同构）；令牌绑定目标实例，跨实例重用拒绝。
 > - ⚠️A9 mongo-express 凭据口径：mongo-express 的 basic auth 用户名/密码由面板生成（随机强口令）并经 nginx 反代注入 Authorization 头（用户浏览器无感知、不手工输入）；Mongo 连接凭据取自 vault（database-mgmt 实例凭据 OHS 取出）经 systemd 环境注入；basic auth 口令与 signon 密钥 AES-256-GCM 密文落库永不回显（I-02）。
 > - ⚠️A10 角色口径：工具访问整体管理员专属——只读角色不可达工具（gating 端点角色校验拒绝），工具管理页只读用户仅可看目录与状态（ADR-018 全模块可查看）；工具内细粒度权限映射到面板只读角色本轮不做（OUT，D0 范围边界）。
 > - ⚠️A11 审计口径：工具安装/升级/卸载/访问开启（打开工具动作）/凭据轮换记审计（R-03 写动作同事务，detail 脱敏不含凭据）；gating 逐请求校验不落审计（防写放大，ADR-020 保留约束）；拒绝访问事件经安全日志通道留痕不落业务审计（口径归 D3）。
 > - ⚠️A12 下载分发口径：沿 install.sh 先例——版本钉死 + sha256 校验（校验失败=任务 failed 如实，不降级不跳过）+ 国内镜像选项（DOUGONG_MIRROR 同构拼接式前缀）；npm 安装经 registry 镜像选项同构；下载与安装为 R-09 零遥测的**用户主动发起例外**（与 ACME 外呼同判：用户显式动作触发，面板自身不主动外呼）。
 > - ⚠️A13 并存口径：面板内表/文档浏览（database-mgmt S-56/S-57）保留作轻量入口不下线（Q3）；集成工具为高级入口，两者并存；实例/凭据/库/用户治理仍归 database-mgmt，工具不接管治理台账。
+> - ⚠️A14 自动落地口径（v1.1 新增，D0 Q1 拍板）：落点选择 0 匹配（IP+端口直连面板、未绑域名、nginx 无面板域 server 块）时**自动创建专用 nginx 工具 server 块**（不再直接 DBT_012 拒绝）——文件 {nginx conf.d}/dougong-tools.conf（编译期常量路径，沿 site-mgmt 扫描目录），listen ToolLandingPort=18090（编译期常量，避开常用端口；端口被占用→DBT_012 如实报「工具端口被占用」引导释放）；绑定 0.0.0.0（IP 直连可达，安全边界=gating auth_request，工具本体仍仅 localhost ⚠️A6）；既有匹配块（绑域名/反代面板）优先沿用不新建，仅 0 匹配时自动建；多匹配仍 DBT_012 引导明确（不变）；幂等——自动块已存在则复用（标记/文件存在判定），两工具共用一块（gate location 去重）；落点引用 +Port（落地监听端口，既有 80/443 块 Port=0 表默认）+AutoCreated 标志；卸载移除工具 location，**两工具均卸载后移除自动块**（AutoCreated 标志判定，非自动块不动）；自动块写入/移除经 site-mgmt 安全写入管线（nginx -t 自检+reload，失败字节复原 R-06）；安装成功输出/文档提示用户放行 ToolLandingPort（防火墙/云安全组，仅提示不自动放行）；可行性关键——面板会话 cookie 为 host-only（端口无关），浏览器访问 IP:ToolLandingPort 同样携带面板会话，gating auth_request 可校验（D0 取证）。
+> - ⚠️A15 域名联动口径（v1.1 新增，D0 Q1 二次拍板，对齐宝塔「绑域名后仅域名访问」语义）：自动块 server_name 跟随面板域名绑定状态——未绑域名 server_name _（IP/任意 Host 可达）；已绑域名 server_name=BindDomain + 非匹配 Host 返回 404（镜像 panel-core HostGuard 语义）→绑域名后工具也只认域名，与面板一致；域名变更同步刷新自动块（D1 裁定：**panel-core 配置变更钩子主通道+工具 install/open 惰性校正兜底**，见 AA 附录B D1 裁定）；工具打开 URL 基址按落点端口分支——Port≠0 → scheme://hostname:Port（hostname 取 BindDomain 优先，否则请求 Host 去端口），Port=0 沿旧形态 scheme://host（IP 直连形态生成 http://IP:18090/dbtool/...，绑域名后 http://域名:18090/...）。
+> - ⚠️A16 内部端点豁免口径（v1.1 新增，D0 Q1b 必修 bug）：panel-core HostGuard/EntryPathGuard 全局包装器对内部 2 端点路径（/dbtool/gate/、/dbtool/signon/）**豁免直通**——绑域名后 auth_request 子请求/SignonScript 回调 Host≠域名被全局网关误拦 404 致 gating 失效的缺陷修复；豁免范围最小化（仅内部 2 端点路径前缀，非内部路径强校验不变，IP 直连面板仍 404）；内部端点安全由既有 loopback 源+秘密头+会话/令牌防护链承载（豁免的是 Host/入口路径校验，非鉴权）；豁免落点归 panel-core（跨模块待同步项，本轮 db-tools D1 不代改）。
+> - ⚠️A17 失败原因可见口径（v1.1 新增，D0 Q2 拍板）：部署任务失败时任务错误文本须含错误码附加的具体原因（errcode data.reason 拼接，沿 env-mgmt worker 错误形态先例）——任务详情可见具体失败原因（DBT_012 不再吞 reason，端口占用/多候选/扫描失败等原因如实呈现）。
 
 ### 1.2 文档定位
 
@@ -66,7 +70,7 @@
 | 业务域 | 数据库工具集成（db-tools）：工具目录与实况、工具部署与变更、工具安全访问 |
 | 业务阶段 | 工具观测阶段、工具供给阶段、工具访问阶段 |
 
-边界声明（OUT，沿 D0 范围边界）：Python 环境与其他工具（phpRedisAdmin/redis-commander/Adminer/pgAdmin）不做；Redis 集成工具不做（保留面板 key 浏览）；工具内细粒度权限映射到面板只读角色不做（工具访问整体管理员专属，⚠️A10）；面板内表/文档浏览下线不做（保留并存，Q3/⚠️A13）；工具上游新版本检测/降级/自选版本不做（⚠️A4）；任务取消不做（⚠️A3）；工具本体的汉化/主题定制不做（集成现成工具原样形态）；Windows/无 systemd 环境不支持（沿 install.sh 支持矩阵，如实报错）。
+边界声明（OUT，沿 D0 范围边界）：Python 环境与其他工具（phpRedisAdmin/redis-commander/Adminer/pgAdmin）不做；Redis 集成工具不做（保留面板 key 浏览）；工具内细粒度权限映射到面板只读角色不做（工具访问整体管理员专属，⚠️A10）；面板内表/文档浏览下线不做（保留并存，Q3/⚠️A13）；工具上游新版本检测/降级/自选版本不做（⚠️A4）；任务取消不做（⚠️A3）；工具本体的汉化/主题定制不做（集成现成工具原样形态）；Windows/无 systemd 环境不支持（沿 install.sh 支持矩阵，如实报错）。**v1.1 增量 OUT（沿自动落地 D0 范围边界）**：自动配置防火墙放行不做（firewall 模块联动归后续，本轮仅安装成功提示放行 ToolLandingPort）；工具端口用户可配不做（编译期常量 18090，可配归后续）；HTTPS 工具落地不做（自动块 http，TLS 归绑域名形态既有能力）；面板自身经 nginx 承载的改造不做（不动面板 Go 直连形态）。
 
 ## 第二部分：业务架构
 
@@ -77,7 +81,7 @@
 数据库工具集成遵循「看得见工具 → 装得上工具 → 安全用得着工具」的业务主线，按工具集成生命周期划分三个业务阶段：
 
 - **工具观测阶段**：工具目录呈现（内置两条目）与工具实况探测（部署状态/版本/运行态/依赖就绪度）——是供给与访问两阶段的共同数据底座，也是 database-mgmt 高级管理入口的状态依据；
-- **工具供给阶段**：工具的下载/安装/升级/卸载，异步任务化执行与跟踪；运行依赖前置检测（PHP-FPM+扩展/Node/nginx），安全纪律（sha256 校验、强确认、审计、卸载不删数据）贯穿；
+- **工具供给阶段**：工具的下载/安装/升级/卸载，异步任务化执行与跟踪；运行依赖前置检测（PHP-FPM+扩展/Node/nginx），**落地通道自动供给（v1.1：0 匹配自动建专用 nginx 工具块+域名联动，IP 直连面板形态可用，⚠️A14/A15）**，安全纪律（sha256 校验、强确认、审计、卸载不删数据）贯穿，失败原因如实可见（⚠️A17）；
 - **工具访问阶段**：工具的安全访问能力——localhost 绑定 + 面板会话 gating 反代（管理员专属）、phpMyAdmin signon 桥接（令牌防伪 + 凭据零回显注入）、mongo-express basic auth 注入、工具打开入口与访问开启审计。
 
 三阶段为顺序依赖关系：观测产出实况 → 供给改变实况 → 访问作用于已部署工具；观测同时为访问阶段提供入口状态依据（未装引导安装、已装呈现打开）。
@@ -104,11 +108,11 @@
 
 ##### 2.2.1 工具部署与变更
 
-**业务说明**：工具供给的变更主链。所属 L2：工具供给阶段。安装/升级/卸载三个动作共用异步任务通道与审计纪律；任务产出（输出尾部、失败原因）如实呈现，不虚构成功。
+**业务说明**：工具供给的变更主链。所属 L2：工具供给阶段。安装/升级/卸载三个动作共用异步任务通道与审计纪律；任务产出（输出尾部、失败原因含具体 reason，⚠️A17）如实呈现，不虚构成功；落地通道自动供给（v1.1 新增 L4 工具落地自动供给：0 匹配自动建块/域名联动/幂等复用/卸载清块，⚠️A14/A15）为安装/卸载的落地配置来源。
 
 ###### 2.2.1.1 工具安装
 
-**业务说明**：安装目录工具：依赖前置检测（phpMyAdmin=PHP-FPM+扩展+nginx；mongo-express=Node+nginx，缺失如实拒绝并引导到环境管理，⚠️A2）；phpMyAdmin 经下载 tarball（钉版本+sha256+镜像，⚠️A12）→ 解压到管理目录 → 生成 config.inc.php（signon 桥接配置）→ 经 site-mgmt 建 php_fpm 站点（面板域工具路径）；mongo-express 经 npm 安装（精确版本）→ 建 systemd 服务（env 注入 vault Mongo 凭据 + 面板 basic auth + baseUrl 路径前缀 + bind 127.0.0.1，⚠️A6/A9）→ 经 site-mgmt 建 reverse_proxy 站点；工具凭据（basic auth/signon 密钥）生成并密文落库（⚠️A9）；安装动作审计留痕。所属 L3：工具部署与变更。
+**业务说明**：安装目录工具：依赖前置检测（phpMyAdmin=PHP-FPM+扩展+nginx；mongo-express=Node+nginx，缺失如实拒绝并引导到环境管理，⚠️A2）；phpMyAdmin 经下载 tarball（钉版本+sha256+镜像，⚠️A12）→ 解压到管理目录 → 生成 config.inc.php（signon 桥接配置）→ 经 site-mgmt 建 php_fpm 站点（面板域工具路径）；mongo-express 经 npm 安装（精确版本）→ 建 systemd 服务（env 注入 vault Mongo 凭据 + 面板 basic auth + baseUrl 路径前缀 + bind 127.0.0.1，⚠️A6/A9）→ 经 site-mgmt 建 reverse_proxy 站点；**落地选择（v1.1 修订）**：既有匹配块优先沿用；0 匹配时经「工具落地自动供给」自动建专用块（⚠️A14，端口占用→DBT_012 reason 如实）；多匹配仍引导明确；工具凭据（basic auth/signon 密钥）生成并密文落库（⚠️A9）；安装成功输出含 ToolLandingPort 放行提示（自动块形态）；安装动作审计留痕。所属 L3：工具部署与变更。
 
 ###### 2.2.1.2 工具升级
 
@@ -116,15 +120,19 @@
 
 ###### 2.2.1.3 工具卸载
 
-**业务说明**：卸载已装工具：强确认交互（呈现「高级管理入口将不可用，面板内轻量浏览与数据库数据不受影响」知情提示，⚠️A5）；解除工具部署——删除程序目录/npm 包、移除 systemd 服务（mongo-express）、经 site-mgmt 移除工具站点配置、删除工具凭据密文；**绝不删除数据库数据**（沿 instanceRemove 哲学）；卸载后工具条目回未装态；卸载动作审计留痕。所属 L3：工具部署与变更。
+**业务说明**：卸载已装工具：强确认交互（呈现「高级管理入口将不可用，面板内轻量浏览与数据库数据不受影响」知情提示，⚠️A5）；解除工具部署——删除程序目录/npm 包、移除 systemd 服务（mongo-express）、经 site-mgmt 移除工具站点配置（工具 location 撤除）、删除工具凭据密文；**两工具均卸载后移除自动落地块**（v1.1，⚠️A14：AutoCreated 标志判定，非自动块不动）；**绝不删除数据库数据**（沿 instanceRemove 哲学）；卸载后工具条目回未装态；卸载动作审计留痕。所属 L3：工具部署与变更。
 
 ###### 2.2.1.4 工具部署任务跟踪
 
-**业务说明**：异步任务的观测与结果确认：任务状态（pending → running → succeeded / failed，⚠️A3）、目标工具与动作、输出尾部（排障）、失败原因（含 sha256 校验失败/依赖缺失等如实分类）；同工具在途任务互斥（重复提交如实拒绝）。所属 L3：工具部署与变更。
+**业务说明**：异步任务的观测与结果确认：任务状态（pending → running → succeeded / failed，⚠️A3）、目标工具与动作、输出尾部（排障）、失败原因（含 sha256 校验失败/依赖缺失等如实分类；**v1.1 修订 ⚠️A17：错误文本含错误码 data.reason 具体原因——DBT_012 端口占用/多候选/扫描失败等原因任务详情可见，不再吞 reason**）；同工具在途任务互斥（重复提交如实拒绝）。所属 L3：工具部署与变更。
+
+###### 2.2.1.5 工具落地自动供给
+
+**业务说明**：工具访问落地通道的自动供给与生命周期管理（v1.1 新增，⚠️A14/A15，机制型无独立入口）：落点选择 0 匹配（IP+端口直连面板、未绑域名、nginx 无面板域 server 块）时自动创建专用 nginx 工具 server 块——{nginx conf.d}/dougong-tools.conf，listen ToolLandingPort=18090（编译期常量；端口被占用→DBT_012 reason「工具端口被占用」引导释放），绑定 0.0.0.0，块内含 gating auth_request 与工具 location；**域名联动**：server_name 跟随面板域名绑定状态（未绑 _ / 已绑 BindDomain+非匹配 Host 404，镜像 HostGuard 语义），域名变更经 panel-core 配置变更钩子刷新+工具 install/open 惰性校正兜底（D1 裁定）；既有匹配块优先沿用不新建，多匹配仍引导明确（不变）；幂等复用（自动块已存在则复用，两工具共用一块）；两工具均卸载后移除自动块（AutoCreated 判定，非自动块不动）；写入/移除经 site-mgmt 安全写入管线（nginx -t+reload+失败字节复原 R-06）；安装成功提示放行 ToolLandingPort（仅提示不自动放行）。所属 L3：工具部署与变更。
 
 ### 2.3 工具访问阶段
 
-**业务说明**：已部署工具的安全访问能力：工具仅绑 localhost（⚠️A6），唯一访问路径为面板域下工具路径反代，经面板会话 gating（管理员专属，⚠️A7/A10）；phpMyAdmin 经 signon 桥接注入 vault 凭据（⚠️A8），mongo-express 经面板注入 basic auth（⚠️A9）；打开工具动作与凭据轮换审计留痕（⚠️A11）。安全架构详见 2.4 专节。
+**业务说明**：已部署工具的安全访问能力：工具仅绑 localhost（⚠️A6），唯一访问路径为面板 nginx 工具路径反代（既有面板域落地块或自动落地块 ⚠️A14），经面板会话 gating（管理员专属，⚠️A7/A10）；phpMyAdmin 经 signon 桥接注入 vault 凭据（⚠️A8），mongo-express 经面板注入 basic auth（⚠️A9）；打开 URL 按落点端口分支生成（⚠️A15）；打开工具动作与凭据轮换审计留痕（⚠️A11）。安全架构详见 2.4 专节。
 
 ##### 2.3.1 工具安全访问
 
@@ -132,7 +140,7 @@
 
 ###### 2.3.1.1 会话 gating 反代
 
-**业务说明**：面板 nginx 工具路径的访问闸门：每个工具路径请求经 auth_request 子请求到面板鉴权端点，校验面板会话 cookie 有效性与管理员角色——通过放行反代到 localhost 工具上游，拒绝返回 401（⚠️A7）；工具路径受面板入口路径/域名绑定既有约束同链生效；gating 逐请求校验不落业务审计（⚠️A11）。所属 L3：工具安全访问。
+**业务说明**：面板 nginx 工具路径的访问闸门：每个工具路径请求（含自动落地块 18090 端口，⚠️A14）经 auth_request 子请求到面板鉴权端点，校验面板会话 cookie 有效性与管理员角色——通过放行反代到 localhost 工具上游，拒绝返回 401（⚠️A7）；既有面板域落地块形态下面板入口路径/域名绑定约束同链生效，自动块形态下域名约束经块内 server_name+非匹配 Host 404 镜像（⚠️A15）；**gating/signon 内部鉴权端点豁免 HostGuard/EntryPathGuard**（v1.1，⚠️A16：绑域名后子请求/回调 Host≠域名不被全局网关误拦，安全由 loopback+秘密头+会话/令牌承载，豁免范围最小化）；gating 逐请求校验不落业务审计（⚠️A11）。所属 L3：工具安全访问。
 
 ###### 2.3.1.2 phpMyAdmin signon 桥接
 
@@ -144,7 +152,7 @@
 
 ###### 2.3.1.4 工具打开入口
 
-**业务说明**：管理员打开已装工具的统一入口：工具管理页「打开」动作与 database-mgmt 实例治理页/库行「高级管理」入口（跨模块呈现消费）共用同一打开能力——按工具类型分发（phpMyAdmin 走 signon 令牌签发、mongo-express 走 gating 反代直达）；未装工具呈现安装引导（不虚构可打开）；打开动作（访问开启）审计留痕（⚠️A11）。所属 L3：工具安全访问。
+**业务说明**：管理员打开已装工具的统一入口：工具管理页「打开」动作与 database-mgmt 实例治理页/库行「高级管理」入口（跨模块呈现消费）共用同一打开能力——按工具类型分发（phpMyAdmin 走 signon 令牌签发、mongo-express 走 gating 反代直达）；**打开 URL 基址按落点端口分支（v1.1，⚠️A15）**：Port≠0 → scheme://hostname:Port（hostname 取 BindDomain 优先，否则请求 Host 去端口；IP 直连形态 http://IP:18090/dbtool/...，绑域名后 http://域名:18090/...），Port=0 沿旧形态 scheme://host；打开时按当前绑定状态惰性校正自动块 server_name（⚠️A15 兜底通道）；未装工具呈现安装引导（不虚构可打开）；打开动作（访问开启）审计留痕（⚠️A11）。所属 L3：工具安全访问。
 
 ### 2.4 安全架构（显式专节，不可妥协底线）
 
@@ -153,15 +161,17 @@
 **防线一：网络面收敛（localhost 绑定，⚠️A6）**
 
 - 工具进程绝不绑定公网地址：mongo-express 仅 127.0.0.1:8081；phpMyAdmin 无独立监听端口（PHP-FPM pool 经 nginx FastCGI）；
-- 工具不注册任何独立公网端口/防火墙放行规则（firewall 模块无工具端口条目）；
-- 唯一访问路径=面板域下工具路径反代——面板自身的入口路径/域名绑定/HTTPS 约束（panel-core）对工具路径同链生效。
+- 工具不注册任何独立公网端口/防火墙放行规则（firewall 模块无工具端口条目；自动块 ToolLandingPort 仅安装成功提示用户放行，不自动配置防火墙——v1.1 OUT 边界）；
+- 唯一访问路径=面板 nginx 工具路径反代（既有面板域落地块或自动落地块 ⚠️A14）——既有块形态下面板自身的入口路径/域名绑定/HTTPS 约束（panel-core）对工具路径同链生效；自动块形态下域名约束经块内 server_name+非匹配 Host 404 镜像 HostGuard 语义（⚠️A15，绑域名后工具也只认域名）；
+- **v1.1 新增公网面=仅自动块 nginx 接入层 listen 0.0.0.0:18090**（ToolLandingPort 编译期常量）——该端口每请求受防线二 gating 与防线五约束，工具本体端口（8081 等）仍仅 loopback。
 
 **防线二：会话 gating（auth_request，⚠️A7/A10）**
 
 - 工具路径每个请求经 nginx auth_request 到面板鉴权端点：校验面板会话 cookie（有效性/过期/吊销）+ 管理员角色，200 放行 / 401 拒绝；
 - 无会话、会话失效、只读角色一律不可达工具（401/403 语义归 D3）；
 - 鉴权端点仅接受 nginx 子请求通道（loopback 内部 location），不对外暴露为可独立调用的公开接口；防 CSRF/越权：gating 为纯读校验（无状态变更），会话 cookie 随子请求原样透传，角色判定服务端权威（不信任任何客户端声明）；
-- 面板会话吊销/改密级联（account-auth 既有能力）即时切断工具访问——gating 逐请求实时校验，无独立长时会话。
+- 面板会话吊销/改密级联（account-auth 既有能力）即时切断工具访问——gating 逐请求实时校验，无独立长时会话；
+- **内部端点豁免（v1.1，⚠️A16，D0 Q1b 必修 bug）**：HostGuard/EntryPathGuard 全局包装器对内部 2 端点路径（/dbtool/gate/、/dbtool/signon/）豁免直通——修复绑域名后 auth_request 子请求/SignonScript 回调 Host≠域名被误拦 404 致 gating 失效；豁免范围最小化（仅内部 2 端点路径前缀），非内部路径强校验不变（IP 直连面板仍 404）；豁免的是 Host/入口路径校验而非鉴权——内部端点安全由 loopback 源+秘密头+会话/令牌防护链承载（不变）；豁免落点归 panel-core（跨模块待同步项）。
 
 **防线三：凭据零回显与桥接防伪（⚠️A8/A9，I-02）**
 
@@ -176,6 +186,15 @@
 - 写动作（安装/升级/卸载/打开/轮换）同事务审计脱敏（R-03，detail 不含凭据）；
 - 卸载工具绝不删除数据库数据（仅解除工具部署，沿 instanceRemove 哲学）；
 - 零遥测（R-09）：工具分发下载为用户主动发起例外（与 ACME 同判），面板自身不主动外呼；工具本体遥测（如 phpMyAdmin 版本检查）经配置关闭。
+
+**防线五：自动落地块安全（v1.1 新增，⚠️A14/A15/A16，D0 Q3 安全底线）**
+
+- 自动块 listen 0.0.0.0:18090 公网可达，但**每请求 auth_request gating**（面板会话+admin，无会话/readonly→401）——公网面不削弱访问控制；工具本体仅 localhost 不变（防线一）；
+- 域名联动强制：已绑域名时自动块 server_name=BindDomain+非匹配 Host 404（镜像 HostGuard，绑域名后工具也只认域名，对齐宝塔语义）；域名变更经钩子+惰性校正双通道同步，不留长期不一致窗口；
+- 自动块写入/移除经 site-mgmt ConfigApply 安全写入管线（nginx -t 自检+reload，失败回滚字节复原 R-06）——不产生半配置；
+- 端口占用如实报 DBT_012 reason（不静默换端口）；多匹配仍引导明确（不擅自选择）；幂等复用不重复建块；两工具均卸载后清自动块（AutoCreated 判定，非自动块不动——不误删用户站点）；
+- signon HMAC+60s+一次性+双绑定、凭据 vault 零回显、gate 内部端点 loopback+秘密头双防护均不变（防线二/三在自动块形态下全量适用）；
+- 端口放行仅提示（防火墙/云安全组），不自动放行（OUT 边界，firewall 联动归后续）。
 
 ## 第三部分：业务架构树
 
@@ -192,7 +211,8 @@
 │       ├── 工具安装
 │       ├── 工具升级
 │       ├── 工具卸载
-│       └── 工具部署任务跟踪
+│       ├── 工具部署任务跟踪
+│       └── 工具落地自动供给
 └── 工具访问阶段
     └── 工具安全访问
         ├── 会话 gating 反代
@@ -215,7 +235,9 @@
 | 工具部署与变更 | → | 工具安全访问 | 部署产出（站点路径/服务/凭据密文）是 gating 与桥接的配置来源 |
 | 工具目录与实况 | → | env-mgmt（他域） | 消费环境实况（PHP-FPM/Node/nginx 已装态）作依赖就绪度数据（进程内读契约，单向） |
 | 工具部署与变更 | → | env-mgmt（他域） | 依赖缺失时引导到环境管理安装（软引导，无跨模块硬调用）；Node 环境为本轮 env-mgmt 增量供给 |
-| 工具部署与变更 | → | site-mgmt（他域） | 经站点创建/移除通道落工具路径配置（php_fpm/reverse_proxy 站点，安全写入管线 R-06） |
+| 工具部署与变更 | → | site-mgmt（他域） | 经站点创建/移除通道落工具路径配置（php_fpm/reverse_proxy 站点，安全写入管线 R-06）；v1.1：自动落地块创建/域名联动刷新/卸载清块同经 ConfigApply/ConfigRemove 管线 |
+| 工具部署与变更 | → | panel-core（他域，v1.1 新增） | 消费配置变更通知钩子（bindDomain 绑定/解绑 → 自动块 server_name 刷新，进程内单向，D1 裁定钩子主通道+惰性兜底）；消费 HostGuard/EntryPathGuard 内部端点豁免（panel-core 机制侧变更，跨模块待同步项，本轮不代改） |
+| 工具安全访问 | → | panel-core（他域，v1.1 新增） | gating/signon 内部端点依赖 HostGuard/EntryPathGuard 豁免方可在绑域名后被子请求/回调触达（⚠️A16，豁免范围最小化，非内部路径强校验不变） |
 | 工具部署与变更 | → | service-mgmt（他域） | mongo-express systemd 服务单元创建/启停（SysdGateway 通道复用） |
 | 工具安全访问 | → | database-mgmt（他域） | 消费实例凭据 OHS（vault 取出 MySQL/Mongo 连接凭据，进程内单向，凭据不出服务端） |
 | 工具安全访问 | → | account-auth（他域） | 消费会话校验能力（gating 鉴权端点）与审计写入（R-03） |
@@ -238,9 +260,14 @@
 | 工具凭据 | basic auth 口令与 signon 密钥的统称（AES-256-GCM 密文落库） | ⚠️A9；I-02 零回显 |
 | 高级管理入口 | database-mgmt 实例治理页/库行打开集成工具的入口（与面板内轻量浏览并存） | Q3/⚠️A13 |
 | 轻量入口 | 面板内表/文档浏览与基础 CRUD（database-mgmt S-56/S-57），保留不下线 | Q3/⚠️A13 |
+| 自动落地块（auto landing block） | 落点 0 匹配时自动创建的专用 nginx 工具 server 块（{conf.d}/dougong-tools.conf，listen ToolLandingPort，两工具共用，AutoCreated 标志） | v1.1 ⚠️A14；区别于既有面板域落地块 |
+| ToolLandingPort | 自动落地块监听端口编译期常量（18090），不可用户配置（本轮 OUT） | v1.1 ⚠️A14；占用→DBT_012 reason |
+| 域名联动 | 自动块 server_name 跟随面板域名绑定状态（未绑 _ / 已绑 BindDomain+非匹配 Host 404），域名变更钩子+惰性双通道同步 | v1.1 ⚠️A15；镜像 HostGuard 语义，对齐宝塔 |
+| 内部端点豁免 | HostGuard/EntryPathGuard 对 /dbtool/gate/、/dbtool/signon/ 两内部路径前缀直通放行（安全由 loopback+秘密头+会话/令牌承载） | v1.1 ⚠️A16；豁免范围最小化，落点归 panel-core |
 
 ## 更新记录
 
 | 版本 | 日期 | 更新说明 |
 |------|------|---------|
 | v1.0 | 2026-11-19 | 初始生成：依据 D0 澄清（d0-clarification-db-tools-integration-2026-11-19.md，用户三项拍板 Q1 一步到位/Q2 会话 gating 反代/Q3 轻量入口并存）建立数据库工具集成 L1-L4 业务架构（3 阶段 / 3 关键业务 / 10 业务活动）；落定 ⚠️A1~A13 十三项口径（目录范围/依赖前置/异步任务/升级/卸载不删数据/localhost 绑定/会话 gating/signon 桥接/mongo-express 凭据/角色/审计/下载分发/并存）；安全架构显式成节（2.4 四道防线）；边界与 env-mgmt（环境层）/site-mgmt（站点层）/service-mgmt（单元层）/database-mgmt（实例层）分界登记；OUT 登记（Python/其他工具/Redis 工具/只读角色细粒度映射/轻量浏览下线）；BA 角色表述以业务语言承载（管理员/只读角色，用户类型标识自 AA 层引入，沿 database-mgmt BA Q6 先例） |
+| v1.1 | 2026-11-19 | 自动 nginx 落地增量 D1（d0-clarification-dbtools-auto-landing-2026-11-19.md，用户拍板 Q1 自动落地+域名联动/Q1b HostGuard 内部端点豁免/Q2 reason 可见/Q3 安全不变）：新增 L4 2.2.1.5 工具落地自动供给（机制型，业务活动 10→11，L2/L3 集合不变）；新增 ⚠️A14 自动落地（0 匹配自动建 dougong-tools.conf listen 18090/端口占用 DBT_012 reason/既有块优先/多匹配引导不变/幂等复用/两工具卸载清块/siteRef+Port+AutoCreated/ConfigApply R-06/端口放行仅提示/cookie host-only 跨端口可行性）+⚠️A15 域名联动（未绑 _ /已绑 BindDomain+非匹配 Host 404 镜像 HostGuard/钩子+惰性双通道 D1 裁定/toolBaseHost Port 分支 URL）+⚠️A16 内部端点豁免（HostGuard/EntryPathGuard 对 /dbtool/gate/·/dbtool/signon/ 最小化豁免，落点归 panel-core 跨模块待同步项）+⚠️A17 失败原因可见（worker 错误文本含 data.reason）；修订 ⚠️A6（工具进程 localhost 不变，nginx 接入层自动块端口为新增公网面）/⚠️A7（自动块形态域名约束镜像+内部端点豁免）；安装/卸载/任务跟踪/gating/打开入口五既有 L4 口径同步；安全架构 2.4 防线一/二扩展+新增防线五（自动落地块安全）；附录A +panel-core 消费两行（配置变更钩子/内部端点豁免）+site-mgmt 行扩自动块管线；附录B +4 术语；OUT +4（自动防火墙放行/工具端口可配/HTTPS 工具落地/面板自身 nginx 化）；第三部分树同步 |

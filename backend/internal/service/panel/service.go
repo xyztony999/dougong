@@ -55,6 +55,9 @@ type Service struct {
 	nginx      NginxChannel
 	webrootDir string // 面板 http-01 挑战目录基点（{dataDir}/acme-webroot，与 site-mgmt 同源）
 	backupRoot string // 挑战注入写前备份目录（{dataDir}/conf.backup/panel-acme/，R-06）
+	// v1.3 配置变更观察者（api-db-tools D-20，S-11-01）：main 装配期注册，
+	// 运行期只读；bindDomain 变更成功后进程内同步通知（失败不阻断变更）。
+	configHooks []ConfigChangeHook
 }
 
 // Option 是 Service 可选注入（测试时钟/随机源；main 注入会话策略与版本源）。

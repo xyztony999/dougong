@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -291,5 +292,34 @@ func TestWriteSecretFileMode(t *testing.T) {
 		if st.Mode().Perm() != 0o644 {
 			t.Fatalf("config mode = %v, want 0644", st.Mode())
 		}
+	}
+}
+
+// TestProbePortAvailable D-19③ 端口占用探针：占用→false 如实；释放→true
+// （即探即放——探针自身不持有端口）。
+func TestProbePortAvailable(t *testing.T) {
+	g := NewGateway()
+	// 与探针同口径绑通配地址（Windows 允许通配+具体地址并存重叠——
+	// 占用判定须同地址族；生产 Linux 通配与任何绑定冲突）。
+	ln, err := net.Listen("tcp", ":0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	ok, err := g.ProbePortAvailable(port)
+	if err != nil || ok {
+		t.Fatalf("占用端口探针 = %v err=%v, want false", ok, err)
+	}
+	if err := ln.Close(); err != nil {
+		t.Fatal(err)
+	}
+	ok, err = g.ProbePortAvailable(port)
+	if err != nil || !ok {
+		t.Fatalf("释放端口探针 = %v err=%v, want true", ok, err)
+	}
+	// 探针即探即放：连续两次探测同一空闲端口均成功（不持有）。
+	ok2, err := g.ProbePortAvailable(port)
+	if err != nil || !ok2 {
+		t.Fatalf("探针应即探即放 = %v err=%v", ok2, err)
 	}
 }

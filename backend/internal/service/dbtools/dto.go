@@ -23,6 +23,11 @@ type ToolItem struct {
 	DepsReady        bool         `json:"depsReady"`
 	DepsMissing      []DepMissing `json:"depsMissing"`
 	RunningTaskID    *int64       `json:"runningTaskId"`
+	// v1.3 additive 可空（D-19/I-14）：siteRef.port/autoCreated 投影——
+	// 未装（无档案）=null/null；已装=落点端口（自动块=18090，既有 80/443
+	// 块=0）与是否自动创建（旧格式档案缺省 0/false，不虚构非零端口）。
+	LandingPort *int  `json:"landingPort"`
+	AutoCreated *bool `json:"autoCreated"`
 }
 
 // ToolListData GET /dbtool/tool/list 响应。

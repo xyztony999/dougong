@@ -1,11 +1,14 @@
 // Package dbtools 是数据库工具集成（db-tools，D0 Q1~Q3 拍板 2026-11-19）
-// 应用服务（api-db-tools.md v1.2）：ToolCatalog 编译期目录（D-13）、实时探测
+// 应用服务（api-db-tools.md v1.3）：ToolCatalog 编译期目录（D-13）、实时探测
 // 投影（D-02）、异步部署任务（D-04：同工具互斥 I-06、终态档案同事务 I-C01、
 // 重启恢复 I-09）、下载钉版本+sha256 强制（D-05）、phpMyAdmin signon 桥接
 // （D-06/D-09）、mongo-express systemd+env 注入（D-07）、basic auth 服务端
 // 注入与轮换（D-08）、面板域 nginx location 注入（D-03）、会话 gating 与
-// 内部端点三重防护（D-11）。安全底线：工具仅绑 localhost、凭据 vault 永不
-// 回显（I-02）、卸载不删数据库数据（I-C03）、零遥测（R-09）。
+// 内部端点三重防护（D-11）、落地自动供给（v1.3 D-19：0 匹配自动建块
+// dougong-tools.conf listen 18090/幂等复用/卸载清块）+域名联动（D-20：
+// 钩子主通道+惰性兜底）+打开 URL 端口分支（D-23）+任务失败 reason 可见
+// （D-22）。安全底线：工具仅绑 localhost、自动块每请求 gating、凭据 vault
+// 永不回显（I-02）、卸载不删数据库数据（I-C03）、零遥测（R-09）。
 package dbtools
 
 import "time"
@@ -58,6 +61,18 @@ const (
 	// BasicAuthUsername basic auth 固定用户名（D-08）。
 	BasicAuthUsername = "dougong"
 
+	// ToolLandingPort 自动落地块监听端口（v1.3，D-19，编译期常量不可用户配
+	// OUT；占用→DBT_012 reason；安装成功提示放行）。
+	ToolLandingPort = 18090
+	// ToolLandingConfName 自动落地块文件名（v1.3，D-19；目录=nginxx
+	// PriorityDirs() 首个实存可写目录；块标记=文件名+listen 18090 判定，
+	// 幂等复用）。
+	ToolLandingConfName = "dougong-tools.conf"
+	// ToolLandingBind 自动落地块绑定地址（v1.3，D-19 设计钉死 0.0.0.0——
+	// IP 直连可达；安全边界=每请求 auth_request gating，工具本体仍仅
+	// localhost。nginx `listen 18090;` 缺省即绑全部地址，模板不显式携带）。
+	ToolLandingBind = "0.0.0.0"
+
 	// TaskOutputTailLines 任务输出尾部采集行数（终态定格）。
 	TaskOutputTailLines = 200
 	// DeployOpTimeout 单部署命令超时（npm/解压/服务操作）。
@@ -104,4 +119,7 @@ const (
 	markerBeginPrefix = "# BEGIN dougong-dbtool "
 	markerEndPrefix   = "# END dougong-dbtool "
 	markerKeyGate     = "gate"
+	// markerKeyLanding 自动落地块整体标记（v1.3，D-19：幂等复用判定锚点，
+	// 包裹整文件；清块经 ConfigRemove 整块移除非 span 撤除）。
+	markerKeyLanding = "landing"
 )

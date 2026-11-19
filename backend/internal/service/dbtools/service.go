@@ -127,6 +127,11 @@ func (s *Service) ToolList(ctx context.Context) (*ToolListData, error) {
 			item.InstalledVersion = &v
 			item.BoundInstanceID = a.InstanceID // phpmyadmin=NULL（打开时绑定）
 			item.Running = s.probeRunning(ctx, e.Type, &a)
+			// v1.3 落地形态投影（D-19/I-14）：siteRef 解析失败=null 不虚构。
+			if ref, rerr := parseSiteRef(a.SiteRef); rerr == nil {
+				port, auto := ref.Port, ref.AutoCreated
+				item.LandingPort, item.AutoCreated = &port, &auto
+			}
 		}
 		if id, ok := inFlight[e.Type]; ok {
 			v := id

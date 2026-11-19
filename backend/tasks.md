@@ -1152,3 +1152,45 @@
 - 实现裁定上报（A-DBT3~A-DBT10 详见裁定表）：tar 解压 stdlib 替代外部 tar（zip-slip 防线更强）；signon/verify 响应 additive +host/port（phpMyAdmin 建连必需，仍仅 loopback）；PHP 配置文件 0644/秘密文件 0600 分级（PHP-FPM 非 root worker 可读）；注入内容 entryPath/域名安装时烘焙（面板入口/域名变更后须重装刷新，期间 fail-closed）；Node 版本二进制缺席 null 如实；迁移编号 013=db-tools（设计钉死）/014=env Node（设计未钉）
 - 环境绑定如实声明：npm/php-fpm/systemd/nginx 实联与 phpMyAdmin/mongo-express 工具本体冒烟归 Linux 目标环境（测试全注入 fake 替身零 runner 实况依赖，Windows/Linux 行为一致）；前端工具管理页/入口按钮归前端轮（本轮后端单边交付，ToolStatusForEngine OHS 已提供）
 - 遗留（非阻断）：①api-env-mgmt.md Node 增量（env_type 八值/常量）设计侧文档同步归设计轮（本轮按 prd FR-08+api-db-tools D-18 实现）；②database-mgmt 高级入口 PageSpec 消费 ToolStatusForEngine 归前端/D4 轮；③注入时效（A-DBT6）跨模块变更钩子 OUT 本轮
+
+# db-tools v1.3 自动 nginx 落地增量 Go 后端任务清单（2026-11-20）
+
+> 创建时间：2026-11-20
+> 设计文档：profiles/dougong-panel/workspace/02-detailed/api/api-db-tools.md（v1.3，唯一事实源）+ d0-clarification-dbtools-auto-landing-2026-11-19.md（Q1 自动落地+域名联动/Q1b HostGuard 内部端点豁免/Q2 reason 可见/Q3 安全不变）
+> 代码输出：backend/（增量模式：零新 HTTP 接口/零 DDL/零新错误码/零枚举变更；变更面=worker 执行链/钩子/错误文本/网关豁免/DTO additive 字段）
+> 环境：go1.24.0 windows/amd64；测试全注入 fake 替身零 runner 实况依赖（沿先例）。
+
+## 设计裁定与落码取证（A-DBT11~A-DBT13）
+
+| # | 决策点 | 裁定/取证 |
+|---|--------|----------|
+| A-DBT11 | D-23「SignonURL 烘焙基址同口径」落码歧义：reopen 为面板后端 API，自动块形态面板 Go 直连（0 匹配推断——面板若经 nginx 承载必有匹配块），SignonURL 若指向工具落地端口 18090 则 nginx 自动块无面板 location→404 重认证失效 | SignonURL 基址=面板访问基址而非工具落点基址：既有块（port=0）沿旧口径 scheme://host（nginx 80/443 承载面板）；自动块（port≠0）={panelScheme}://{hostname}:{ListenPort}（hostname=BindDomain 优先，未绑安装期动态 PHP 回退=preg_replace 去 HTTP_HOST 端口+面板端口拼接；panelScheme 按 pa.HTTPSEnabled——工具落地块恒 http 不决定面板 scheme）。Open URL/reopen 302 Location 仍按 D-23 工具落点端口分支（18090）。落点：deploy.go signonBaseHost + templates.go signonURLExprPanelPort |
+| A-DBT12 | D-19⑥ 清块「ConfigRemove 恢复原字节=文件不存在态」：既有 ConfigRemove=最近写前快照恢复，自动块首建（allowNew=true）无快照、后续快照含块内容——快照恢复无法表达「文件不存在」 | site-mgmt 管线泛化扩展（非 db-tools 耦合）：applyPipeline 新文件创建成功→备份桶写 .origin-absent 标记（非 .conf 不参与快照清理/寻址）；ConfigRemove 标记优先→删除文件+reload（文件已不存在=幂等成功）；无标记沿既有快照恢复语义。ConfigRemove 全仓唯一消费方=db-tools cleanupAutoLanding（grep 实证），site-mgmt 自身流程零行为变化 |
+| A-DBT13 | 回归测试发现：自动块 gate location proxy_pass 指向面板监听地址→第二工具安装时 selectLanding proxyTargetsPanel 误判自动块为面板反代候选（siteRef 丢失 port/autoCreated→Open URL 无端口/清块判定失效） | selectLanding 候选扫描排除自动落地块（文件名+landing 标记+listen 18090 判定，D-19 专用块非面板域块）；既有块优先/多候选语义不变。另：nginx 词法括号非分隔符（"($host" 单一词元）——if 行检测按 strings.Contains("$host") 判定（幂等零写入依赖） |
+
+## 任务清单
+
+- [x] T-DBT9 · 自动落地块（D-19）+ siteRef 扩展
+  - 输入：api D-19/4.4.4 自动块模板 + D0 Q1
+  - 输出：consts.go +ToolLandingPort=18090/ToolLandingConfName=dougong-tools.conf/ToolLandingBind=0.0.0.0（设计钉死，nginx listen 缺省即绑全部地址）/markerKeyLanding；inject.go siteRef +Port/AutoCreated（JSON 扩字段零 DDL，旧档案零值兼容）+selectLanding 0 匹配→autoCreateLanding+候选排除自动块（A-DBT13）；landing.go（新文件 LandingService：autoCreateLanding 幂等复用先于端口探针/landingConfPath FirstWritableDir/renderLandingConf 骨架/isLandingBlock 标记判定）；ports.go DeployGateway +ProbePortAvailable/NginxConfReader +FirstWritableDir；toolx +ProbePortAvailable（net.Listen 即探即放+Deps 注入点）
+- [x] T-DBT10 · 域名联动（D-20）+ toolBaseHost 端口分支（D-23）+ DTO additive
+  - 输出：landing.go refreshLandingServerName（span 外科手术仅改 server_name/if 两处——工具 location 字节不动；一致零写入幂等；正则元字符 QuoteMeta 转义）+OnBindDomainChanged（ConfigChangeHook 实现，编译期断言）+lazyRefreshLanding（open/reopen 兜底，失败不阻断 slog）；panel/confighook.go（新文件提供方 S-11-01：ConfigChangeHook 契约+RegisterConfigChangeHook+notifyBindDomainChanged recover 隔离）+config.go UpdateConfig bindDomain 变更成功后通知+service.go configHooks 字段；main.go 注册 panelSvc.RegisterConfigChangeHook(dbtoolsSvc)；deploy.go toolBaseHost port≠0 分支（BindDomain 优先否则 requestHost 去端口，JoinHostPort IPv6 规范化）+signonBaseHost（A-DBT11）；templates.go signonURLExprPanelPort；access.go Open/Reopen 惰性校正；dto.go ToolItem +landingPort/autoCreated（*T 无 omitempty 可空纪律）+service.go ToolList 投影（解析失败 null 不虚构）
+- [x] T-DBT11 · HostGuard/EntryPathGuard 内部端点豁免（D-21，panel-core 机制侧 S-07）
+  - 输出：middleware/hostguard.go +internalExemptPrefixes=/dbtool/gate/·/dbtool/signon/（编译期常量最小化）+isInternalExemptPath+HostGuard 前置直通；entrypath.go EntryPathHandler 前置直通（未携前缀防御性兜底；携前缀沿既有剥前缀语义）；main.go 链序注释更新（Entry→Host→gin 不变）。豁免 Host/入口路径校验而非鉴权——loopback+秘密头+会话/令牌防护链全量不变；非内部路径强校验 fail-closed 不变
+- [x] T-DBT12 · reason 可见（D-22）+ 卸载清块（D-19⑥/I-C04）
+  - 输出：deploy.go runTask 终态错误文本 errors.As 取 *errcode.Error Data()["reason"] 非空追加 ": "+reason（无 reason 沿 symbol+message 不虚构）；uninstallPHPMyAdmin/uninstallMongoExpress +cleanupAutoLanding（两工具均卸载+autoCreated=true→ConfigRemove；非自动块绝不动；块已不存在幂等；失败 DBT_012 reason 档案不变）；sitemgmt pipeline.go +markOriginAbsent/configpipeline.go ConfigRemove origin-absent 分支（A-DBT12）；install 链 appendLandingHint 放行 TCP 18090 提示（D-19⑦）
+- [x] T-DBT13 · 回归测试（fake nginx 替身，D0 验收口径全项）
+  - 输出：service/dbtools/landing_test.go（新文件 13 用例：自动建块内容未绑/已绑+if 转义+SignonURL 面板端口/端口占用 reason 精确文本/写入失败 reason/目录不可用/幂等复用探针先行/既有块优先/清块两工具判定+非自动块不动/清块失败档案不变/钩子刷新幂等换绑解绑/惰性校正自愈+失败不阻断/toolBaseHost 表驱动 7 例/toolList landingPort 三态/open·reopen URL 端口口径）；fakes_test.go +ProbePortAvailable/FirstWritableDir/ConfigRemove 删除语义；inject_test.go no-candidate 改判自动建块；middleware/internal_exempt_test.go（新文件 4 用例表驱动：HostGuard 豁免 12 例含最小化边界/读态失败豁免前置/EntryPath 携/未携前缀 8 例/Entry→Host 链序协同 5 例）；api/dbtools/module_test.go +TestHostGuardInternalExemptFullStack（全局包装全栈：绑域名后 gate 200/signon DBT_007 可达+无秘密头 404+无会话 401+非内部 404 不变）；panel/confighook_test.go（新文件：绑定/同值零通知/解绑""/非 bindDomain 零通知/panic 不阻断配置权威落库）；sitemgmt/configpipeline_test.go +TestConfigRemoveOriginAbsent（创建→后续快照→Remove 删除文件+reload+幂等）；toolx/gateway_test.go +TestProbePortAvailable（占用 false/释放 true/即探即放）
+- [x] T-DBT14 · Gate 2 合规检查 + 编译门控自验
+  - G-01~G-07 增量面扫描+人工核对；go build/vet/test -race -count=1 全仓+gofmt+GOOS=linux 交叉（下行实跑记录）
+
+## db-tools v1.3 自动落地增量完成汇总（2026-11-20）
+
+- 交付面：零新 HTTP 接口（11 端点路径/方法/权限矩阵不变）/零 DDL 零新迁移（site_ref JSON 扩字段）/零新错误码（DBT_012 reason 细分）/零枚举变更；变更面=selectLanding 0 匹配自动建块+域名联动钩子主通道+惰性兜底+HostGuard/EntryPathGuard 内部端点最小化豁免+worker reason 可见+卸载清块+toolBaseHost 端口分支+tool/list additive landingPort/autoCreated+open/reopen URL 端口口径
+- 新增文件：service/dbtools/landing.go（LandingService）+landing_test.go；service/panel/confighook.go（ConfigChangeHook 提供方 S-11-01）+confighook_test.go；api/middleware/internal_exempt_test.go。修改面：dbtools consts/inject/deploy/templates/access/service/dto/ports/fakes_test/inject_test；panel config/service；sitemgmt pipeline/configpipeline（+测试）；middleware hostguard/entrypath；toolx gateway（+测试）；api/dbtools module_test；cmd/dougong/main.go（钩子注册+链序注释）
+- 安全底线核验（Q3 不可妥协项全实现非桩假）：①工具本体仅 localhost 不变（mongo-express 127.0.0.1:8081 单元 env 断言回归在位）；②自动块每请求 auth_request gating（gate+两工具 location auth_request 内容断言；无会话/readonly→401 回归在位）；③内部端点豁免不放宽鉴权（全栈回归：无秘密头裸 404/无会话 401/伪造令牌 DBT_007；loopback+秘密头防护链不变）；④非内部路径 HostGuard 强校验 fail-closed 不变（IP 直连面板仍标准 404 回归；豁免集合最小化边界用例：/dbtool/gate 无尾斜杠不豁免等）；⑤signon HMAC 四重校验/vault 零回显/卸载不删数据白名单回归全在位（全仓 -race 实跑）；⑥自动块写入全经 ConfigApply R-06（nginx -t 失败字节复原）/清块经 ConfigRemove origin-absent（A-DBT12）；⑦端口探针占用如实 DBT_012 reason 不静默换端口；⑧域名 if 行正则元字符转义（QuoteMeta）镜像 HostGuard stripPort+EqualFold
+- 自验（2026-11-20 实跑，go1.24.0 windows/amd64，cwd=backend/）：`go build ./...`=0 ✓ `go vet ./...`=0 ✓ `go test ./... -race -count=1` 全仓 52 包 ok 0 FAIL（日志 D:/tmp/dbtools-v13-test.log）✓ `gofmt -l internal/ cmd/` 0 文件 ✓ `GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build ./...`=0 ✓
+- Gate 2 增量面：G-01 唯一 -c 命中=cronx/runner.go:145 既有豁免（A-C2，本轮零新增 shell；增量 exec 站点仅 toolx 既有 run 参数数组，探针 net.Listen stdlib 无 exec）；G-02 Sprintf SQL 0 命中（本轮零 SQL）；G-03 硬编码凭据 0 命中；G-04 SQL 仅 store 层（本轮零新增 SQL）；G-05 新文件 panic 0；G-06 新 goroutine 0（钩子进程内同步）；G-07 全绿（上行）
+- 实现裁定上报（A-DBT11~A-DBT13 详见裁定表）：SignonURL 面板直连端口口径（D-23 落码歧义裁定，reopen 可达性必需）；ConfigRemove origin-absent 泛化扩展（D-19⑥「文件不存在态」语义兑现，唯一消费方 db-tools）；selectLanding 排除自动块候选（回归测试发现的误判 bug 修复）
+- 跨模块待同步项如实声明：api-panel-core.md 提供方文档登记（S-11-01 钩子/S-07 豁免）归设计轮——本轮按 ask 明示落码机制侧变更（代码已实现，文档不代改）；api-site-mgmt.md ConfigRemove origin-absent 语义扩展登记归设计轮
+- 环境绑定如实声明：nginx -t/reload 实联/端口探针实况/工具本体冒烟（IP:18090 打开/无会话 401/绑域名非匹配 Host 404）归 Linux 目标环境（测试全注入 fake 替身，Windows/Linux 行为一致；Windows 测试环境两处路径/套接字差异已按平台口径修正测试替身，生产代码 Linux 语义不变）

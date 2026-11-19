@@ -620,3 +620,47 @@ W1/W2 维持报告原判（WARN 非本轮 FAIL 修复项）：views/monitoring �
   ③env_type node 为 env-mgmt 待同步增量（api-env-mgmt 仍七值）——depsMissing 透传呈现经 dictItem 兜底原值，
   不硬编码七/八值（D-18）；④readonly 页面可达（ADR-018 目录/任务全可看，PageSpec 第 7 节两角色同菜单项），
   负空间=操作区整区不渲染+高级入口不渲染+工具本体 gating 不可达（ask「工具管理/入口不可达」按工具访问面解读）
+
+---
+
+# 增量 · db-tools PageSpec v1.2 自动 nginx 落地呈现（2026-11-19/20 前端编排）
+
+> 设计输入：PageSpec db-tools admin/readonly v1.2（02-detailed/interaction/{admin,readonly}/db-tools/）
+> 数据源 api-db-tools.md v1.3（tool/list +landingPort/autoCreated additive 可空，D-19/I-14；
+> D-22 reason 可见 task.error 全文；D-23 Open URL 端口口径后端权威）
+> + D0 d0-clarification-dbtools-auto-landing-2026-11-19.md（Q1 自动落地 18090+域名联动/Q2 reason 可见/Q3 安全不变）
+> Action/字典/路由零变更（S7 9/9 不变，零新接口）；readonly 负空间 6 不变（访问形态/reason/放行提示只读呈现同等）
+
+- [x] F02 · types/dbtool.ts：DbToolItem +landingPort: number|null / autoCreated: boolean|null
+  （api v1.3 additive 可空逐形状：未装=null/null；已装=siteRef 投影，旧档案缺省 0/false 不虚构非零端口）；
+  +DBTOOL_LANDING_PORT=18090（api D-13 TOOL_LANDING_PORT 同值，仅静态引导文案用）+DBTOOL_PATH_PREFIX
+  两工具路径前缀（TOOL_PATH_PREFIX_* 同值，展示引导用——实际打开 URL 后端权威不拼接 D-23）；
+  +landingTag/landingAddress/landingHint 三纯函数（≠0→info「独立访问端口 {port}」+http://{hostname}:{port}{prefix}
+  +放行提示〔hostname=window.location.hostname，IP 直连呈现 IP/绑域名呈现域名〕；0→default「面板域路径访问」；
+  null/未装→null 整块不渲染）；+installReadyAlertText（install succeeded+autoCreated=true+landingPort≠0→
+  「工具已就绪：请放行工具端口 {port}…访问地址 http://{hostname}:{port}/dbtool/...（绑定域名后为 http://域名:{port}/...）」）；
+  +dbtFailureGuide（error/reason 文本关键词：被占用→release-port/候选→site-landing）；
+  dbtErrorText DBT_012 多候选 reason 追加「请到站点管理明确落点后重试」引导（端口占用 reason 后端文案已含释放指引不叠加）；
+  DBTOOL_PAGE_INTRO 修订（工具本体仅监听本机+自动端口 18090 每请求会话校验需放行+绑域名仅域名访问，PageSpec 4.1）
+- [x] F04 · views/db-tools/index.vue：卡片+访问形态区块（在途标记后、操作区前——两角色同等呈现，
+  readonly 纯观测信息不隐藏；landingOf 聚合三助手模板单调用）；安装确认文案两工具+自动建块说明
+  （phpMyAdmin 改函数含 catalogVersion+「若面板尚无域名 nginx 落点（IP 直连形态）将自动创建独立访问块（端口 18090），
+  安装成功后需放行该端口」；mongo-express 同口径追加）；卸载警示一+「两工具均卸载后自动移除独立访问块（端口 18090 失效）；
+  既有面板域访问块不受影响」（D-19/I-C04）；打开分发注释扩 D-23 端口口径+跨端口 host-only cookie 论证
+  （代码本已 window.open(res.url) 后端权威不拼接，零行为变更）；failed 行 error tooltip 全文含 reason（D-22）
+- [x] F04 · components/DbtoolTaskDrawer.vue：详情区顶部+安装成功放行 NAlert success
+  （installReadyText computed：currentTask+store.findByType 最新投影〔终态跃迁重拉判定〕+window.location.hostname）；
+  失败原因 NAlert error 全文呈现（既有）+引导行（release-port→「请释放端口后重试」/site-landing→
+  router-link /sites「到站点管理明确落点」）；defineModel show 回写口径不变；readonly 同等呈现无操作按钮
+- [x] 测试：types/__tests__/dbtool.test.ts +23 用例（v1.2 常量锚点 3/访问形态 9〔含 null 判空/未装/端口投影不硬编码〕/
+  安装成功放行提示 6〔动作/终态/autoCreated false·null/port 0·null/档案缺失〕/dbtFailureGuide 3/
+  DBT_012 reason 细分引导 2——多候选追加引导+端口占用全文即引导）；stores/__tests__/dbtool.test.ts
+  okPayload +landingPort/autoCreated（已装 18090/true、未装 null/null）+透传断言 4（JSON null≠undefined）
+- [x] F07 · 门禁自验（本轮实跑）：npm run build（vue-tsc --noEmit + vite build）exit 0（28.26s，chunk 体积警告既有 INFO）；
+  npx vitest run 21 文件 288 用例全过（265 既有+23 新增）；F-01~F-05 grep 全 0 命中；
+  dist 同步 backend/web/dist（rm -rf assets + cp -r frontend/dist/. + diff -rq 仅 .gitkeep 差异）；
+  产物锚点核验（dbtool chunk 含「独立访问端口」「请放行工具端口」/db-tools chunk 含卸载清块警示）
+- 如实声明：go -C backend build ./... 本轮失败——internal/service/dbtools/inject.go:84 s.autoCreateLanding
+  undefined（并行后端 v1.3 自动落地工作流 mid-edit，inject.go/consts.go 工作区已改未落齐，非本轮前端改动——
+  本轮仅触 frontend/src 与 backend/web/dist 资产）；编译门控归脚本统一跑（后端落齐后复跑）
+- 偏差登记：无（PageSpec v1.2/api v1.3 逐条落码；安装成功提示地址用实际工具路径前缀替代文档「dbtool/...」占位，同口径更精确）

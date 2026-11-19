@@ -1,15 +1,21 @@
 <script setup lang="ts">
 /**
- * 任务 Drawer（PageSpec db-tools 4.2/4.3）：历史 Tab（toolType/status 筛选列表，
+ * 任务 Drawer（PageSpec db-tools 4.2/4.3 v1.2）：历史 Tab（toolType/status 筛选列表，
  * 进入拉取一次+手动刷新+写后刷新——无自动列表轮询）+ 详情区（概要/失败原因/
  * 输出尾部等宽块 ≤200 行；running/pending 态 5s 轮询终态即停，轮询由 dbtoolStore
  * 承载、页面 onUnmounted 清理；终态跃迁触发全景与清单重拉）。
- * 两角色可看（ADR-018），无操作按钮；readonly 详情刷新与观测轮询同等可用。
+ * v1.2 增量（api D-22/D-19）：失败原因 error 全文含 data.reason 具体原因如实呈现
+ * （端口占用附释放引导/多候选附「到站点管理明确落点」/sites 链接）；install succeeded
+ * 且 autoCreated=true → 详情区顶部安装成功放行提示（端口+访问地址，终态跃迁重拉判定）。
+ * 两角色可看（ADR-018），无操作按钮；readonly 详情刷新与观测轮询同等可用，
+ * reason/放行提示只读呈现同等（纯信息无操作，负空间 6 不变）。
  */
+import { computed } from 'vue'
 import type { DataTableColumns, SelectOption } from 'naive-ui'
 import type { DbToolTaskItem } from '@/types/dbtool'
 import type { DbToolTaskStatus, DbToolType } from '@/types/enums'
 import { useDbtoolStore } from '@/stores/dbtool'
+import { dbtFailureGuide, installReadyAlertText } from '@/types/dbtool'
 import { DB_TOOL_TASK_ACTION, DB_TOOL_TASK_STATUS, DB_TOOL_TYPE, dictItem } from '@/types/enums'
 import { formatDateTime } from '@/utils/format'
 
@@ -21,6 +27,18 @@ defineProps<{
 
 const show = defineModel<boolean>('show', { default: false })
 const store = useDbtoolStore()
+
+/** 安装成功放行提示（v1.2，PageSpec 4.1/4.3）：install succeeded 且工具档案 autoCreated=true
+ * （终态跃迁重拉 dbtoolList 后 findByType 取最新投影）；既有面板域块形态不渲染 */
+const installReadyText = computed(() => {
+  const t = store.currentTask
+  if (t === null) return null
+  return installReadyAlertText(t, store.findByType(t.toolType), window.location.hostname)
+})
+
+/** 失败原因引导（v1.2，api D-22 reason 细分）：端口占用→释放端口后重试；
+ * 多候选→到站点管理明确落点（/sites）；error 全文本身已含 reason 如实呈现 */
+const failureGuide = computed(() => dbtFailureGuide(store.currentTask?.error ?? null))
 
 function onFilterToolType(v: string | null): void {
   store.setTaskFilter(v as DbToolType | null, store.taskFilter.status)
@@ -81,6 +99,11 @@ function onFilterStatus(v: string | null): void {
       <!-- 详情区 -->
       <n-divider>任务详情</n-divider>
       <template v-if="store.currentTask !== null">
+        <!-- 安装成功放行提示（v1.2：install succeeded 且 autoCreated=true，详情区顶部；
+             readonly 同等呈现——纯信息无操作；outputTail 内后端放行提示文本如实呈现 D-19⑦） -->
+        <n-alert v-if="installReadyText !== null" type="success" style="margin-bottom: 10px">
+          {{ installReadyText }}
+        </n-alert>
         <n-descriptions label-placement="left" :column="2" size="small" bordered>
           <n-descriptions-item label="任务">
             #{{ store.currentTask.id }}
@@ -115,12 +138,21 @@ function onFilterStatus(v: string | null): void {
             {{ formatDateTime(store.currentTask.finishedAt) }}
           </n-descriptions-item>
         </n-descriptions>
+        <!-- 失败原因（v1.2：error 全文含 data.reason 具体原因如实呈现，api D-22——
+             不再仅「部署操作失败」；端口占用/多候选附引导，PageSpec 4.3） -->
         <n-alert
           v-if="store.currentTask.error !== null && store.currentTask.error !== ''"
           type="error"
           style="margin-top: 10px"
         >
           {{ store.currentTask.error }}
+          <div v-if="failureGuide === 'release-port'" class="error-guide">
+            请释放端口后重试。
+          </div>
+          <div v-if="failureGuide === 'site-landing'" class="error-guide">
+            请到站点管理明确落点后重试——
+            <router-link to="/sites">到站点管理明确落点</router-link>
+          </div>
         </n-alert>
         <div class="tail-head">命令输出尾部（排障；≤200 行，终态定格）</div>
         <pre class="tail">{{ store.currentTask.outputTail || '（暂无输出）' }}</pre>
@@ -165,5 +197,9 @@ function onFilterStatus(v: string | null): void {
 }
 .detail-actions {
   margin-top: 8px;
+}
+.error-guide {
+  margin-top: 6px;
+  font-size: 12px;
 }
 </style>

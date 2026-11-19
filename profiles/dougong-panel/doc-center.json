@@ -2,7 +2,7 @@
   "_generated": {
     "version": 3,
     "note": "本文件由 engine-gui 文档中心根据项目架构自动生成，可手工编辑（编辑后原样生效）；删除本文件后下次访问将按最新架构重新生成。",
-    "generatedAt": "2026-11-19T05:40:43.857Z",
+    "generatedAt": "2026-11-19T14:28:32.859Z",
     "generator": "engine-gui doc-center 生成器（/dc/api/domains · /api/projects/:id/funcview）"
   },
   "names-map": {},
@@ -11,7 +11,7 @@
       "账户与安全基座（account-auth）": {
         "name": "账户与安全基座（account-auth）",
         "layer": "支撑域",
-        "related": "全部业务域（被依赖：审计接口/会话鉴权/权限基线）；panel-core（入口面归其）、terminal（限流归其）；**db-tools（v1.24 被消费：gating 会话校验端点——新增内部能力，仅 loopback 子请求通道，三文档同步待同步项）**",
+        "related": "全部业务域（被依赖：审计接口/会话鉴权/权限基线）；panel-core（入口面归其）、terminal（限流归其）；**db-tools（v1.24 被消费：gating 会话校验 OHS——db-tools 自持 GET /dbtool/gate/verify 内部端点复用既有 VerifyWs 只读会话校验，仅 loopback 子请求通道，account-auth 零新增 HTTP，api D-11 定稿 v1.25 W2 回填）**",
         "fishbone": {
           "spine": [
             {
@@ -42,7 +42,7 @@
       "面板基座（panel-core）": {
         "name": "面板基座（panel-core）",
         "layer": "支撑域",
-        "related": "account-auth（遵奉会话鉴权/RBAC；消费审计写入与会话策略 OHS）；site-mgmt（消费：AcmeGateway 签发通道与 nginx 安全写回 OHS，ADR-029，被依赖登记见 api-site-mgmt.md 1.5/5.1）；全部业务模块（被依赖：外壳挂载点/入口拦截）；更新检查版本源（待对齐，R-09 默认关闭）",
+        "related": "account-auth（遵奉会话鉴权/RBAC；消费审计写入与会话策略 OHS）；site-mgmt（消费：AcmeGateway 签发通道与 nginx 安全写回 OHS，ADR-029，被依赖登记见 api-site-mgmt.md 1.5/5.1）；全部业务模块（被依赖：外壳挂载点/入口拦截）；更新检查版本源（待对齐，R-09 默认关闭）；**db-tools（v1.26 被消费：配置变更通知钩子提供〔bindDomain 变更→自动块 server_name 刷新，S-11-01 配置权威侧，跨模块待同步项〕+HostGuard/EntryPathGuard 内部端点豁免〔S-07-02/S-07-03 机制侧变更，/dbtool/gate/·/dbtool/signon/ 最小化直通，非内部路径强校验不变，跨模块待同步项〕）**",
         "fishbone": {
           "spine": [
             {
@@ -230,10 +230,10 @@
           "lowerRibs": []
         }
       },
-      "数据库工具集成（db-tools）（v1.24 追加）": {
-        "name": "数据库工具集成（db-tools）（v1.24 追加）",
+      "数据库工具集成（db-tools）（v1.24 追加；v1.26 自动落地增量）": {
+        "name": "数据库工具集成（db-tools）（v1.24 追加；v1.26 自动落地增量）",
         "layer": "支撑域",
-        "related": "account-auth（遵奉会话鉴权与只读边界 R-02/ADR-018；消费审计写入 OHS R-03；**消费 gating 会话校验端点——新增内部能力，三文档同步待同步项**）；env-mgmt（消费环境实况读契约：PHP-FPM/Node/nginx 依赖就绪度；Node 供给为其 v1.24 增量；依赖缺失软引导回其安装页）；site-mgmt（消费站点创建/移除 S-27-02/S-27-03/S-28+安全写入治理 S-30 R-06：工具路径/gating/注入配置落盘）；service-mgmt（共享 SysdGateway 适配层资产：mongo-express 单元创建/启停/查询）；**database-mgmt（消费其实例凭据 OHS——vault 取出 MySQL/Mongo 连接凭据，进程内单向，凭据不出服务端边界；被消费：高级管理入口经读契约消费工具状态与打开能力）**；phpMyAdmin/mongo-express（外部现成工具，ACL 封装，localhost 经 gating 访问）；nginx/PHP-FPM/systemd/npm（本机系统组件，非业务域）",
+        "related": "account-auth（遵奉会话鉴权与只读边界 R-02/ADR-018；消费审计写入 OHS R-03；**消费 gating 会话校验 OHS——db-tools 自持 GET /dbtool/gate/verify 复用既有 VerifyWs（account-auth 零新增 HTTP，api D-11 定稿 v1.25 W2 回填）**）；env-mgmt（消费环境实况读契约：PHP-FPM/Node/nginx 依赖就绪度；Node 供给为其 v1.24 增量；依赖缺失软引导回其安装页）；site-mgmt（消费站点创建/移除 S-27-02/S-27-03/S-28+安全写入治理 S-30 R-06：工具路径/gating/注入配置落盘；**v1.26 +自动落地块 ConfigApply〔allowNew〕/ConfigRemove 既有 OHS 复用**）；service-mgmt（共享 SysdGateway 适配层资产：mongo-express 单元创建/启停/查询）；**database-mgmt（消费其实例凭据 OHS——vault 取出 MySQL/Mongo 连接凭据，进程内单向，凭据不出服务端边界；被消费：高级管理入口经读契约消费工具状态与打开能力）**；**panel-core（v1.26：消费配置变更通知钩子〔bindDomain 绑定/解绑→自动块 server_name 刷新，进程内单向，钩子提供为跨模块待同步项〕+依赖 HostGuard/EntryPathGuard 内部端点豁免〔S-07 机制侧变更，跨模块待同步项〕+消费 panel_config.bind_domain 实况值〔PanelAccess 读契约既有，非 ID 引用〕）**；phpMyAdmin/mongo-express（外部现成工具，ACL 封装，工具本体 localhost 经 gating 访问；v1.26 自动块 nginx 接入层 18090 每请求 gating）；nginx/PHP-FPM/systemd/npm（本机系统组件，非业务域）",
         "fishbone": {
           "spine": [
             {
@@ -757,8 +757,8 @@
           }
         ]
       },
-      "数据库工具集成（db-tools）（v1.24 追加）": {
-        "description": "数据库高级管理现成工具集成（宝塔式路线 ADR-032，用户拍板 2026-11-19）：内置两工具目录（phpMyAdmin→MySQL/MariaDB、mongo-express→MongoDB，版本钉死编译期 ⚠️A1）+实况实时探测合并呈现（部署状态/版本/运行态/依赖就绪度，零工具台账投影）、工具部署与变更（安装〔依赖前置 ⚠️A2+下载钉版本 sha256 强制校验+镜像 ⚠️A12+站点/服务落位+凭据生成密文落库〕/升级〔目录钉死新版本，配置凭据保留 ⚠️A4〕/卸载〔解除部署**绝不删数据库数据** ⚠️A5〕，异步任务四态机同工具互斥台账落 SQLite ⚠️A3）、**工具安全访问（localhost 绑定 ⚠️A6+面板会话 gating 反代 auth_request 校验会话+admin 角色 ⚠️A7/A10+phpMyAdmin signon 桥接〔HMAC 令牌防伪+短时效+一次性+绑定实例，vault MySQL 凭据 loopback 注入永不进浏览器〕⚠️A8+mongo-express basic auth 服务端注入与轮换〔Mongo 凭据 vault→systemd env〕⚠️A9+统一打开入口）、凭据 AES-256-GCM 密文零回显（I-02）、变更/打开/轮换审计同事务脱敏（R-03）、外部命令参数数组（R-08）、零遥测下载用户主动例外（R-09）**；轻量入口（面板内浏览）保留并存（Q3/⚠️A13），治理台账仍归 database-mgmt",
+      "数据库工具集成（db-tools）（v1.24 追加；v1.26 自动落地增量）": {
+        "description": "数据库高级管理现成工具集成（宝塔式路线 ADR-032，用户拍板 2026-11-19）：内置两工具目录（phpMyAdmin→MySQL/MariaDB、mongo-express→MongoDB，版本钉死编译期 ⚠️A1）+实况实时探测合并呈现（部署状态/版本/运行态/依赖就绪度，零工具台账投影）、工具部署与变更（安装〔依赖前置 ⚠️A2+下载钉版本 sha256 强制校验+镜像 ⚠️A12+站点/服务落位+凭据生成密文落库〕/升级〔目录钉死新版本，配置凭据保留 ⚠️A4〕/卸载〔解除部署**绝不删数据库数据** ⚠️A5〕，异步任务四态机同工具互斥台账落 SQLite ⚠️A3）、**工具安全访问（localhost 绑定 ⚠️A6+面板会话 gating 反代 auth_request 校验会话+admin 角色 ⚠️A7/A10+phpMyAdmin signon 桥接〔HMAC 令牌防伪+短时效+一次性+绑定实例，vault MySQL 凭据 loopback 注入永不进浏览器〕⚠️A8+mongo-express basic auth 服务端注入与轮换〔Mongo 凭据 vault→systemd env〕⚠️A9+统一打开入口）、凭据 AES-256-GCM 密文零回显（I-02）、变更/打开/轮换审计同事务脱敏（R-03）、外部命令参数数组（R-08）、零遥测下载用户主动例外（R-09）**；**v1.26 自动 nginx 落地（⚠️A14~A17）：落点 0 匹配自动建专用块 dougong-tools.conf listen 18090（ToolLandingPort 编译期常量，占用→DBT_012 reason）+域名联动（server_name 跟随绑定：未绑 _ /已绑 BindDomain+非匹配 Host 404 镜像 HostGuard，钩子主通道+install/open 惰性兜底 D1 裁定）+既有块优先/多匹配引导/幂等复用/两工具卸载清块（AutoCreated 判定）+siteRef 值对象 +Port/AutoCreated（零 DDL）+打开 URL 端口分支+worker 失败原因含 data.reason 可见；自动块每请求 gating，工具本体仍 localhost；HostGuard/EntryPathGuard 内部 2 端点豁免为 panel-core 机制侧变更（跨模块待同步项）**；轻量入口（面板内浏览）保留并存（Q3/⚠️A13），治理台账仍归 database-mgmt",
         "tablePrefix": "",
         "tableCount": 6,
         "aggregateRoot": "db_tool（工具部署档案）",
@@ -784,6 +784,14 @@
             "table": "db_tool",
             "type": "entity",
             "relation": "内嵌于 db_tool（密文列整体加密）",
+            "parent": null,
+            "condition": ""
+          },
+          {
+            "name": "落地引用（siteRef）",
+            "table": "JSON",
+            "type": "entity",
+            "relation": "内嵌于 db_tool（site_ref JSON 列整体序列化）",
             "parent": null,
             "condition": ""
           }

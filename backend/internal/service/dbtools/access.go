@@ -49,6 +49,9 @@ func (s *Service) Open(ctx context.Context, actor *authsvc.Identity, toolType st
 	if err != nil {
 		return nil, err
 	}
+	// v1.3 惰性校正（D-20④）：自动块 server_name 与当前 BindDomain 比对，
+	// 不一致刷新（自愈钩子失败/重启窗口）；失败不阻断打开（slog 降级）。
+	s.lazyRefreshLanding(ctx, ref, pa)
 	base, dynamic := s.toolBaseHost(ref, pa, requestHost)
 	if dynamic {
 		return nil, errcode.ErrDBTDeployOpFailed.WithData(map[string]any{
@@ -99,6 +102,8 @@ func (s *Service) Reopen(ctx context.Context, actor *authsvc.Identity, instanceI
 	if err != nil {
 		return "", err
 	}
+	// v1.3 惰性校正（D-20④，同 access/open 口径）。
+	s.lazyRefreshLanding(ctx, ref, pa)
 	base, dynamic := s.toolBaseHost(ref, pa, requestHost)
 	if dynamic {
 		return "", errcode.ErrDBTDeployOpFailed.WithData(map[string]any{

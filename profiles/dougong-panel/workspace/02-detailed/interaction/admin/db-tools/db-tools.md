@@ -2,13 +2,13 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v1.1 |
+| 版本 | v1.2 |
 | 状态 | 稳定 |
-| 最后更新 | 2026-11-19（v1.1 Gate 1 W3 修复轮：+dbtoolReopen SignonURL 重认证落地 Action，S7 9/9） |
+| 最后更新 | 2026-11-19（v1.2 自动 nginx 落地增量轮：工具卡片访问形态区块〔landingPort/autoCreated〕+安装成功放行 18090 提示+任务详情 reason 可见+打开 URL 含端口，数据源 api v1.3；Action/字典/路由零变更 S7 9/9） |
 | 用户类型 | admin |
-| 唯一数据源 | 02-detailed/api/api-db-tools.md v1.2 |
+| 唯一数据源 | 02-detailed/api/api-db-tools.md v1.3 |
 | 组件体系 | Vue 3 + Naive UI（NGrid/NCard/NTag/NButton/NModal/NPopconfirm/NDrawer/NAlert/NSelect/NDataTable/NSpin/NInput） |
-| 确认方式 | headless run：7 项交互确认依据 D3 契约（api-db-tools.md D-01~D-18）+ ⚠️A1~A13 + FL v1.0 + PRD FR-01~10 推导，标注于各节 |
+| 确认方式 | headless run：7 项交互确认依据 D3 契约（api-db-tools.md D-01~D-23）+ ⚠️A1~A17 + FL v1.1 + PRD FR-01~14 推导，标注于各节 |
 
 ## 第 1 节 模块元信息
 
@@ -19,7 +19,7 @@
 | 页面类型 | tool-list = **hybrid**（工具卡片列表 + 任务详情 Drawer 组合 + 任务历史双视图） | 分册 2.2；env-mgmt env-list 同构先例 |
 | UI 框架 | Naive UI | 栈版本表 |
 | 状态管理 | Pinia：dbtoolStore（工具投影缓存/generatedAt/刷新、任务列表/当前任务详情、在途标记） | 栈版本表 |
-| 错误处理 | 统一拦截器按 api 3.4 code 分流：AUTH_001/002→跳登录、AUTH_003→提示刷新、AUTH_008→边界原因提示（ADR-018）；DBT_001→依赖缺失内联清单（data.missing）+「到环境管理安装」链接（/env）；DBT_002→参数错误提示；DBT_003→「该工具有任务进行中」+查看任务引导（data.taskId）；DBT_004→「工具未安装」提示（引导安装）；DBT_005→任务不存在提示刷新；DBT_006→「实例未就绪」+「到数据库管理配置凭据」链接（/databases，data.instanceId）；DBT_009→轮换不支持提示（phpmyadmin 无轮换入口，前端本不渲染）；DBT_011→「当前已为目录版本」提示；DBT_012→失败原因展示（data.reason）；DBT_007/008/010→signon 内部端点错误码（前端不直接消费——浏览器经工具侧呈现拒绝，面板侧打开失败引导重新打开，4.4） | api 3.4 错误码表 |
+| 错误处理 | 统一拦截器按 api 3.4 code 分流：AUTH_001/002→跳登录、AUTH_003→提示刷新、AUTH_008→边界原因提示（ADR-018）；DBT_001→依赖缺失内联清单（data.missing）+「到环境管理安装」链接（/env）；DBT_002→参数错误提示；DBT_003→「该工具有任务进行中」+查看任务引导（data.taskId）；DBT_004→「工具未安装」提示（引导安装）；DBT_005→任务不存在提示刷新；DBT_006→「实例未就绪」+「到数据库管理配置凭据」链接（/databases，data.instanceId）；DBT_009→轮换不支持提示（phpmyadmin 无轮换入口，前端本不渲染）；DBT_011→「当前已为目录版本」提示；DBT_012→失败原因展示（data.reason；**v1.3 reason 细分：工具端口 18090 被占用→「请释放端口后重试」引导/nginx 配置目录不可用/自动落地块写入失败/多候选→「到站点管理明确落点」引导，api D-19/D-22**）；DBT_007/008/010→signon 内部端点错误码（前端不直接消费——浏览器经工具侧呈现拒绝，面板侧打开失败引导重新打开，4.4） | api 3.4 错误码表 |
 
 **7 项交互确认**（headless 推导，逐项落点）：① 模块元信息见本节；② 查询条件见 4.2（任务列表 toolType/status 筛选——工具全景无筛选 API 参数，诚实不虚构）；③ 表格列见 4.1/4.2；④ operList 见 4.1；⑤ 表单分组见 4.1 安装/卸载/轮换确认弹窗 + 4.4 打开分发；⑥ 详情 Card 见 4.3 任务 Drawer；⑦ 页面类型覆盖：tool-list=hybrid（卡片+Drawer 组合）；**打开方式裁定=新标签页**（4.4，非内嵌 iframe）。
 
@@ -37,7 +37,7 @@
 | dbtoolReopen | GET | /dbtool/access/reopen | SignonURL 重认证落地（v1.1 W3；浏览器 302 顶层导航非 fetch Action——phpMyAdmin 会话过期重定向触发，admin 会话 gating 重签令牌回工具 URL，4.4） | admin | —（GET） |
 | dbtoolRotate | POST | /dbtool/access/rotate | tool-list（mongo-express 轮换按钮） | admin | ✓ |
 
-> S7 一致性：9 Action 与 api-db-tools.md v1.2 面板面 9 接口一一对应（无未覆盖接口、无虚构接口；v1.1 W3 +dbtoolReopen）。**dbtoolReopen 为 GET 重定向落地 Action**——浏览器顶层导航（phpMyAdmin SignonURL 302 GET）触发，非前端 fetch 调用，但属面板面 admin 专属接口故入 Action 清单（api 4.1.4）。**内部端点 2（GET /dbtool/gate/verify、POST /dbtool/signon/verify）非前端 Action**——调用方为 nginx auth_request 子请求与 PHP-FPM SignonScript 服务端回调（api D-11/4.4），浏览器不经前端代码调用，故不入 Action 清单（11 端点 = 9 前端 Action + 2 内部服务端端点）。
+> S7 一致性：9 Action 与 api-db-tools.md v1.3 面板面 9 接口一一对应（无未覆盖接口、无虚构接口；v1.1 W3 +dbtoolReopen；**v1.3 零新增接口——自动落地/域名联动/reason 为后端内部机制，Action 集合零变更**）。**dbtoolReopen 为 GET 重定向落地 Action**——浏览器顶层导航（phpMyAdmin SignonURL 302 GET）触发，非前端 fetch 调用，但属面板面 admin 专属接口故入 Action 清单（api 4.1.4）。**内部端点 2（GET /dbtool/gate/verify、POST /dbtool/signon/verify）非前端 Action**——调用方为 nginx auth_request 子请求与 PHP-FPM SignonScript 服务端回调（api D-11/4.4），浏览器不经前端代码调用，故不入 Action 清单（11 端点 = 9 前端 Action + 2 内部服务端端点）。
 >
 > **跨模块 Action 引用（非本模块 S7 计数）**：`instanceList`（GET /db/instance/list，database-mgmt，admin+readonly）——mongo-express 安装实例选择器数据源（4.1，engine=mongodb 筛选 + credentialsSet 就绪判定）；本模块高级入口被 database-mgmt PageSpec 消费（dbtoolList/dbtoolOpen，见 database-mgmt v1.5 增量）。
 
@@ -72,7 +72,7 @@
 
 **权限**：admin+readonly 可见（ADR-018 全可看）；全部变更与打开按钮 admin 专属（⚠️A10 工具访问整体 admin 专属）。
 
-**页头**：说明条（NAlert info「集成工具经面板会话安全访问（仅管理员）；工具仅监听本机，不暴露公网端口。面板内表/文档浏览（轻量入口）保留并存。」）+ 刷新按钮（重新 dbtoolList，D-02 实时探测）+ generatedAt「探测于 HH:mm:ss」。
+**页头**：说明条（NAlert info「集成工具经面板会话安全访问（仅管理员）；工具本体仅监听本机，不暴露公网端口。**IP 直连面板形态自动创建独立访问端口 18090（每请求会话校验，需放行防火墙/云安全组）；绑定域名后工具仅认域名访问**（v1.2，api D-19/D-20）。面板内表/文档浏览（轻量入口）保留并存。」）+ 刷新按钮（重新 dbtoolList，D-02 实时探测）+ generatedAt「探测于 HH:mm:ss」。
 
 **工具卡片网格**（NGrid 响应式 2 列 × NCard，两条目 D-13：phpMyAdmin/mongo-express）：
 
@@ -86,18 +86,21 @@
 | 运行态 | running=true → NTag green「运行中」；false → gray「已停止」；null → orange「运行态未知」 | 实况投影（不虚构） |
 | 依赖就绪度 | depsReady=true → NTag green「依赖就绪」；false → NTag orange「依赖缺失」+ depsMissing 清单（kind=env → 「{name} 环境未安装」+「到环境管理安装」链接 /env；kind=extension → 「PHP 扩展 {name} 缺失」+ 补装指引文案） | DBT_001 前置数据源（⚠️A2） |
 | 在途标记 | runningTaskId 非空 → NTag blue「任务进行中」+「查看」链接（跳任务 Drawer 定位该任务） | I-06 |
+| 访问形态（v1.2 新增，landingPort/autoCreated 投影） | **已装且 landingPort=18090（autoCreated=true，自动落地块形态）**：NTag blue「独立访问端口 18090」+ 访问地址文本 `http://{hostname}:18090/dbtool/{phpmyadmin\|mongo-express}/`（hostname=当前面板访问主机 window.location.hostname——IP 直连面板呈现 IP，绑域名后经域名访问面板呈现域名，与 api D-23 BindDomain 优先口径一致）+ 提示行「请放行 TCP 18090 端口（防火墙/云安全组）；绑定域名后仅域名可访问（其他 Host 404）」（NAlert info 紧凑形态或 tooltip）；**已装且 landingPort=0（既有面板域块形态）**：NTag default「面板域路径访问」（无独立端口，不渲染地址行）；**未装（landingPort=null/autoCreated=null）**：整块不渲染（不虚构端口）；地址为展示引导——实际打开 URL 以 dbtoolOpen 响应权威下发（4.4，api D-23） | api v1.3 tool/list additive 字段（D-19/I-14）；旧档案缺省 landingPort=0/autoCreated=false 沿既有形态呈现 |
 | 操作区（admin only；readonly 整区不渲染） | 未装：`安装`（primary；depsReady=false 时禁用 + tooltip 列出缺失项 + 环境管理链接）；已装：`打开`（primary，4.4）+ `升级` + `卸载`（error 色）+ `轮换凭据`（**仅 mongo_express 渲染**，phpmyadmin 无轮换入口 D-08/DBT_009） | 在途任务时变更按钮禁用（I-06） |
 
 **安装确认**（分工具形态）：
 
-- **phpMyAdmin**（NPopconfirm）：文案「将下载 phpMyAdmin {catalogVersion} 官方包（sha256 校验，可能需要数分钟）并部署到面板管理目录，经面板域路径安全访问；需 PHP-FPM 环境与扩展就绪（缺失将拒绝并引导补装）」。提交 dbtoolInstall {toolType:'phpmyadmin'} → 成功 toast「任务已创建」+ 打开任务 Drawer 定位新任务。
-- **mongo-express**（NModal 实例选择弹窗，字段数 <5 Dialog 形态）：NSelect 目标 Mongo 实例（数据源=跨模块 instanceList 筛选 engine=mongodb；选项呈现 identityKey + credentialsSet 状态；**credentialsSet=false 选项禁用 + tooltip「请先到数据库管理配置凭据」+ 链接 /databases**，DBT_006 前置）；说明文案「将 npm 安装 mongo-express {catalogVersion} 并创建本机服务（仅监听 127.0.0.1:8081），注入所选实例凭据（加密存储不回显）与面板访问凭据；需 Node 环境就绪」。提交 dbtoolInstall {toolType:'mongo_express', instanceId} → 任务 Drawer 定位。
+- **phpMyAdmin**（NPopconfirm）：文案「将下载 phpMyAdmin {catalogVersion} 官方包（sha256 校验，可能需要数分钟）并部署到面板管理目录，经面板会话安全访问；需 PHP-FPM 环境与扩展就绪（缺失将拒绝并引导补装）。**若面板尚无域名 nginx 落点（IP 直连形态），将自动创建独立访问块（端口 18090），安装成功后需放行该端口**（v1.2，api D-19）」。提交 dbtoolInstall {toolType:'phpmyadmin'} → 成功 toast「任务已创建」+ 打开任务 Drawer 定位新任务。
+- **mongo-express**（NModal 实例选择弹窗，字段数 <5 Dialog 形态）：NSelect 目标 Mongo 实例（数据源=跨模块 instanceList 筛选 engine=mongodb；选项呈现 identityKey + credentialsSet 状态；**credentialsSet=false 选项禁用 + tooltip「请先到数据库管理配置凭据」+ 链接 /databases**，DBT_006 前置）；说明文案「将 npm 安装 mongo-express {catalogVersion} 并创建本机服务（仅监听 127.0.0.1:8081），注入所选实例凭据（加密存储不回显）与面板访问凭据；需 Node 环境就绪。**若无面板域 nginx 落点将自动创建独立访问块（端口 18090），成功后需放行该端口**（v1.2）」。提交 dbtoolInstall {toolType:'mongo_express', instanceId} → 任务 Drawer 定位。
+
+**安装成功提示（v1.2 新增，自动落地块形态）**：install 任务终态 succeeded 且 autoCreated=true（经 dbtoolTaskDetail/重拉 dbtoolList 判定）→ 任务 Drawer 详情区顶部 NAlert success「**工具已就绪：请放行工具端口 18090（防火墙/云安全组），访问地址 http://{hostname}:18090/dbtool/...（绑定域名后为 http://域名:18090/...）**」（hostname 口径同卡片访问形态区块）+ 卡片访问形态区块同步呈现（终态跃迁重拉，4.3）；outputTail 内含后端放行提示文本如实呈现（api D-19⑦）；既有面板域块形态（landingPort=0）不渲染放行提示（无独立端口）。
 
 **升级确认**（NPopconfirm）：文案「将升级 {displayName} 到目录版本 {catalogVersion}（phpMyAdmin 保留配置与密钥；mongo-express 重装并重启服务，凭据与访问路径不变）」。提交 dbtoolUpgrade → 任务 Drawer；DBT_011 → toast「当前已为目录版本，无需升级」。
 
 **卸载强确认**（NModal，两段警示 ⚠️A5/D-15）：
 
-- 警示一（功能影响）：NAlert warning「卸载后 {displayName} 高级管理入口将不可用；面板内表/文档浏览（轻量入口）不受影响」；
+- 警示一（功能影响）：NAlert warning「卸载后 {displayName} 高级管理入口将不可用；面板内表/文档浏览（轻量入口）不受影响。**两工具均卸载后自动移除独立访问块（端口 18090 失效）；既有面板域访问块不受影响**（v1.2，api D-19/I-C04——仅自动创建的块移除，不误删用户站点）」；
 - 警示二（数据保全）：NAlert info「**卸载仅解除工具部署（程序/服务/站点配置/访问凭据），绝不删除数据库数据**（沿实例移除哲学）」；
 - 操作锁定：NInput 输入工具显示名确认（高危双因子，沿 env-mgmt 卸载先例）；
 - 提交文案明示「将执行工具卸载（不删除数据库数据）」→ dbtoolUninstall → 任务 Drawer。
@@ -138,7 +141,8 @@
 | 区块 | 内容 |
 |------|------|
 | 概要 | toolType（displayName）/action/status（colorTag）/instanceId（null=—）/requestedBy/createdAt/startedAt/finishedAt |
-| 失败原因 | error 非空 → NAlert error（sha256_mismatch/下载超时/npm 失败/落点冲突/面板重启中断如实呈现，D-04/D-05/I-09） |
+| 失败原因 | error 非空 → NAlert error（sha256_mismatch/下载超时/npm 失败/落点冲突/面板重启中断如实呈现，D-04/D-05/I-09；**v1.2：error 文本含具体原因 data.reason（api D-22）——「DBT_012: 部署操作失败: 工具端口 18090 被占用，请释放后重试」/多候选清单/自动建块写入失败等如实全文呈现，不再仅「部署操作失败」；端口占用附「释放端口后重试」引导、多候选附「到站点管理明确落点」链接 /sites**） |
+| 安装成功放行提示（v1.2） | install succeeded 且 autoCreated=true → 详情区顶部 NAlert success「请放行工具端口 18090 + 访问地址 http://{hostname}:18090/dbtool/...（绑域名后域名:18090）」（4.1 安装成功提示同口径）；landingPort=0 既有形态不渲染 |
 | 命令输出尾部 | outputTail 只读等宽文本块（≤200 行，D-13）；running 态伴随 Spin +「执行中」 |
 | 刷新 | 手动刷新按钮；**running/pending 态自动轮询 5s**（终态即停，onUnmounted 清理——env-mgmt/cron-backup 详情 Drawer 同构先例）；**终态跃迁触发工具全景与任务清单重拉**（任务完成后 installed/installedVersion/running 态与在途标记落定——env-mgmt v1.2 先例） |
 
@@ -146,7 +150,9 @@
 
 ### 4.4 打开工具分发（dbtoolOpen，admin 专属）
 
-**打开方式裁定（关闭 prd 待对齐-6）：新标签页**（`window.open(data.url, '_blank', 'noopener')`），**不内嵌 iframe**。理由：①工具为独立 Web 应用（phpMyAdmin/mongo-express 自有会话与导航），iframe 内接受工具 X-Frame-Options/CSP 限制且会话 cookie 第三方上下文受限；②新标签页同源（面板域工具路径），gating cookie scope 覆盖、signon 令牌 sessionDigest 绑定成立（api D-09）；③面板会话 idle 超时语义保持（工具内停留不续期面板会话，api D-11——超时后工具路径 gating 拒绝，回面板刷新即恢复）。
+**打开方式裁定（关闭 prd 待对齐-6）：新标签页**（`window.open(data.url, '_blank', 'noopener')`），**不内嵌 iframe**。理由：①工具为独立 Web 应用（phpMyAdmin/mongo-express 自有会话与导航），iframe 内接受工具 X-Frame-Options/CSP 限制且会话 cookie 第三方上下文受限；②新标签页会话可达——既有面板域块形态同源（面板域工具路径）；**自动落地块形态跨端口同主机（IP:18090/域名:18090）：会话 cookie host-only 端口无关，新标签页同样携带 dg_session，gating 校验与 signon 令牌 sessionDigest 绑定成立（v1.2，api D-19/D-23 可行性关键）**；③面板会话 idle 超时语义保持（工具内停留不续期面板会话，api D-11——超时后工具路径 gating 拒绝，回面板刷新即恢复）。
+
+**打开 URL 端口口径（v1.2，api D-23）**：url 由后端权威下发——自动落地块形态（siteRef.port=18090）为 `http://{IP}:18090/dbtool/...`（未绑域名，IP=请求 Host 去端口）或 `http://{域名}:18090/dbtool/...`（已绑域名，BindDomain 优先）；既有面板域块形态（port=0）沿旧形态（面板域路径无独立端口）；前端不拼接不修改 url（含 signon 令牌片段），直接 window.open；**绑域名后工具仅认域名——经 IP:18090 直访被 nginx 404（镜像 HostGuard，api D-20），卡片访问地址呈现随当前面板访问主机同步（4.1）**。
 
 **分发流程**（点击卡片「打开」/ database-mgmt 高级入口）：
 
@@ -175,7 +181,7 @@
 |------|------|------|
 | /db-tools | tool-list | `{requiresAuth:true, title:'数据库工具'}`（readonly 只读视图） |
 
-**守卫顺序**（与全局框架一致）：sessionCurrent 探测 → roles 校验（两角色均可达页面；unauthorized → 403 页）。**工具本体路径（/dbtool/phpmyadmin/、/dbtool/mongo-express/）非面板路由**——nginx 工具 location 经 gating 直达工具上游（api D-03/4.4），readonly/无会话经 gating 401 不可达（⚠️A10，前端无路由守卫承载——网络层闸门）。**/dbtool/access/reopen 亦非 SPA 路由**（v1.1 W3）——后端 GET 重定向落地端点（phpMyAdmin SignonURL 302 目标，admin 会话 gating，api 4.1.4），前端无对应页面/守卫。
+**守卫顺序**（与全局框架一致）：sessionCurrent 探测 → roles 校验（两角色均可达页面；unauthorized → 403 页）。**工具本体路径（/dbtool/phpmyadmin/、/dbtool/mongo-express/）非面板路由**——nginx 工具 location 经 gating 直达工具上游（api D-03/4.4），readonly/无会话经 gating 401 不可达（⚠️A10，前端无路由守卫承载——网络层闸门）；**v1.2：自动落地块形态工具路径位于独立端口 18090（http://{IP|域名}:18090/dbtool/...，api D-19/D-23）——同路径前缀跨端口，会话 cookie host-only 端口无关覆盖；每请求 gating 不变，绑域名后非匹配 Host 404（api D-20）**。**/dbtool/access/reopen 亦非 SPA 路由**（v1.1 W3）——后端 GET 重定向落地端点（phpMyAdmin SignonURL 302 目标，admin 会话 gating，api 4.1.4），前端无对应页面/守卫。
 
 **侧边菜单（本模块贡献）**：数据库工具（/db-tools，Order 位于数据库管理之后——构建期登记 D-P18/api-panel-core）；两角色同项（readonly 只读视图）。
 
@@ -183,7 +189,7 @@
 
 | # | 检查 | 结果 |
 |---|------|------|
-| 1 | Action ↔ api-db-tools.md v1.2 面板接口一一对应（S7） | ✅ 9/9 全映射，无虚构（v1.1 W3 +dbtoolReopen GET 重定向落地；内部端点 2 非前端 Action，服务端调用方 nginx/PHP-FPM，第 2 节声明） |
+| 1 | Action ↔ api-db-tools.md v1.3 面板接口一一对应（S7） | ✅ 9/9 全映射，无虚构（v1.1 W3 +dbtoolReopen GET 重定向落地；v1.3 零新增接口 Action 集合零变更；内部端点 2 非前端 Action，服务端调用方 nginx/PHP-FPM，第 2 节声明） |
 | 2 | 字典 Key ↔ 04-business-enum.md 定稿枚举一一对应（S8） | ✅ 5/5（db_tool_type/db_tool_task_action/db_tool_task_status/db_engine〔引用〕/panel_role，取值逐字对齐定稿） |
 | 3 | 所有 POST Action 均携带 X-CSRF-Token（拦截器统一注入） | ✅ |
 | 4 | ADR-018 + ⚠️A10 边界：readonly 操作区/打开/轮换不渲染 + 后端 AUTH_008 双保险 + 工具路径 gating 网络层闸门 | ✅ 4.1/4.4/第 7 节 |
@@ -193,8 +199,11 @@
 | 8 | 实况如实呈现：部署状态=档案存在性、运行态三态（true/false/null 不虚构）、依赖就绪度清单；面板重启中断任务如实展示 | ✅ 4.1/4.3（D-02/I-09） |
 | 9 | ⚠️A5 卸载强确认两段警示 + 操作锁定 + **不删数据文案**；安装依赖前置禁用态（DBT_001 数据源） | ✅ 4.1 |
 | 10 | 凭据零回显（I-02）：打开/轮换响应无凭据字段；signon 令牌非凭据（url 片段下发 admin）；实例选择器 credentialsSet 就绪判定 | ✅ 4.1/4.4 |
-| 11 | 时间展示本地时区、提交 ISO UTC；generatedAt 投影时刻呈现（D-02）；DTO 可空显式 null 呈现（installedVersion/boundInstanceId/running/instanceId/finishedAt/error/tokenExpiresAt） | ✅ 4.1/4.2/4.3/4.4 |
-| 12 | 打开方式裁定=新标签页（非内嵌），理由与 signon 绑定/gating cookie scope 一致性 | ✅ 4.4（关闭 prd 待对齐-6） |
+| 11 | 时间展示本地时区、提交 ISO UTC；generatedAt 投影时刻呈现（D-02）；DTO 可空显式 null 呈现（installedVersion/boundInstanceId/running/instanceId/finishedAt/error/tokenExpiresAt/**landingPort/autoCreated——未装=null 访问形态区块不渲染，v1.2**） | ✅ 4.1/4.2/4.3/4.4 |
+| 12 | 打开方式裁定=新标签页（非内嵌），理由与 signon 绑定/gating cookie scope 一致性（**v1.2 扩跨端口 host-only 论证**） | ✅ 4.4（关闭 prd 待对齐-6） |
+| 13 | 自动落地呈现（v1.2）：卡片访问形态区块（landingPort=18090→地址+放行提示；=0→面板域路径；null→不渲染）+安装成功放行 18090 提示+卸载清块警示；地址 hostname=当前面板访问主机（绑域名后呈现域名），实际 URL 以 dbtoolOpen 响应权威（D-23） | ✅ 4.1/4.3/4.4（api D-19/D-20/D-23） |
+| 14 | reason 可见呈现（v1.2）：任务详情 error 全文含 data.reason 具体原因（端口占用/多候选/建块失败引导），DBT_012 拦截器 data.reason 分流同步 | ✅ 4.3/第 1 节（api D-22） |
+| 15 | 域名联动语义呈现（v1.2）：页头/卡片提示「绑域名后仅域名访问」；打开 URL 端口口径注记（IP:18090/域名:18090）；前端不实现域名变更监听（后端钩子+惰性刷新，打开 URL 实时权威） | ✅ 4.1/4.4（api D-20） |
 
 ## 第 9 节 文档版本与变更记录
 
@@ -202,5 +211,6 @@
 |------|------|---------|------|
 | v1.0 | 2026-11-19 | initial | 首次生成：1 hybrid 页面（工具卡片网格两条目 + 任务 Drawer 双区）+ 8 Action（内部端点 2 非前端 Action 声明）、5 字典 Key、0 独立表单路由/0 独立详情路由；安装分工具形态（phpMyAdmin NPopconfirm/mongo-express NModal 实例选择〔跨模块 instanceList 引用〕）、卸载强确认 NModal（两段警示+输入锁定+**不删数据文案**）、升级/轮换 NPopconfirm；**打开裁定=新标签页**（window.open noopener，signon/gating 分发，关闭 prd 待对齐-6）；任务详情 running 态 5s 轮询终态即停 + 终态跃迁重拉全景（env-mgmt 先例）；跨模块高级入口被 database-mgmt PageSpec v1.5 消费（dbtoolList/dbtoolOpen） |
 | v1.1 | 2026-11-19 | interface_added | Gate 1 W3 修复轮（数据源 api v1.2）：+dbtoolReopen Action（GET /dbtool/access/reopen，phpMyAdmin SignonURL 重认证落地——浏览器 302 顶层导航非 fetch Action，admin 会话 gating 重签令牌回工具 URL）；S7 8/8→9/9（面板面 9 接口，内部端点 2 不变，11 端点=9 前端 Action+2 内部）；4.4 +工具内 PMA 会话过期重认证二次流程注记（前端无 reopen 按钮/路由）；第 7 节 +reopen 非 SPA 路由声明；readonly 负空间同步 +dbtoolReopen（admin 专属 ⚠️A10）；字典/路由/表单零变更 |
+| v1.2 | 2026-11-19 | rule_added | 自动 nginx 落地增量 D4（数据源 api v1.3，prd v1.2 FR-11~14/FL v1.1 ⚠️A14~A17）：**Action/字典/路由/表单零变更（S7 9/9 不变，零新接口）**——①4.1 工具卡片 +访问形态区块（landingPort/autoCreated additive 投影：18090→NTag「独立访问端口」+访问地址 http://{hostname}:18090/dbtool/...〔hostname=当前面板访问主机，IP 直连呈现 IP/绑域名呈现域名〕+放行 TCP 18090 提示+「绑域名后仅域名访问」语义；0→「面板域路径访问」；null→不渲染）；②安装确认文案 +自动建块说明（两工具）+**安装成功提示**（succeeded 且 autoCreated=true → NAlert success「请放行工具端口 18090+访问地址 http://IP:18090/dbtool/...（绑域名后域名:18090）」，任务 Drawer 与卡片同步）；③卸载警示一 +两工具均卸载清自动块（18090 失效，非自动块不动）；④4.3 任务详情失败原因 +error 含 data.reason 全文呈现（端口占用/多候选/建块失败引导，api D-22）+安装成功放行提示区块；⑤4.4 打开 URL 端口口径注记（url 后端权威 D-23，前端不拼接）+新标签页理由扩跨端口 host-only cookie 论证+绑域名后 IP:18090 直访 404 语义；⑥页头说明条修订（工具本体仅监听本机+自动端口 18090 每请求会话校验+绑域名仅域名）；⑦第 1 节 DBT_012 拦截器 reason 细分引导；⑧第 7 节工具路径 +独立端口形态声明；第 8 节自查 1/11/12 修订+13/14/15 新增；readonly v1.2 同步（访问形态/任务 reason 只读呈现，负空间 6 不变） |
 
 > FX 质量清单说明：FX-001~FX-141 逐条清单文件未随引擎 payload 发布，本节按分册 9 节结构逐节落实，并以第 8 节 12 项全局一致性自查替代可机械执行部分（全仓先例）；全量 141 项留待 Gate 1 validation 执行。

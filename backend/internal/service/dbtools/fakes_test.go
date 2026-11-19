@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -40,6 +41,9 @@ type fakeDeploy struct {
 	globalRoot   string
 	phpExts      []string
 	phpErr       error
+	portOK       bool // ProbePortAvailable 结果（默认 true）
+	probeErr     error
+	probeCalls   int
 }
 
 func newFakeDeploy() *fakeDeploy {
@@ -48,7 +52,14 @@ func newFakeDeploy() *fakeDeploy {
 		shaOK: true, globalRoot: "/usr/lib/node_modules",
 		phpExts:      []string{"mysqli", "mbstring", "zip", "gd", "json", "curl", "openssl"},
 		downloadBody: []byte("fake-tarball"),
+		portOK:       true,
 	}
+}
+
+func (f *fakeDeploy) ProbePortAvailable(port int) (bool, error) {
+	f.probeCalls++
+	f.log("probe-port " + strconv.Itoa(port))
+	return f.portOK, f.probeErr
 }
 
 func (f *fakeDeploy) log(s string) { f.calls = append(f.calls, s) }
@@ -182,9 +193,10 @@ func (f *fakeCreds) InstanceCredentialsForTool(_ context.Context, id int64) (Too
 }
 
 type fakePipeline struct {
-	files    map[string]string
-	applies  []string // file 序列
-	applyErr error
+	files     map[string]string
+	applies   []string // file 序列
+	applyErr  error
+	removeErr error
 }
 
 func (f *fakePipeline) ConfigApply(_ context.Context, file, newContent string, _ bool) error {
@@ -198,6 +210,10 @@ func (f *fakePipeline) ConfigApply(_ context.Context, file, newContent string, _
 
 func (f *fakePipeline) ConfigRemove(_ context.Context, file string) error {
 	f.applies = append(f.applies, "remove:"+file)
+	if f.removeErr != nil {
+		return f.removeErr
+	}
+	delete(f.files, file) // 原态=不存在语义（自动块清块，D-19⑥）
 	return nil
 }
 
@@ -272,7 +288,10 @@ func (f *fakePhpFpm) ListPools(_ context.Context) ([]phpfpm.Pool, error) {
 	return f.pools, f.err
 }
 
-type fakeNginx struct{ files map[string]string }
+type fakeNginx struct {
+	files map[string]string
+	dirs  []string // PriorityDirs 替身（FirstWritableDir 取首个；空=全不可用）
+}
 
 func (f *fakeNginx) ScanConfDirs() ([]nginxx.FileSnapshot, error) {
 	keys := make([]string, 0, len(f.files))
@@ -282,9 +301,16 @@ func (f *fakeNginx) ScanConfDirs() ([]nginxx.FileSnapshot, error) {
 	sort.Strings(keys)
 	out := make([]nginxx.FileSnapshot, 0, len(keys))
 	for _, k := range keys {
-		out = append(out, nginxx.FileSnapshot{Path: k, Content: f.files[k]})
+		out = append(out, nginxx.FileSnapshot{Path: k, Dir: filepath.Dir(k), Name: filepath.Base(k), Content: f.files[k]})
 	}
 	return out, nil
+}
+
+func (f *fakeNginx) FirstWritableDir() (string, error) {
+	if len(f.dirs) == 0 {
+		return "", errors.New("nginxx: no writable config dir (fake)")
+	}
+	return f.dirs[0], nil
 }
 
 func (f *fakeNginx) ReadFile(path string) (string, time.Time, error) {
@@ -374,7 +400,7 @@ func defaultFakes() *testFakes {
 		}},
 		sysd:   &fakeSysd{units: map[string]sysd.UnitDetail{}, jobOK: true},
 		phpfpm: &fakePhpFpm{pools: []phpfpm.Pool{{Name: "www", Socket: "/run/php/php8.1-fpm.sock"}}},
-		nginx:  &fakeNginx{files: confFiles},
+		nginx:  &fakeNginx{files: confFiles, dirs: []string{"/etc/nginx/conf.d"}},
 		panel: &fakePanel{pa: PanelAccess{
 			BindDomain: "panel.example.test", ListenHost: "127.0.0.1", ListenPort: 8687,
 		}},

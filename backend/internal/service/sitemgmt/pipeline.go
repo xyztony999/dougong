@@ -66,6 +66,12 @@ func (s *Service) applyPipeline(ctx context.Context, file, newContent string, al
 	// 尾部：快照保留清理（每来源文件最近 CONF_BACKUP_KEEP 份，D-04）。
 	if exists {
 		s.pruneBackups(ctx, file)
+	} else if err := s.markOriginAbsent(file); err != nil {
+		// v1.3：新文件创建成功→记录「原态=不存在」标记（ConfigRemove 恢复
+		// 原字节=删除文件语义的数据源，db-tools D-19⑥ 自动块清块消费）。
+		// 标记失败不阻断已成功的写入（nginx -t 已过）——记日志，Remove
+		// 退化为快照恢复/无快照如实报错。
+		slog.WarnContext(ctx, "site-mgmt pipeline: mark origin absent failed", "file", file, "err", err)
 	}
 	return nil
 }

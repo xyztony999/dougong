@@ -458,6 +458,10 @@ func run(args []string) error {
 		Audit:    auditSvc,
 	}, dbtoolssvc.Options{DataDir: panelDataDir, Mirror: cfg.Tools.Mirror, NpmRegistry: cfg.Tools.NpmRegistry})
 	dbtoolsSvc.RecoverInFlight(ctx)
+	// v1.3（api-db-tools D-20③⑤，S-11-01）：bindDomain 变更钩子注册——
+	// 自动落地块 server_name 域名联动主通道（钩子失败不阻断配置变更，
+	// install/open 惰性校正兜底）。
+	panelSvc.RegisterConfigChangeHook(dbtoolsSvc)
 	// 菜单已在构建期登记（icon=dbtool，Order 550）——此处不再重复 Register（W1 修复：
 	// MenuRegistry 纯 append 无去重，重复登记致侧栏渲染两个「数据库工具」项）。
 
@@ -484,6 +488,10 @@ func run(args []string) error {
 	// 位于 account-auth InitGuard 等之前、作用于全部路由（含 /auth/* 与未认证访问）。
 	// D-P16（v2.0，ADR-028）：HostGuard 域名绑定强校验紧随其后（Entry → Host →
 	// 引擎中间件链）——bind_domain 非空时 Host 不匹配（含 IP 直连）一律标准 404。
+	// v1.3（api-db-tools D-21/4.4.5）：两包装器对内部端点路径前缀
+	// /dbtool/gate/、/dbtool/signon/ 最小化前置直通豁免（绑域名后 nginx
+	// auth_request 子请求/SignonScript loopback 回调 Host≠域名不被误拦）——
+	// 豁免 Host/入口路径校验而非鉴权，loopback+秘密头+会话/令牌防护链不变。
 	handler := middleware.EntryPathHandler(panelSvc,
 		middleware.HostGuard(panelSvc, server.Handler()))
 

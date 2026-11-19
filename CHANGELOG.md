@@ -2,6 +2,37 @@
 
 发布说明按版本倒序排列；每个版本的完整说明也会作为 GitHub Release 正文发布。
 
+## v0.1.16 - 2026-11-20
+
+数据库工具**自动 nginx 落地**：IP 直连面板也能一键安装/打开 phpMyAdmin、mongo-express，无需手动建反代站点；工具访问与面板域名绑定联动（对齐宝塔「绑域名后仅域名访问」）。
+
+### 变更内容
+
+**新增：工具自动落地（IP 直连可用）**
+- 痛点：v0.1.14/15 安装工具报 DBT_012——经 IP+端口直连面板（未绑域名）时 nginx 没有面板 server 块，工具路径无处承载
+- 修复：安装时若 nginx 无面板落点，**自动创建专用工具 server 块**（`dougong-tools.conf`，监听端口 **18090**）；工具经 `http://IP:18090/dbtool/...` 访问，面板会话 cookie 跨端口共享、gating 照常校验
+- 既有面板域 server 块（绑域名/反代面板）优先沿用；端口被占用如实报错引导
+
+**新增：工具访问与域名绑定联动**
+- 未绑域名：工具块认 IP/任意 Host；**绑定域名后工具块只认该域名、其余 Host 返回 404**（镜像面板 HostGuard 强校验）——与面板「绑域名后仅域名访问」一致
+- 绑定/解绑域名经面板配置变更钩子同步刷新工具块（打开时惰性兜底自愈）
+
+**修复：绑定域名后工具 gating 失效（HostGuard 误拦内部端点）**
+- 根因：HostGuard 全局包装器连同内部 gate/signon 鉴权端点一起拦，绑域名后 nginx 鉴权子请求 Host 不匹配 → 404 → 工具全挂
+- 修复：内部 gate/signon 端点**最小化豁免** HostGuard/EntryPathGuard（仅 2 个路径前缀）；其安全仍由 loopback 源 + 秘密头 + 会话/令牌承载，**不放宽鉴权**；非内部路径强校验不变
+
+**改进：部署失败原因可见**
+- 任务详情不再只显示「DBT_012 部署操作失败」，带上具体原因（如端口占用/落点冲突），便于排查
+
+### 安装与升级
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/xyztony999/dougong/main/install.sh | sudo bash
+dougong version   # 应为 v0.1.16
+```
+
+升级后验证（数据库工具）：①IP 直连面板装 phpMyAdmin/mongo-express 不再报 DBT_012，自动建工具块；②**放行工具端口 18090**（防火墙/云安全组）后经 `http://IP:18090/dbtool/...` 打开（未登录/readonly 不可达）；③绑定面板域名后工具仅经 `http://域名:18090/...` 访问，IP 访问 404；④卸载工具清理自动块（不删数据库数据）。工具本体仍仅绑 localhost，18090 经面板会话 gating。
+
 ## v0.1.15 - 2026-11-19
 
 修复 v0.1.14 数据库工具集成的三个实机问题（PHP-FPM 启动 / phpMyAdmin 扩展依赖 / mongo-express 服务重载）。

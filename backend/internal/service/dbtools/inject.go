@@ -17,11 +17,16 @@ import (
 // siteRef 注入落点标识（db_tool.site_ref JSON：来源文件+server 块定位，
 // D-03；撤除寻址用）。ServerName 为首个具体域名（wildcard/空=""——URL
 // 构造回退 bind_domain/请求 Host）；Scheme 由 listen 443/ssl 推导。
+// v1.3（D-19）：+Port=落地监听端口（既有 80/443 块=0 表默认；自动块=
+// ToolLandingPort）+AutoCreated=是否面板自动创建（清块判定 I-C04）；
+// 旧档案缺字段零值 port=0/autoCreated=false 向后兼容（零 DDL）。
 type siteRef struct {
-	File       string `json:"file"`
-	Index      int    `json:"index"`
-	ServerName string `json:"serverName"`
-	Scheme     string `json:"scheme"`
+	File        string `json:"file"`
+	Index       int    `json:"index"`
+	ServerName  string `json:"serverName"`
+	Scheme      string `json:"scheme"`
+	Port        int    `json:"port"`
+	AutoCreated bool   `json:"autoCreated"`
 }
 
 func parseSiteRef(raw string) (siteRef, error) {
@@ -40,10 +45,12 @@ func marshalSiteRef(ref siteRef) string {
 	return string(b)
 }
 
-// selectLanding 落点选择（D-03）：bind_domain 非空→server_name 匹配块
-// （优先）；未绑定→面板反代站点块（proxy_pass 指向面板监听地址）；多候选
-// →DBT_012 列出候选（操作者经站点管理明确后重试）；无候选→DBT_012 引导
-// 先建立面板域 nginx 反代访问。dormant（停用）块不参与。
+// selectLanding 落点选择（D-03，v1.3 D-19 修订）：bind_domain 非空→
+// server_name 匹配块（优先）；未绑定→面板反代站点块（proxy_pass 指向面板
+// 监听地址）；多候选→DBT_012 列出候选（操作者经站点管理明确后重试）；
+// 无候选→自动创建专用工具落地块（D-19：IP 直连未绑域名形态安装即可用；
+// 端口占用/目录不可用/写入失败仍 DBT_012 data.reason 如实）。dormant
+// （停用）块不参与。
 func (s *Service) selectLanding(ctx context.Context, pa PanelAccess) (siteRef, error) {
 	files, err := s.nginx.ScanConfDirs()
 	if err != nil {
@@ -56,6 +63,12 @@ func (s *Service) selectLanding(ctx context.Context, pa PanelAccess) (siteRef, e
 	}
 	var matches []candidate
 	for i := range files {
+		// v1.3（D-19）：自动落地块为工具专用块，不参与面板域候选——其
+		// gate location proxy_pass 指向面板监听地址，会被 proxyTargetsPanel
+		// 误判为面板反代站点块（第二工具安装时 siteRef 丢失 port/autoCreated）。
+		if files[i].Name == ToolLandingConfName && isLandingBlock(files[i].Content) {
+			continue
+		}
 		tree := nginxx.Parse(files[i].Content)
 		for _, blk := range nginxx.ExtractServers(tree) {
 			if blk.Dormant {
@@ -74,8 +87,7 @@ func (s *Service) selectLanding(ctx context.Context, pa PanelAccess) (siteRef, e
 	}
 	switch len(matches) {
 	case 0:
-		return siteRef{}, errcode.ErrDBTDeployOpFailed.WithData(map[string]any{
-			"reason": "未发现面板域 nginx server 块（bind_domain 匹配或 proxy_pass 指向面板监听地址）；请先在面板设置绑定域名或建立指向面板的反代站点"})
+		return s.autoCreateLanding(ctx, pa)
 	case 1:
 		blk := matches[0].block
 		ref := siteRef{File: matches[0].file, Index: blk.Index, Scheme: "http"}

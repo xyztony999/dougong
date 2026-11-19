@@ -25,8 +25,18 @@ type EntryPathSource interface {
 // 未携带/错携带一律返回标准 404（无业务错误码包裹——不泄露「这是一个
 // 面板」的存在性，防探测 PRD N2）；开关关闭直通；读态失败 fail-closed
 // 标准 404（A-P7 裁定，细节进结构化日志）。
+//
+// v1.3（api-db-tools D-21）：内部端点不受入口路径限制——未携前缀但路径
+// 直接命中豁免前缀（/dbtool/gate/、/dbtool/signon/）者前置直通（防御性
+// 兜底：内部调用方 URL 含 entryPath 烘焙，入口路径变更窗口/烘焙时效内
+// 回调仍可达）；携入口前缀者沿既有剥前缀语义放行；非内部路径未携/错携
+// 前缀仍标准 404（防探测语义不变）。
 func EntryPathHandler(src EntryPathSource, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isInternalExemptPath(r.URL.Path) {
+			next.ServeHTTP(w, r) // 内部端点豁免（D-21：鉴权防护链不放宽）
+			return
+		}
 		enabled, entryPath, err := src.EntryPathState(r.Context())
 		if err != nil {
 			slog.ErrorContext(r.Context(), "entry path guard: read state",

@@ -1,7 +1,11 @@
 <script setup lang="ts">
 /**
- * 数据库工具页 tool-list（PageSpec db-tools v1.1，hybrid；路由 /db-tools；
+ * 数据库工具页 tool-list（PageSpec db-tools v1.2，hybrid；路由 /db-tools；
  * admin+readonly 同路由按角色渲染子集——操作区整区不渲染，ADR-018 + ⚠️A10 负空间）。
+ * v1.2 自动 nginx 落地增量（api v1.3 D-19/D-20/D-22/D-23）：卡片+访问形态区块
+ * （landingPort/autoCreated 投影：≠0→独立访问端口 Tag+地址+放行提示；0→面板域路径；
+ * null→不渲染——readonly 同等呈现，纯观测信息）；安装确认+自动建块说明；卸载警示
+ * +两工具均卸载清自动块；页头说明条修订；打开 URL 后端权威含端口前端不拼接（4.4）。
  * 页头说明条（gating 安全口径+轻量入口并存 Q3）+ 刷新 + generatedAt 探测时刻；
  * 工具卡片网格两条目（phpMyAdmin/mongo-express：部署状态/版本/运行态三态/依赖就绪度
  * depsMissing 清单+环境管理链接/在途标记/绑定实例呈现）；安装分工具形态（phpMyAdmin
@@ -25,6 +29,7 @@ import { DB_ENGINE, DB_TOOL_TASK_ACTION, DB_TOOL_TASK_STATUS, DB_TOOL_TYPE, dict
 import type { DbToolTaskStatus, DbToolType } from '@/types/enums'
 import type { DbToolItem, DbToolTaskItem } from '@/types/dbtool'
 import {
+  DBTOOL_LANDING_PORT,
   DBTOOL_PAGE_INTRO,
   depMissingText,
   depsMissingSummary,
@@ -34,9 +39,13 @@ import {
   dbtTaskIdOf,
   installedStateTag,
   instanceIdentityText,
+  landingAddress,
+  landingHint,
+  landingTag,
   openToastText,
   runningStateTag
 } from '@/types/dbtool'
+import type { DictItem } from '@/types/enums'
 import type { DbInstanceItem } from '@/types/database'
 import { formatDateTime, formatTime } from '@/utils/format'
 import DbtoolTaskDrawer from './components/DbtoolTaskDrawer.vue'
@@ -152,13 +161,19 @@ function onInstallClick(item: DbToolItem): void {
   // phpmyadmin 经 NPopconfirm 触发（模板内 onPositiveClick）
 }
 
-const INSTALL_INTRO_PHPMYADMIN =
-  '将下载 phpMyAdmin 官方包（sha256 校验，可能需要数分钟）并部署到面板管理目录，经面板域路径安全访问；需 PHP-FPM 环境与扩展就绪（缺失将拒绝并引导补装）。'
-
-function installIntroMongo(catalogVersion: string): string {
-  return `将 npm 安装 mongo-express ${catalogVersion} 并创建本机服务（仅监听 127.0.0.1:8081），注入所选实例凭据（加密存储不回显）与面板访问凭据；需 Node 环境就绪。`
+/** 安装确认文案（PageSpec 4.1 v1.2：+自动建块说明——无面板域 nginx 落点时自动创建
+ * 独立访问块〔端口 18090〕，安装成功后需放行该端口，api D-19） */
+function installIntroPhpmyadmin(catalogVersion: string): string {
+  return `将下载 phpMyAdmin ${catalogVersion} 官方包（sha256 校验，可能需要数分钟）并部署到面板管理目录，经面板会话安全访问；需 PHP-FPM 环境与扩展就绪（缺失将拒绝并引导补装）。若面板尚无域名 nginx 落点（IP 直连形态），将自动创建独立访问块（端口 ${DBTOOL_LANDING_PORT}），安装成功后需放行该端口。`
 }
 
+function installIntroMongo(catalogVersion: string): string {
+  return `将 npm 安装 mongo-express ${catalogVersion} 并创建本机服务（仅监听 127.0.0.1:8081），注入所选实例凭据（加密存储不回显）与面板访问凭据；需 Node 环境就绪。若无面板域 nginx 落点将自动创建独立访问块（端口 ${DBTOOL_LANDING_PORT}），成功后需放行该端口。`
+}
+
+const phpmyadminCatalogVersion = computed(
+  () => store.findByType('phpmyadmin')?.catalogVersion ?? ''
+)
 const mongoCatalogVersion = computed(
   () => store.findByType('mongo_express')?.catalogVersion ?? ''
 )
@@ -236,7 +251,10 @@ async function onRotate(item: DbToolItem): Promise<void> {
   }
 }
 
-/** ---- 打开分发（4.4：新标签页 window.open noopener，非内嵌 iframe） ---- */
+/** ---- 打开分发（4.4：新标签页 window.open noopener，非内嵌 iframe；
+ * v1.2 URL 端口口径 D-23：url 后端权威下发——自动块形态 http://{IP|域名}:18090/dbtool/...，
+ * 既有块沿旧形态；前端不拼接不修改〔含 signon 令牌片段〕直接 window.open；
+ * 跨端口同主机 cookie host-only 端口无关，dg_session 随新标签页可达 gating） ---- */
 
 const opening = ref<DbToolType | null>(null)
 const openModalShow = ref(false)
@@ -298,6 +316,25 @@ function changeDisabled(item: DbToolItem): boolean {
   return item.runningTaskId !== null
 }
 
+/** ---- 访问形态区块（v1.2，PageSpec 4.1：landingPort/autoCreated 投影，两角色同等呈现） ---- */
+
+/** 当前面板访问主机（IP 直连呈现 IP/绑域名后经域名访问呈现域名，api D-23 BindDomain 优先口径；
+ * SPA 会话内 hostname 恒定，setup 期取一次即可） */
+const panelHostname = window.location.hostname
+
+/** 卡片访问形态三助手聚合（模板单次调用取齐 Tag/地址/提示，纯函数 types/dbtool.ts 承载） */
+function landingOf(item: DbToolItem): {
+  tag: DictItem | null
+  address: string | null
+  hint: string | null
+} {
+  return {
+    tag: landingTag(item),
+    address: landingAddress(item, panelHostname),
+    hint: landingHint(item)
+  }
+}
+
 /** ---- 任务清单列（Drawer 历史 Tab 宿主列定义，4.2） ---- */
 
 const toolTypeOptions: SelectOption[] = (Object.keys(DB_TOOL_TYPE) as DbToolType[]).map((v) => ({
@@ -340,7 +377,7 @@ const taskColumns = computed<DataTableColumns<DbToolTaskItem>>(() => [
     render: (row) => {
       const d = dictItem(DB_TOOL_TASK_STATUS, row.status)
       const tag = h(NTag, { type: d.tag, size: 'small', bordered: false }, { default: () => d.label })
-      // failed 行附 error NTooltip（4.2）
+      // failed 行附 error NTooltip（4.2；v1.2 error 全文含 data.reason 具体原因，api D-22）
       if (row.status === 'failed' && row.error !== null && row.error !== '') {
         return h(NTooltip, null, { trigger: () => tag, default: () => row.error })
       }
@@ -466,6 +503,30 @@ onUnmounted(() => {
           </n-button>
         </div>
 
+        <!-- 访问形态区块（v1.2，landingPort/autoCreated 投影，api D-19/I-14）：
+             ≠0→独立访问端口 Tag+访问地址+放行提示；0→面板域路径访问（无地址行）；
+             null/未装→整块不渲染（不虚构端口）。两角色同等呈现——纯观测信息，
+             readonly 无放行操作能力提示文案如实呈现不隐藏（readonly PageSpec 4.1）；
+             地址为展示引导，实际打开 URL 以 dbtoolOpen 响应权威下发（4.4，D-23） -->
+        <template v-if="landingOf(item).tag !== null">
+          <div class="tool-row">
+            <n-tag :type="landingOf(item).tag?.tag ?? 'default'" size="small" :bordered="false">
+              {{ landingOf(item).tag?.label }}
+            </n-tag>
+          </div>
+          <div v-if="landingOf(item).address !== null" class="landing-address">
+            {{ landingOf(item).address }}
+          </div>
+          <n-alert
+            v-if="landingOf(item).hint !== null"
+            type="info"
+            :show-icon="false"
+            class="landing-hint"
+          >
+            {{ landingOf(item).hint }}
+          </n-alert>
+        </template>
+
         <!-- 操作区（admin only；readonly 整区不渲染——6 负空间之前端隐藏层） -->
         <template v-if="authStore.isAdmin" #action>
           <div class="tool-actions">
@@ -494,7 +555,7 @@ onUnmounted(() => {
                     安装
                   </n-button>
                 </template>
-                {{ INSTALL_INTRO_PHPMYADMIN }}
+                {{ installIntroPhpmyadmin(phpmyadminCatalogVersion) }}
               </n-popconfirm>
               <n-button
                 v-else
@@ -593,7 +654,7 @@ onUnmounted(() => {
       @update:show="(v: boolean) => { if (!v) uninstallTarget = null }"
     >
       <n-alert type="warning" title="功能影响" style="margin-bottom: 10px">
-        卸载后 {{ uninstallTarget?.displayName ?? '' }} 高级管理入口将不可用；面板内表/文档浏览（轻量入口）不受影响。
+        卸载后 {{ uninstallTarget?.displayName ?? '' }} 高级管理入口将不可用；面板内表/文档浏览（轻量入口）不受影响。两工具均卸载后自动移除独立访问块（端口 {{ DBTOOL_LANDING_PORT }} 失效）；既有面板域访问块不受影响。
       </n-alert>
       <n-alert type="info" title="数据保全" style="margin-bottom: 10px">
         卸载仅解除工具部署（程序/服务/站点配置/访问凭据），绝不删除数据库数据（沿实例移除哲学）。
@@ -683,6 +744,17 @@ onUnmounted(() => {
 }
 .deps-hint {
   opacity: 0.65;
+}
+.landing-address {
+  margin-top: 6px;
+  font-size: 12px;
+  font-family: monospace;
+  word-break: break-all;
+  opacity: 0.85;
+}
+.landing-hint {
+  margin-top: 6px;
+  font-size: 12px;
 }
 .tool-actions {
   display: flex;

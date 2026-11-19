@@ -282,6 +282,12 @@ func (s *Service) UpdateConfig(ctx context.Context, actor *authsvc.Identity, req
 	if err != nil {
 		return nil, err
 	}
+	// v1.3（api-db-tools D-20③，S-11-01）：bindDomain 变更成功（panel_config
+	// 权威已落库）→进程内同步通知观察者（db-tools 自动落地块 server_name
+	// 联动刷新）；钩子失败不阻断配置变更（recover+slog，惰性校正兜底）。
+	if changes.BindDomain != nil {
+		s.notifyBindDomainChanged(ctx, derefString(merged.BindDomain))
+	}
 	return s.Detail(ctx)
 }
 

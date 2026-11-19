@@ -1,8 +1,9 @@
 /**
- * dbtoolStore 测试（PageSpec db-tools v1.1 第 1 节）：loadList 成败流（失败→listError=true
- * 页面 NAlert+重试；成功→items/generatedAt 投影，api v1.2 载荷含 boundInstanceId 与
- * running 三态）+ ensureLoaded 懒加载（database-mgmt 高级入口 6.8 步骤 1）+ findByType
- * + taskFilter 联动 + 终态跃迁重拉全景与清单（4.3）+ clearTaskDetail 轮询清理幂等。
+ * dbtoolStore 测试（PageSpec db-tools v1.2 第 1 节）：loadList 成败流（失败→listError=true
+ * 页面 NAlert+重试；成功→items/generatedAt 投影，api v1.3 载荷含 boundInstanceId/
+ * running 三态 + landingPort/autoCreated additive 可空透传〔D-19/I-14〕）+ ensureLoaded
+ * 懒加载（database-mgmt 高级入口 6.8 步骤 1）+ findByType + taskFilter 联动
+ * + 终态跃迁重拉全景与清单（4.3）+ clearTaskDetail 轮询清理幂等。
  */
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -22,7 +23,9 @@ const okPayload = {
       running: true,
       depsReady: true,
       depsMissing: [],
-      runningTaskId: null
+      runningTaskId: null,
+      landingPort: 18090,
+      autoCreated: true
     },
     {
       toolType: 'mongo_express',
@@ -36,7 +39,9 @@ const okPayload = {
       running: null,
       depsReady: false,
       depsMissing: [{ kind: 'env', name: 'node' }],
-      runningTaskId: 7
+      runningTaskId: 7,
+      landingPort: null,
+      autoCreated: null
     }
   ],
   generatedAt: '2026-11-19T00:00:00Z'
@@ -50,7 +55,7 @@ describe('dbtoolStore', () => {
     vi.restoreAllMocks()
   })
 
-  it('loadList 成功流：items/generatedAt 投影、listError=false（api v1.2 形状含 boundInstanceId）', async () => {
+  it('loadList 成功流：items/generatedAt 投影、listError=false（api v1.3 形状含 boundInstanceId/landingPort/autoCreated）', async () => {
     const dbtoolList = vi.fn().mockResolvedValue(okPayload)
     vi.doMock('@/api/dbtool', () => ({
       dbtoolList,
@@ -65,6 +70,11 @@ describe('dbtoolStore', () => {
     expect(store.items[0].boundInstanceId).toBeNull()
     expect(store.items[1].running).toBeNull() // 三态不虚构（D-02）
     expect(store.items[1].depsMissing).toEqual([{ kind: 'env', name: 'node' }])
+    // v1.3 additive 可空透传（D-19/I-14）：已装=siteRef 投影；未装=null（JSON null≠undefined）
+    expect(store.items[0].landingPort).toBe(18090)
+    expect(store.items[0].autoCreated).toBe(true)
+    expect(store.items[1].landingPort).toBeNull()
+    expect(store.items[1].autoCreated).toBeNull()
     expect(store.generatedAt).toBe('2026-11-19T00:00:00Z')
     expect(store.listError).toBe(false)
     expect(store.loaded).toBe(true)

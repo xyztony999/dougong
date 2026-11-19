@@ -25,6 +25,7 @@ import (
 	"github.com/dougong/dougong/internal/adapter/sysd"
 	"github.com/dougong/dougong/internal/api"
 	authapi "github.com/dougong/dougong/internal/api/auth"
+	"github.com/dougong/dougong/internal/api/middleware"
 	auditsvc "github.com/dougong/dougong/internal/service/audit"
 	authsvc "github.com/dougong/dougong/internal/service/auth"
 	dbmgmtsvc "github.com/dougong/dougong/internal/service/dbmgmt"
@@ -147,6 +148,8 @@ func (f *apiFakes) RemoveAll(path string) error {
 
 func (f *apiFakes) Rename(_, _ string) error { return nil }
 
+func (f *apiFakes) ProbePortAvailable(_ int) (bool, error) { return true, nil }
+
 func (f *apiFakes) ConfigApply(_ context.Context, file, content string, _ bool) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -200,7 +203,7 @@ func (f *apiFakes) ScanConfDirs() ([]nginxx.FileSnapshot, error) {
 	defer f.mu.Unlock()
 	var out []nginxx.FileSnapshot
 	for p, c := range f.confFiles {
-		out = append(out, nginxx.FileSnapshot{Path: p, Content: c})
+		out = append(out, nginxx.FileSnapshot{Path: p, Dir: filepath.Dir(p), Name: filepath.Base(p), Content: c})
 	}
 	return out, nil
 }
@@ -241,14 +244,16 @@ type nginxAdapter struct{ f *apiFakes }
 
 func (a nginxAdapter) ScanConfDirs() ([]nginxx.FileSnapshot, error) { return a.f.ScanConfDirs() }
 func (a nginxAdapter) ReadFile(p string) (string, time.Time, error) { return a.f.ReadFileConf(p) }
+func (a nginxAdapter) FirstWritableDir() (string, error)            { return "/etc/nginx/conf.d", nil }
 
 // ---- 测试装配 ----
 
 type testApp struct {
-	ts    *httptest.Server
-	svc   *dbtoolssvc.Service
-	store *storedbt.Store
-	fakes *apiFakes
+	ts      *httptest.Server
+	handler http.Handler // gin 引擎裸 handler（全局包装器回归用）
+	svc     *dbtoolssvc.Service
+	store   *storedbt.Store
+	fakes   *apiFakes
 }
 
 type session struct{ cookie, csrf string }
@@ -293,7 +298,7 @@ func newTestApp(t *testing.T) *testApp {
 	)
 	ts := httptest.NewServer(server.Handler())
 	t.Cleanup(ts.Close)
-	return &testApp{ts: ts, svc: svc, store: st, fakes: f}
+	return &testApp{ts: ts, handler: server.Handler(), svc: svc, store: st, fakes: f}
 }
 
 func loginSession(t *testing.T, app *testApp, username string) session {
@@ -653,4 +658,76 @@ func TestInstallOpenFlow(t *testing.T) {
 
 func itoa(n int64) string {
 	return strconv.FormatInt(n, 10)
+}
+
+// guardStub 全局网关数据源桩（HostGuard+EntryPathSource 双契约）。
+type guardStub struct{ domain string }
+
+func (g guardStub) BindDomainState(context.Context) (string, error) { return g.domain, nil }
+func (g guardStub) EntryPathState(context.Context) (bool, string, error) {
+	return false, "", nil
+}
+
+// TestHostGuardInternalExemptFullStack v1.3 D-21 全栈回归：绑域名后全局
+// Entry→Host 包装——内部 gate/signon（loopback+秘密头+会话/令牌）仍可达
+// 不被误拦 404；豁免不放宽鉴权（无秘密头仍裸 404/无会话仍 401）；非内部
+// 路径 Host 不匹配仍标准 404（强校验不变）。
+func TestHostGuardInternalExemptFullStack(t *testing.T) {
+	app := newTestApp(t)
+	admin := loginSession(t, app, "admin")
+	secret := seedInternalSecret(t, app)
+	src := guardStub{domain: "panel.example.test"}
+	wrapped := httptest.NewServer(middleware.EntryPathHandler(src, middleware.HostGuard(src, app.handler)))
+	t.Cleanup(wrapped.Close)
+
+	do := func(method, path, host, secretHdr, cookie string, body []byte) (int, string) {
+		var rdr io.Reader
+		if body != nil {
+			rdr = bytes.NewReader(body)
+		}
+		req, _ := http.NewRequest(method, wrapped.URL+path, rdr)
+		req.Host = host // Host≠绑定域名（IP 直连形态——子请求/回调误拦根因）
+		if body != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		if secretHdr != "" {
+			req.Header.Set(dbtoolssvc.InternalSecretHeader, secretHdr)
+		}
+		if cookie != "" {
+			req.Header.Set("Cookie", authsvc.SessionCookieName+"="+cookie)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		raw, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, string(raw)
+	}
+	// 内部 gate：Host≠域名 + loopback + 秘密头 + admin 会话 → 200 放行。
+	if code, _ := do("GET", "/dbtool/gate/verify", "127.0.0.1:8687", secret, admin.cookie, nil); code != 200 {
+		t.Fatalf("绑域名后内部 gate 应豁免可达: %d, want 200", code)
+	}
+	// 豁免不放宽鉴权：无秘密头 → 裸 404；无会话 → 401。
+	if code, _ := do("GET", "/dbtool/gate/verify", "127.0.0.1:8687", "", admin.cookie, nil); code != 404 {
+		t.Fatalf("无秘密头仍裸 404（防护链不变）: %d", code)
+	}
+	if code, _ := do("GET", "/dbtool/gate/verify", "127.0.0.1:8687", secret, "", nil); code != 401 {
+		t.Fatalf("无会话仍 401（gating 不变）: %d", code)
+	}
+	// 内部 signon：Host≠域名 + 秘密头 + 伪造令牌 → 包络 DBT_007（HTTP 200
+	// 可达非 404——令牌四重校验不放宽）。
+	code, raw := do("POST", "/dbtool/signon/verify", "127.0.0.1:8687", secret, "",
+		[]byte(`{"token":"forged.token","session":"x","instanceCookie":"9"}`))
+	if code != 200 || !strings.Contains(raw, "DBT_007") {
+		t.Fatalf("绑域名后内部 signon 应豁免可达（防伪不变）: %d %s", code, raw)
+	}
+	// 非内部路径 Host 不匹配仍标准 404（强校验不变，含 IP 直连面板）。
+	if code, _ := do("GET", "/dbtool/tool/list", "127.0.0.1:8687", "", admin.cookie, nil); code != 404 {
+		t.Fatalf("非内部路径 HostGuard 强校验不变: %d, want 404", code)
+	}
+	// 非内部匹配 Host 照常放行。
+	if code, _ := do("GET", "/dbtool/tool/list", "panel.example.test", "", admin.cookie, nil); code != 200 {
+		t.Fatalf("匹配 Host 非内部照常放行: %d", code)
+	}
 }

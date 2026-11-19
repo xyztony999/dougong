@@ -8,7 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/dougong/dougong/internal/adapter/phpfpm"
@@ -201,6 +203,17 @@ func (s *Service) runTask(taskID int64) {
 	if opErr != nil {
 		status = storedbt.TaskFailed
 		msg := opErr.Error()
+		// v1.3 D-22 reason 可见：*errcode.Error 且 Data()["reason"] 非空
+		// string → 追加 ": " + reason（任务详情可见具体失败原因；无 reason
+		// 载荷沿既有 symbol+message 不虚构）。
+		var ec *errcode.Error
+		if errors.As(opErr, &ec) {
+			if m, ok := ec.Data().(map[string]any); ok {
+				if reason, ok := m["reason"].(string); ok && reason != "" {
+					msg += ": " + reason
+				}
+			}
+		}
 		taskErr = &msg
 	}
 	_ = s.store.Task().AppendOutput(ctx, taskID, tailLines(ring.String(), TaskOutputTailLines))
@@ -340,12 +353,17 @@ func (s *Service) installPHPMyAdmin(ctx context.Context, task storedbt.Task, rin
 	if err != nil {
 		return nil, err
 	}
-	// 配置文件（0644 PHP-FPM worker 可读，A-DBT5）。
-	base, dynamic := s.toolBaseHost(ref, pa, "")
+	// 配置文件（0644 PHP-FPM worker 可读，A-DBT5）。SignonURL 指向面板后端
+	// reopen 端点——自动块形态面板 Go 直连基址含监听端口（A-DBT11）。
+	signonBase, signonDynamic := s.signonBaseHost(ref, pa)
+	signonExpr := signonURLExpr(signonBase, pa.EntryPath, signonDynamic)
+	if ref.Port != 0 {
+		signonExpr = signonURLExprPanelPort(pa, signonBase)
+	}
 	cfg := configIncPHP(configIncPHPParams{
 		BlowfishSecret:   blowfish,
 		SignonScriptPath: filepath.Join(dest, "signon.php"),
-		SignonURLExpr:    signonURLExpr(base, pa.EntryPath, dynamic),
+		SignonURLExpr:    signonExpr,
 		TempDir:          filepath.Join(dest, "tmp"),
 	})
 	if err := s.deploy.WriteFile(filepath.Join(dest, "config.inc.php"), []byte(cfg), 0o644); err != nil {
@@ -359,9 +377,11 @@ func (s *Service) installPHPMyAdmin(ctx context.Context, task storedbt.Task, rin
 		return nil, err
 	}
 	if err := s.injectToolLocations(ctx, storedbt.ToolPHPMyAdmin, ref, pa, secret, pool.Socket); err != nil {
-		return nil, err
+		return nil, errcode.ErrDBTDeployOpFailed.WithData(map[string]any{
+			"reason": "工具 location 注入失败: " + err.Error()})
 	}
 	ring.append("[inject] " + ref.File + " server#" + fmt.Sprintf("%d", ref.Index))
+	appendLandingHint(ring, ref)
 	return &storedbt.Tool{
 		ToolType: storedbt.ToolPHPMyAdmin, InstalledVersion: PHPMyAdminVersion,
 		DeployPath: dest, SiteRef: marshalSiteRef(ref), CredCipher: cipher,
@@ -448,8 +468,10 @@ func (s *Service) installMongoExpress(ctx context.Context, task storedbt.Task, r
 		return nil, err
 	}
 	if err := s.injectToolLocations(ctx, storedbt.ToolMongoExpress, ref, pa, secret, ""); err != nil {
-		return nil, err
+		return nil, errcode.ErrDBTDeployOpFailed.WithData(map[string]any{
+			"reason": "工具 location 注入失败: " + err.Error()})
 	}
+	appendLandingHint(ring, ref)
 	cipher, err := s.vault.Encrypt(marshalToolCreds(toolCredJSON{BasicAuthPassword: password}))
 	if err != nil {
 		return nil, err
@@ -602,6 +624,11 @@ func (s *Service) uninstallPHPMyAdmin(ctx context.Context, ring *outputRing) err
 		return err
 	}
 	if err := s.removeToolInjection(ctx, storedbt.ToolPHPMyAdmin, ref); err != nil {
+		return errcode.ErrDBTDeployOpFailed.WithData(map[string]any{
+			"reason": "撤除注入失败: " + err.Error()})
+	}
+	// v1.3 清块判定（D-19⑥/I-C04）：两工具均卸载且 autoCreated → 移除整块。
+	if err := s.cleanupAutoLanding(ctx, storedbt.ToolPHPMyAdmin, ref, ring); err != nil {
 		return err
 	}
 	if err := s.deploy.RemoveAll(filepath.Join(s.toolDir, "phpmyadmin")); err != nil {
@@ -638,6 +665,11 @@ func (s *Service) uninstallMongoExpress(ctx context.Context, ring *outputRing) e
 		return err
 	}
 	if err := s.removeToolInjection(ctx, storedbt.ToolMongoExpress, ref); err != nil {
+		return errcode.ErrDBTDeployOpFailed.WithData(map[string]any{
+			"reason": "撤除注入失败: " + err.Error()})
+	}
+	// v1.3 清块判定（D-19⑥/I-C04）：两工具均卸载且 autoCreated → 移除整块。
+	if err := s.cleanupAutoLanding(ctx, storedbt.ToolMongoExpress, ref, ring); err != nil {
 		return err
 	}
 	out, err := s.deploy.NpmRemove(ctx, MongoExpressPackage, DeployOpTimeout)
@@ -683,10 +715,26 @@ func (s *Service) InternalSecret() (string, error) {
 	return strings.TrimSpace(string(b)), nil
 }
 
-// toolBaseHost 工具 URL 基址（scheme://host）：落点具体域名优先 →
-// bind_domain → 请求 Host（open/reopen 浏览器语境）→ 动态 PHP Host 回退
-// （安装期无具体域名，A-DBT6）。
+// toolBaseHost 工具 URL 基址（v1.3 D-23 端口分支）：
+// port≠0（自动落地块）→ scheme://hostname:port——hostname=BindDomain 优先
+// （PanelAccess 实时读），否则 requestHost 去端口（open/reopen 浏览器语境；
+// 安装期无请求语境且未绑域名→动态回退沿 A-DBT6）；
+// port=0（既有面板域块 80/443）沿旧形态：落点具体域名优先 → bind_domain →
+// 请求 Host → 动态 PHP Host 回退。
 func (s *Service) toolBaseHost(ref siteRef, pa PanelAccess, requestHost string) (base string, dynamic bool) {
+	if ref.Port != 0 {
+		host := pa.BindDomain
+		if host == "" {
+			host = stripHostPort(requestHost)
+		}
+		if host == "" {
+			host = ref.ServerName
+		}
+		if host == "" {
+			return "", true
+		}
+		return ref.Scheme + "://" + net.JoinHostPort(host, strconv.Itoa(ref.Port)), false
+	}
 	host := ref.ServerName
 	if host == "" {
 		host = pa.BindDomain
@@ -698,6 +746,39 @@ func (s *Service) toolBaseHost(ref siteRef, pa PanelAccess, requestHost string) 
 		return "", true
 	}
 	return ref.Scheme + "://" + host, false
+}
+
+// signonBaseHost SignonURL 基址（reopen 为面板后端 API，非工具落点；
+// A-DBT11 落码裁定）：port=0 既有块→沿旧口径 toolBaseHost（nginx 80/443
+// 承载面板）；port≠0 自动块→面板 Go 直连基址 {panelScheme}://{hostname}:
+// {ListenPort}（0 匹配推断面板不经 nginx 承载；hostname=BindDomain 优先，
+// 未绑安装期无请求语境→动态 PHP 回退；panelScheme 按面板 HTTPS 态，工具
+// 落地块恒 http 不决定面板 scheme）。
+func (s *Service) signonBaseHost(ref siteRef, pa PanelAccess) (base string, dynamic bool) {
+	if ref.Port == 0 {
+		return s.toolBaseHost(ref, pa, "")
+	}
+	scheme := "http"
+	if pa.HTTPSEnabled {
+		scheme = "https"
+	}
+	if pa.BindDomain != "" {
+		return scheme + "://" + net.JoinHostPort(pa.BindDomain, strconv.Itoa(pa.ListenPort)), false
+	}
+	return "", true
+}
+
+// stripHostPort 去除 Host 头的可选 :port（D-23；IPv6 字面量形如 [::1]:8080；
+// SplitHostPort 失败视为不含端口——带方括号无端口形态剥括号供 JoinHostPort
+// 重新规范化）。
+func stripHostPort(host string) string {
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		return h
+	}
+	if strings.HasPrefix(host, "[") && strings.HasSuffix(host, "]") {
+		return host[1 : len(host)-1]
+	}
+	return host
 }
 
 // pickPool 默认 pool 选择（D-06 复用已装 PHP-FPM 默认 pool：www 优先，

@@ -129,6 +129,25 @@ func signonURLExpr(base, entryPath string, dynamicHost bool) string {
 	return "'" + phpEscape(base+suffix)
 }
 
+// signonURLExprPanelPort 自动落地块形态 SignonURL 表达式（v1.3，A-DBT11
+// 落码裁定：reopen 为面板后端 API——自动块形态面板 Go 直连，基址须含面板
+// 监听端口而非工具落地端口 18090）：staticBase 非空（已绑域名安装期烘焙）
+// →静态基址；否则动态——HTTP_HOST 去端口（工具以 IP:18090 访问，HTTP_HOST
+// 携工具端口不可直用）+面板端口拼接；scheme 按面板 HTTPS 态（pa.HTTPSEnabled，
+// 工具落地块恒 http 不决定面板 scheme）。
+func signonURLExprPanelPort(pa PanelAccess, staticBase string) string {
+	scheme := "http"
+	if pa.HTTPSEnabled {
+		scheme = "https"
+	}
+	suffix := pa.EntryPath + SignonReopenPath + "?instanceId=' . $dgToolInstance"
+	if staticBase != "" {
+		return "'" + phpEscape(staticBase+suffix)
+	}
+	return "'" + scheme + "' . '://' . preg_replace('/:\\d+$/', '', $_SERVER['HTTP_HOST']) . ':" +
+		strconv.Itoa(pa.ListenPort) + phpEscape(suffix)
+}
+
 // signonPHP SignonScript（PHP 服务端 loopback 回调面板 signon/verify；
 // 凭据响应仅服务端通道设 $_SESSION，永不进浏览器，D-09/D-11；W4：转发
 // dg_session cookie 供 sessionDigest 绑定校验 + dg_tool_instance 供实例

@@ -1,26 +1,58 @@
 /**
  * db-tools 字典 S8 锚点（枚举池 04-business-enum.md 同值）+ 纯函数呈现助手
- * （PageSpec db-tools v1.1 第 3 节颜色方案 / 4.1 / 4.4 / database-mgmt 6.8 引擎映射）
- * + DBT_001~012 错误码全覆盖防缺码回归锚点（api-db-tools.md v1.2 3.4）。
+ * （PageSpec db-tools v1.2 第 3 节颜色方案 / 4.1 / 4.3 / 4.4 / database-mgmt 6.8 引擎映射）
+ * + DBT_001~012 错误码全覆盖防缺码回归锚点（api-db-tools.md v1.3 3.4）
+ * + v1.2 自动 nginx 落地呈现（landingPort/autoCreated 可空纪律/访问形态/安装成功放行
+ * 提示/reason 细分引导，api D-19/D-22/D-23）。
  */
 import { describe, expect, it } from 'vitest'
 import { DB_TOOL_TASK_ACTION, DB_TOOL_TASK_STATUS, DB_TOOL_TYPE } from '../enums'
+import type { DbToolItem } from '../dbtool'
 import {
   DBT_ERROR_TEXT,
+  DBTOOL_LANDING_PORT,
+  DBTOOL_PAGE_INTRO,
+  DBTOOL_PATH_PREFIX,
   dbtErrorText,
+  dbtFailureGuide,
   dbtMissingOf,
   dbtReasonOf,
   dbtTaskIdOf,
   depMissingText,
   depsMissingSummary,
   depsReadyTag,
+  installReadyAlertText,
   installedStateTag,
   instanceIdentityText,
   isDbToolTaskInFlight,
+  landingAddress,
+  landingHint,
+  landingTag,
   openToastText,
   runningStateTag,
   toolForEngine
 } from '../dbtool'
+
+/** DbToolItem 测试夹具（api v1.3 全字段形状；默认=已装自动落地块形态，over 覆盖可空分支） */
+function toolItem(over: Partial<DbToolItem> = {}): DbToolItem {
+  return {
+    toolType: 'phpmyadmin',
+    displayName: 'phpMyAdmin',
+    description: 'MySQL/MariaDB 高级管理',
+    targetEngines: ['mysql', 'mariadb'],
+    catalogVersion: '5.2.2',
+    installed: true,
+    installedVersion: '5.2.2',
+    boundInstanceId: null,
+    running: true,
+    depsReady: true,
+    depsMissing: [],
+    runningTaskId: null,
+    landingPort: 18090,
+    autoCreated: true,
+    ...over
+  }
+}
 
 describe('db-tools 字典 S8 锚点（枚举池同值）', () => {
   it('DB_TOOL_TYPE 两值（D2 定稿，与池/api 三方同值）', () => {
@@ -151,10 +183,20 @@ describe('DBT 错误码分流（api 3.4；dbmErrorText 同构先例）', () => {
     expect(dbtErrorText('DBT_011', null)).toBe('当前已为目录版本，无需升级')
   })
   it('DBT_012 追加 data.reason（失败原因如实呈现）', () => {
-    expect(dbtErrorText('DBT_012', { reason: '落点冲突：多候选 server 块' })).toBe(
-      '工具部署/轮换操作失败：落点冲突：多候选 server 块'
+    expect(dbtErrorText('DBT_012', { reason: '自动落地块写入失败: nginx -t 不通过' })).toBe(
+      '工具部署/轮换操作失败：自动落地块写入失败: nginx -t 不通过'
     )
     expect(dbtErrorText('DBT_012', null)).toBe('工具部署/轮换操作失败')
+  })
+  it('DBT_012 reason 细分引导（v1.2，PageSpec 第 1 节）：多候选附站点管理引导', () => {
+    expect(dbtErrorText('DBT_012', { reason: '落点冲突：多候选 server 块' })).toBe(
+      '工具部署/轮换操作失败：落点冲突：多候选 server 块——请到站点管理明确落点后重试'
+    )
+  })
+  it('DBT_012 端口占用 reason 全文即引导（后端文案已含释放指引，不重复叠加）', () => {
+    expect(dbtErrorText('DBT_012', { reason: '工具端口 18090 被占用，请释放后重试' })).toBe(
+      '工具部署/轮换操作失败：工具端口 18090 被占用，请释放后重试'
+    )
   })
   it('未知码返回 null（AUTH 族/网络错误归拦截器，不双提示）', () => {
     expect(dbtErrorText('AUTH_008', null)).toBeNull()
@@ -189,5 +231,125 @@ describe('DBT 错误码分流（api 3.4；dbmErrorText 同构先例）', () => {
     expect(dbtTaskIdOf({ taskId: 7 })).toBe(7)
     expect(dbtTaskIdOf({ taskId: '7' })).toBeNull()
     expect(dbtTaskIdOf(null)).toBeNull()
+  })
+})
+
+describe('v1.2 常量锚点（api v1.3 D-13/D-19 同值）', () => {
+  it('DBTOOL_LANDING_PORT=18090（TOOL_LANDING_PORT 编译期常量同值）', () => {
+    expect(DBTOOL_LANDING_PORT).toBe(18090)
+  })
+  it('DBTOOL_PATH_PREFIX 两工具路径前缀（TOOL_PATH_PREFIX_* 同值）', () => {
+    expect(DBTOOL_PATH_PREFIX.phpmyadmin).toBe('/dbtool/phpmyadmin/')
+    expect(DBTOOL_PATH_PREFIX.mongo_express).toBe('/dbtool/mongo-express/')
+  })
+  it('页头说明条含自动端口 18090 每请求会话校验+绑域名仅域名语义（PageSpec 4.1 v1.2）', () => {
+    expect(DBTOOL_PAGE_INTRO).toContain('18090')
+    expect(DBTOOL_PAGE_INTRO).toContain('每请求会话校验')
+    expect(DBTOOL_PAGE_INTRO).toContain('绑定域名后工具仅认域名访问')
+    expect(DBTOOL_PAGE_INTRO).toContain('轻量入口')
+  })
+})
+
+describe('访问形态区块（v1.2，landingPort/autoCreated 投影，PageSpec 4.1，api D-19/I-14）', () => {
+  it('landingTag：已装+非零端口 → info「独立访问端口 {port}」', () => {
+    expect(landingTag(toolItem())).toEqual({ label: '独立访问端口 18090', tag: 'info' })
+  })
+  it('landingTag：已装+landingPort=0 → default「面板域路径访问」（既有面板域块形态）', () => {
+    expect(landingTag(toolItem({ landingPort: 0, autoCreated: false }))).toEqual({
+      label: '面板域路径访问',
+      tag: 'default'
+    })
+  })
+  it('landingTag：landingPort=null → null 整块不渲染（JSON null≠undefined 显式判空，不虚构端口）', () => {
+    expect(landingTag(toolItem({ landingPort: null, autoCreated: null }))).toBeNull()
+  })
+  it('landingTag：未装 → null（即使载荷异常携带端口亦不渲染——installed 档案存在性优先）', () => {
+    expect(landingTag(toolItem({ installed: false, installedVersion: null }))).toBeNull()
+  })
+  it('landingTag：端口取投影值不硬编码 18090（非 18090 非零端口如实呈现）', () => {
+    expect(landingTag(toolItem({ landingPort: 18091 }))).toEqual({
+      label: '独立访问端口 18091',
+      tag: 'info'
+    })
+  })
+  it('landingAddress：hostname=当前面板访问主机（IP 直连呈现 IP，D-23 BindDomain 优先口径）', () => {
+    expect(landingAddress(toolItem(), '192.168.1.10')).toBe(
+      'http://192.168.1.10:18090/dbtool/phpmyadmin/'
+    )
+    expect(landingAddress(toolItem({ toolType: 'mongo_express' }), '192.168.1.10')).toBe(
+      'http://192.168.1.10:18090/dbtool/mongo-express/'
+    )
+  })
+  it('landingAddress：绑域名后经域名访问面板呈现域名', () => {
+    expect(landingAddress(toolItem(), 'panel.example.com')).toBe(
+      'http://panel.example.com:18090/dbtool/phpmyadmin/'
+    )
+  })
+  it('landingAddress：port=0/null/未装 → null 不渲染地址行', () => {
+    expect(landingAddress(toolItem({ landingPort: 0 }), '192.168.1.10')).toBeNull()
+    expect(landingAddress(toolItem({ landingPort: null }), '192.168.1.10')).toBeNull()
+    expect(landingAddress(toolItem({ installed: false }), '192.168.1.10')).toBeNull()
+  })
+  it('landingHint：放行 TCP 端口+绑域名仅域名访问语义（readonly 同等呈现纯观测）', () => {
+    expect(landingHint(toolItem())).toBe(
+      '请放行 TCP 18090 端口（防火墙/云安全组）；绑定域名后仅域名可访问（其他 Host 404）'
+    )
+    expect(landingHint(toolItem({ landingPort: 0 }))).toBeNull()
+    expect(landingHint(toolItem({ landingPort: null }))).toBeNull()
+  })
+})
+
+describe('安装成功放行提示（v1.2，PageSpec 4.1/4.3，api D-19⑦/D-23）', () => {
+  const task = { action: 'install', status: 'succeeded', toolType: 'phpmyadmin' } as const
+
+  it('install succeeded + autoCreated=true + 非零端口 → 放行提示含端口/地址/绑域名注记', () => {
+    expect(installReadyAlertText(task, toolItem(), '192.168.1.10')).toBe(
+      '工具已就绪：请放行工具端口 18090（防火墙/云安全组），访问地址 http://192.168.1.10:18090/dbtool/phpmyadmin/（绑定域名后为 http://域名:18090/...）'
+    )
+  })
+  it('mongo_express 路径前缀同口径', () => {
+    expect(
+      installReadyAlertText(
+        { action: 'install', status: 'succeeded', toolType: 'mongo_express' },
+        toolItem({ toolType: 'mongo_express' }),
+        '192.168.1.10'
+      )
+    ).toContain('http://192.168.1.10:18090/dbtool/mongo-express/')
+  })
+  it('非 install 动作/非 succeeded 终态 → null（upgrade/uninstall/running/failed 不渲染）', () => {
+    expect(installReadyAlertText({ ...task, action: 'upgrade' }, toolItem(), 'h')).toBeNull()
+    expect(installReadyAlertText({ ...task, action: 'uninstall' }, toolItem(), 'h')).toBeNull()
+    expect(installReadyAlertText({ ...task, status: 'running' }, toolItem(), 'h')).toBeNull()
+    expect(installReadyAlertText({ ...task, status: 'failed' }, toolItem(), 'h')).toBeNull()
+  })
+  it('autoCreated=false/null → null（既有面板域块/旧档案缺省不渲染放行提示）', () => {
+    expect(installReadyAlertText(task, toolItem({ autoCreated: false }), 'h')).toBeNull()
+    expect(installReadyAlertText(task, toolItem({ autoCreated: null }), 'h')).toBeNull()
+  })
+  it('landingPort=0/null → null（无独立端口不虚构；JSON null 显式判空）', () => {
+    expect(installReadyAlertText(task, toolItem({ landingPort: 0 }), 'h')).toBeNull()
+    expect(installReadyAlertText(task, toolItem({ landingPort: null }), 'h')).toBeNull()
+  })
+  it('工具档案缺失（findByType 未命中 null）→ null 不虚构', () => {
+    expect(installReadyAlertText(task, null, 'h')).toBeNull()
+  })
+})
+
+describe('失败原因引导 dbtFailureGuide（v1.2，api D-22 reason 细分，PageSpec 4.3）', () => {
+  it('task.error 全文含端口占用 reason → release-port（释放端口后重试引导）', () => {
+    expect(
+      dbtFailureGuide('DBT_012: 部署操作失败: 工具端口 18090 被占用，请释放后重试')
+    ).toBe('release-port')
+  })
+  it('task.error 全文含多候选 reason → site-landing（到站点管理明确落点 /sites）', () => {
+    expect(
+      dbtFailureGuide('DBT_012: 部署操作失败: 落点冲突：多候选 server 块（a.conf#0、b.conf#1）')
+    ).toBe('site-landing')
+  })
+  it('其余失败分类/null/空串 → null 不虚构引导', () => {
+    expect(dbtFailureGuide('sha256_mismatch')).toBeNull()
+    expect(dbtFailureGuide('面板重启中断')).toBeNull()
+    expect(dbtFailureGuide(null)).toBeNull()
+    expect(dbtFailureGuide('')).toBeNull()
   })
 })
