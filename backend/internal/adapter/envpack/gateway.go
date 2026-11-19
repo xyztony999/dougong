@@ -79,6 +79,38 @@ func NewGatewayWithRunners(probe func(string) (string, error),
 	return g
 }
 
+// VendorIO 仓库代配文件/HTTP 依赖注入组（v1.3 Node 增量：跨包 service 层
+// 集成测试注入用——envmgmt worker 链测试经此伪化 os-release/源文件写入/
+// 公钥下载，零 runner 实况依赖）。nil 字段回退生产实现。
+type VendorIO struct {
+	ReadFile  func(string) ([]byte, error)
+	WriteFile func(string, []byte, fs.FileMode) error
+	MkdirAll  func(string, fs.FileMode) error
+	HTTPGet   func(ctx context.Context, url string) ([]byte, error)
+}
+
+// NewGatewayWithVendorIO 以自定义探测/执行/代配 IO 构造（nil 参数回退生产）。
+func NewGatewayWithVendorIO(probe func(string) (string, error),
+	run func(ctx context.Context, env map[string]string, name string, args []string) (string, error),
+	vio *VendorIO) *Gateway {
+	g := NewGatewayWithRunners(probe, run)
+	if vio != nil {
+		if vio.ReadFile != nil {
+			g.readFile = vio.ReadFile
+		}
+		if vio.WriteFile != nil {
+			g.writeFile = vio.WriteFile
+		}
+		if vio.MkdirAll != nil {
+			g.mkdirAll = vio.MkdirAll
+		}
+		if vio.HTTPGet != nil {
+			g.httpGet = vio.HTTPGet
+		}
+	}
+	return g
+}
+
 // newGateway 生产默认装配（全部依赖显式落位；测试经字段覆写/WithRunners 注入）。
 func newGateway() *Gateway {
 	return &Gateway{
@@ -160,6 +192,22 @@ func (g *Gateway) QueryInstalled(ctx context.Context, family, pkgName string) (s
 		return "", false, nil
 	}
 	return v, true, nil
+}
+
+// BinaryVersion 运行时二进制版本查询（v1.3 Node 增量，prd FR-08②：版本经
+// `node --version` 参数数组 R-08；二进制不存在=错误如实，调用方 version=null
+// 不虚构）。bin 经 lookPath 解析（不信任外部传入可执行路径，backend-03 §4）。
+func (g *Gateway) BinaryVersion(ctx context.Context, bin string) (string, error) {
+	if _, err := g.lookPath(bin); err != nil {
+		return "", fmt.Errorf("envpack: binary %s not found: %w", bin, err)
+	}
+	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	out, err := g.runCmd(cctx, nil, bin, []string{"--version"})
+	if err != nil {
+		return "", fmt.Errorf("envpack: %s --version: %w", bin, err)
+	}
+	return strings.TrimSpace(out), nil
 }
 
 // RefreshIndex 刷新包索引（D-05：apt-get update / dnf makecache / yum makecache；

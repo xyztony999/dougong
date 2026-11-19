@@ -1090,3 +1090,65 @@
 - CI 环境耦合预防第 8 起：表级/集合文档治理测试全注入化（fakeMySQL/fakeMongo 记忆实况替身 + 适配器纯函数 SQL 组装/extjson 往返/classify），探测 reachable 全注入——零 runner 实况引擎依赖（Windows/Linux 行为一致）
 - 环境绑定如实声明：dbmysql 表级 CLI 实联（information_schema/JSON_OBJECT/ROW_COUNT() 多语句）与 dbmongo 治理 driver 实联（createCollection/collStats/ReplaceOne 等）归 Linux 目标环境冒烟；extjson 顶层编码限制经 {"_id":...} 包装文档法规避（驱动 MarshalExtJSON 要求顶层文档/UnmarshalExtJSON 顶层 any 落 bson.D——idFromJSON/idToJSON 包装实现，TestObjectIDExtJSONRoundTrip/TestDocToBSONExplicitID 锚点）
 - 遗留（非阻断）：A-DB13 前端 DBM_029 映射同步归前端 v2.3 轮（本轮后端单边交付，前端旧映射 DBM_022 文案在新码下失配——工作流统一门控前须同步）；api §3.4 DBM_029 补记归设计侧
+
+---
+
+# db-tools 新模块 + env-mgmt Node 增量 Go 后端代码生成任务清单（2026-11-19）
+
+> 创建时间：2026-11-19
+> 设计文档：profiles/dougong-panel/workspace/02-detailed/api/api-db-tools.md（v1.2，唯一事实源）+ d0-clarification-db-tools-integration-2026-11-19.md（Q1~Q3 拍板+安全底线）+ prd-env-mgmt.md v1.3 FR-08（Node 环境供给）
+> 代码输出：backend/（module github.com/dougong/dougong，gin + modernc.org/sqlite + log/slog；分层 api→service→store/adapter）
+> 环境：go1.24.0 windows/amd64（D:\go-toolchain\go\bin\go.exe，PATH 内 go 同源）；测试全注入 fake 替身零 runner 实况依赖（CI 环境耦合预防沿先例）。
+
+## 设计裁定与落码取证（A-DBT1~A-DBT10）
+
+| # | 决策点 | 裁定/取证 |
+|---|--------|----------|
+| A-DBT1 | 迁移编号：db-tools api §5.3 钉 013_db_tools.sql；env-mgmt Node env_type 八值 CHECK 重建亦需迁移（api-db-tools D-18 跨模块待同步项，编号未钉） | 013_db_tools.sql（两表+两索引，逐字按 api §5.3）+ 014_env_mgmt_node.sql（env_install_task 表重建八值 CHECK，**保留 012 bootstrap_status/note 两列**全量拷贝，沿 010 重建先例） |
+| A-DBT2 | D-13 ⚠️版本/sha256 落码取证（设计不虚构哈希） | 实取证据：①phpMyAdmin 5.2.2 官方 sha256=`8551c8bf3b166f232d5cf64bac877472e9d0cb8f2fe1858fab24f975e7d765b6`（curl https://files.phpmyadmin.net/phpMyAdmin/5.2.2/phpMyAdmin-5.2.2-all-languages.tar.gz.sha256 原文）；②mongo-express@1.0.0 npm registry 存在（dist.shasum=d1cc5ed836b5e2a7332c226fd2785a49d9e46dcf，npm install 精确版本自带 registry integrity 校验）；③NODE_LTS_TRACK=22，NodeSource 源 URL 经官方 setup_22.x 脚本取证+可达性核验：apt `https://deb.nodesource.com/node_22.x nodistro main`（key=deb.nodesource.com/gpgkey/nodesource-repo.gpg.key，armored 头核验）；rpm baseurl=`https://rpm.nodesource.com/pub_22.x/nodistro/nodejs/$basearch` gpgkey=`https://rpm.nodesource.com/gpgkey/ns-operations-public.key`（repomd.xml HTTP 200 核验；架构 x86_64/aarch64，module_hotfixes=1） |
+| A-DBT3 | D-05「tar 解压经参数数组 R-08」 | 实现用 Go stdlib archive/tar 逐条目解压+显式 zip-slip 路径校验（filepath.Clean+前缀白名单，沿 FILE_009 语义）——零外部命令（R-08 by-absence，phpfpm 先例），路径防线强于外部 tar；顶层目录剥离（phpMyAdmin-5.2.2-all-languages/→destDir） |
+| A-DBT4 | D-09/4.4.2 signon/verify 响应设计为 {user,password}；phpMyAdmin 需知目标实例 host/port 方能建连 | 响应 additive +host/+port（SignonScript 设 $_SESSION['PMA_single_signon_host']/['PMA_single_signon_port']，phpMyAdmin 官方 signon 机制支持）；仍仅 loopback 服务端通道，凭据永不进浏览器（I-02 不变） |
+| A-DBT5 | 秘密文件 0600 与 PHP-FPM 非 root worker 可读冲突 | 分级：internal-secret/mongo-express-auth.conf/systemd 单元/dbtool-cred.key=0600（root nginx/panel/systemd 读取）；config.inc.php/signon.php/phpmyadmin-fastcgi.conf=0644（PHP-FPM worker 必读，phpMyAdmin 惯例 config.inc.php 0644）；internal 秘密嵌入 signon.php——loopback 源校验为主防线、秘密头为纵深防御（持秘密仍须有效 admin 会话/合法令牌方可达任何能力） |
+| A-DBT6 | 注入内容时效：gate location proxy_pass/signon.php 回调 URL/SignonURL 含 entryPath+面板域 | 安装时烘焙（panel_config 现值）；面板安全入口重生成/域名变更后须重装工具刷新注入——期间 gate 子请求 404→工具路径 401 fail-closed（无安全洞，可用性降级如实）。跨模块变更钩子 OUT 本轮 |
+| A-DBT7 | FR-08② Node 观测口径 | 已装判定经包管理器候选查询（nodejs 三系同名）；版本经 `node --version`（envpack.BinaryVersion 参数数组）；二进制缺席→version=null 如实不虚构（installed 从包数据库判定）；运行时型无服务单元：UnitByFamily/UnitPatternByFamily 空→EnvList 不发起单元查询、ServiceRunning/Enabled=null（既有 EnvList 逻辑天然满足） |
+| A-DBT8 | site-mgmt ConfigWritePipeline OHS（api-site-mgmt v2.8 D-21 登记契约 Apply/Remove） | sitemgmt.ConfigApply=applyPipeline（R-06 四步）+reloadAfterWrite（写后即生效）；ConfigRemove=最近写前快照经管线恢复；db-tools 注入/撤除采用标记 span（# BEGIN/END dougong-dbtool {key}）+ConfigApply——撤除=精确移除注入 span 恢复原字节（往返测试断言 byte 级还原），较快照恢复更安全（不吞没注入后其他合法编辑） |
+| A-DBT9 | D-06 phpMyAdmin 工具 location FastCGI 形态 | alias+嵌套 regex php location（capture 显式 SCRIPT_FILENAME={toolDir}/phpmyadmin/$1）——静态资源外层 alias 直服、PHP 内层 fastcgi_pass pool；无 symlink 无 if（nginx 子路径 php 应用标准配方）；fastcgi 参数模板 phpmyadmin-fastcgi.conf 安装时写入 |
+| A-DBT10 | FR-08③ Node 服务操作拒绝码 | ServiceOp 对无单元映射条目（运行时型）返回 ENV_006 data.reason=「运行时环境无常驻服务单元，服务操作不适用」（不在操作对象集，如实拒绝非静默） |
+
+## 任务清单
+
+- [x] T-DBT1 · env-mgmt +Node 环境（FR-08/⚠️A16/A17）
+  - 输入：prd-env-mgmt v1.3 FR-08 + api-db-tools D-13 NODE_LTS_TRACK=22 + A-DBT2③ NodeSource 取证
+  - 输出：store/envmgmt/models.go +EnvNode 常量；迁移 014_env_mgmt_node.sql（八值 CHECK 重建保留 bootstrap 列）；envpack +BinaryVersion（node --version 参数数组）+vendorrepo.go +ensureNodeApt/ensureNodeYum（三系代配，writeKeyAndList 泛化 keyPath/keyURL）；service/envmgmt Catalog +EnvNode 条目（PkgByFamily nodejs 三系/VendorRepo 三系 true/单元映射空）+ServiceOp 运行时型拒绝（A-DBT10）+EnvStatus 环境实况读契约 OHS（db-tools 依赖就绪度消费）
+  - 测试：catalog 八条目机械断言（Node 单元映射空例外）/NodeSource 三系代配文件内容断言（fake readFile/writeFile/httpGet）/不支持组合 failed/node 安装 worker 链（fake runner）/ServiceOp node 拒绝/EnvStatus 三态
+- [x] T-DBT2 · db-tools store 层 + 迁移 013 + errcode DBT 族
+  - 输入：api §5.2 SQL 清单 15 条/§5.3 DDL/§3.4 DBT_001~012
+  - 输出：migrations/013_db_tools.sql；store/dbtools/（models.go Tool/Task+常量、tool_repo.go、task_repo.go、Store/TxStore+Audit 同事务聚合，全参数化）；errcode/dbtools.go（DBT_001~012 逐字）
+- [x] T-DBT3 · adapter/toolx 部署网关（ToolDeployGateway 契约实现）
+  - 输入：api §4.1.5 ToolDeployGateway + D-05/D-13 常量
+  - 输出：DownloadTarball（net/http+镜像拼接式前缀 install.sh:38-45 同构+DOWNLOAD_TIMEOUT）/VerifySha256（逐字节）/ExtractTar（stdlib+zip-slip 防线 A-DBT3）/NpmInstall/NpmRemove/NpmGlobalRoot（参数数组 R-08，registry 镜像选项）/PhpExtensions（php -m）/WriteSecretFile（0600 原子）；全依赖注入点（runCmd/lookPath/httpGet/writeFile/mkdirAll）
+  - 测试：sha256 命中/失配、zip-slip 拒绝（合成 tarball）、npm argv 数组断言（fake runner）、镜像拼接
+- [x] T-DBT4 · service/dbtools 业务层（目录/探测/部署 worker/凭据 vault/注入/access）
+  - 输入：api D-01~D-18 全决策 + §2 跨聚合不变量 I-C01~C03
+  - 输出：consts.go（D-13 常量表+审计码 D-16）/dto.go（可空显式 *T 无 omitempty）/ports.go（消费方接口：ToolDeployGateway/ToolCredentialGateway/ConfigWritePipeline/EnvReadiness/SysdGateway/PhpFpmGateway/NginxConfReader/PanelInfo/SessionVerifier/AuditRecorder）/vault.go（dbtool-cred.key AES-256-GCM 沿 CredentialVault 先例）/catalog.go/service.go（ToolList 实时探测 D-02+ToolStatusForEngine OHS）/deploy.go（Install/Upgrade/Uninstall 同步校验+互斥 I-06+worker 执行链+终态档案同事务 I-C01+RecoverInFlight I-09）/inject.go（落点选择 D-03+标记 span 注入/撤除 A-DBT8）/templates.go（config.inc.php/signon.php/fastcgi.conf/systemd 单元/nginx location 模板）/access.go（Open/Reopen/Rotate D-08 四步回滚 I-C02）
+- [x] T-DBT5 · gating/signon 安全核心（D-09/D-11，安全底线不可桩假）
+  - 输出：gate.go（GateService：VerifyWs 语义只读会话校验+admin 角色权威判定）/signon.go（SignonService：HMAC-SHA256 令牌签发/四重校验〔签名/exp 60s/jti 一次性内存台账+30s TTL 清扫 goroutine 入 wg/instanceId+sessionDigest 双绑定〕+凭据 loopback 注入响应 A-DBT4）；api/dbtools 内部端点防护链（LoopbackGuard 裸 404+InternalSecretGuard 裸 404+gate 裸 200/401+signon 包络 DBT_007/008/010）
+- [x] T-DBT6 · 跨模块 OHS 提供方 + config + main 装配
+  - 输出：dbmgmt/toolgateway.go（InstanceCredentialsForTool/InstanceReadyForTool，vault 解密仅服务端 I-02）；sitemgmt/configpipeline.go（ConfigApply/ConfigRemove OHS A-DBT8）；config +Tools{Mirror,NpmRegistry}（DOUGONG_TOOLS_MIRROR/DOUGONG_TOOLS_NPM_REGISTRY env 覆盖）；main 装配（toolx/dbtools store+service+api 模块/菜单「数据库工具」/signon 清扫 goroutine 入 wg/RecoverInFlight）
+- [x] T-DBT7 · api 层 11 端点 + 测试（fake 替身零 runner 实况依赖）
+  - 输出：api/dbtools/module.go+handlers（面板面 9：tool/list·task/list·task/detail 两角色；install/upgrade/uninstall/open/rotate admin+CSRF；reopen GET admin 无 CSRF 302 载体；内部 2：gate/verify·signon/verify）
+  - 测试（必须回归）：gating 无会话/非 admin→401、loopback/秘密头缺失→裸 404；signon 防伪（篡改签名 DBT_007/过期 DBT_008/重放 DBT_010/跨实例跨会话 DBT_007）；卸载不删数据（执行链白名单断言：引擎数据目录/db_instance 档案零触及）；sha256 失配任务 failed 不安装；互斥 DBT_003；终态档案同事务 I-C01；轮换四步回滚 I-C02；注入/撤除 byte 级往返；权限矩阵（readonly 写 AUTH_008）
+- [x] T-DBT8 · Gate 2 合规检查 + 编译门控自验 + 归档
+  - G-01~G-07 grep 扫描+人工核对（增量面）；go build ./... && go vet ./... && go test ./... -race -count=1 全仓 + gofmt -l + GOOS=linux 交叉编译；tasks.md 勾选归档 + INDEX.md backend note 更新（db-tools 新行+env-mgmt Node 增量）
+
+## db-tools + env-mgmt Node 增量完成汇总（2026-11-19）
+
+- 交付面：db-tools 新模块 11 端点（面板面 9：GET tool/list·task/list·task/detail 两角色 + POST install/upgrade/uninstall/access/open/access/rotate admin+CSRF + GET access/reopen admin 无 CSRF 302 载体；内部 2：GET gate/verify 裸 200/401 + POST signon/verify 包络 DBT_007/008/010）；env-mgmt 七→八环境 +Node（NodeSource 三系代配/LTS 22.x 钉死/node --version 观测/运行时型无服务单元/EnvStatus 读契约 OHS）
+- 新增文件：migrations/013_db_tools.sql（两表+两索引逐字 api §5.3）+014_env_mgmt_node.sql（八值 CHECK 重建保留 012 bootstrap 列）；store/dbtools/（models/tool_repo/task_repo+测试 3 用例）；adapter/toolx/（下载/sha256/stdlib 解压 zip-slip/npm/php -m/秘密文件+测试 9 用例）；service/dbtools/（consts/catalog/dto/ports/vault/service/deploy/inject/templates/access/signon/gate+测试 fakes/deploy/security/inject 共 24 用例）；api/dbtools/（module/helpers+测试 6 用例全栈 httptest）；errcode/dbtools.go（DBT_001~012）；跨模块 OHS 提供方 dbmgmt/toolgateway.go（+4 用例）/sitemgmt/configpipeline.go（+2 用例）/panel/toolaccess.go（+1 用例）；envpack +BinaryVersion/VendorIO/NodeSource 代配（+5 用例）；envmgmt +EnvNode/EnvStatus/ServiceOp 运行时拒绝（+6 用例）
+- 安全底线核验（不可妥协项全实现非桩假）：①工具仅绑 localhost（mongo-express ME_CONFIG_SITE_BIND_ADDRESS=127.0.0.1:8081 编译期定死；phpMyAdmin 无独立端口经 PHP-FPM pool）；②nginx auth_request→gate/verify 面板会话+admin 鉴权（VerifyWs 只读不续期；无会话/readonly/失效→裸 401 回归在位）；③内部端点 loopback+秘密头双保险（缺失/不符→裸 404 回归在位）；④signon HMAC-SHA256 四重校验（篡改 DBT_007/过期 60s DBT_008/重放 DBT_010/跨实例跨会话 DBT_007 回归全在位；重启台账清空失效回归）；⑤凭据 vault AES-256-GCM dbtool-cred.key 0600 永不回显（DTO 无凭据字段；审计 detail 脱敏断言）；⑥R-08 参数数组（npm/systemctl dbus/php -m/node --version；Mongo 凭据经 systemd Environment 不进 argv——argv 泄漏断言用例）；⑦下载 sha256 强制（失配 failed 不安装不清档案回归）；⑧卸载不删数据（白名单断言回归：remove/removeall 仅 toolDir/单元路径，引擎数据/db_instance 零触及）；⑨零遥测 R-09（phpMyAdmin VersionCheck=false+SendErrorReports=never；下载用户主动例外）
+- 落码取证（A-DBT2）：phpMyAdmin 5.2.2 sha256=8551c8bf…765b6（官方 .sha256 curl 原文）；mongo-express@1.0.0 npm registry 存在（dist.shasum=d1cc5ed8…）；NodeSource 22.x apt nodistro main/rpm pub_22.x/nodistro/nodejs/$basearch+ns-operations-public.key（官方 setup_22.x 脚本取证+URL 可达性核验）
+- 自验（2026-11-19 实跑，go1.24.0 windows/amd64，cwd=backend/）：`go build ./...`=0 ✓ `go vet ./...`=0 ✓ `go test ./... -race -count=1` 全仓 52 个含测试包全 ok 0 FAIL ✓ `gofmt -l internal/ cmd/` 0 文件 ✓ `GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build ./...`=0 ✓
+- Gate 2 增量面：G-01 唯一 -c 命中=cronx/runner.go:145 既有豁免（A-C2，本轮零新增 shell）；新增 exec 站点 toolx/gateway.go:464+envpack/gateway.go:279 均参数数组；G-02 Sprintf SQL 0 命中；G-03 硬编码凭据 0 命中；G-04 SQL 仅 store/dbtools（service/api/adapter 0 命中）；G-05 新包 panic 0；G-06 goroutine 两处均有退出路径（runTask 有限时命令链；RunTokenSweeper main wg+ctx 取消）；G-07 全绿（上行）
+- 实现裁定上报（A-DBT3~A-DBT10 详见裁定表）：tar 解压 stdlib 替代外部 tar（zip-slip 防线更强）；signon/verify 响应 additive +host/port（phpMyAdmin 建连必需，仍仅 loopback）；PHP 配置文件 0644/秘密文件 0600 分级（PHP-FPM 非 root worker 可读）；注入内容 entryPath/域名安装时烘焙（面板入口/域名变更后须重装刷新，期间 fail-closed）；Node 版本二进制缺席 null 如实；迁移编号 013=db-tools（设计钉死）/014=env Node（设计未钉）
+- 环境绑定如实声明：npm/php-fpm/systemd/nginx 实联与 phpMyAdmin/mongo-express 工具本体冒烟归 Linux 目标环境（测试全注入 fake 替身零 runner 实况依赖，Windows/Linux 行为一致）；前端工具管理页/入口按钮归前端轮（本轮后端单边交付，ToolStatusForEngine OHS 已提供）
+- 遗留（非阻断）：①api-env-mgmt.md Node 增量（env_type 八值/常量）设计侧文档同步归设计轮（本轮按 prd FR-08+api-db-tools D-18 实现）；②database-mgmt 高级入口 PageSpec 消费 ToolStatusForEngine 归前端/D4 轮；③注入时效（A-DBT6）跨模块变更钩子 OUT 本轮

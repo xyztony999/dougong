@@ -49,10 +49,12 @@ import (
 	"github.com/dougong/dougong/internal/adapter/ptyx"
 	"github.com/dougong/dougong/internal/adapter/sysd"
 	"github.com/dougong/dougong/internal/adapter/sysuser"
+	"github.com/dougong/dougong/internal/adapter/toolx"
 	"github.com/dougong/dougong/internal/api"
 	authapi "github.com/dougong/dougong/internal/api/auth"
 	cronapi "github.com/dougong/dougong/internal/api/cronback"
 	dbapi "github.com/dougong/dougong/internal/api/dbmgmt"
+	dbtoolapi "github.com/dougong/dougong/internal/api/dbtools"
 	dockerapi "github.com/dougong/dougong/internal/api/dockermgmt"
 	envapi "github.com/dougong/dougong/internal/api/envmgmt"
 	fileapi "github.com/dougong/dougong/internal/api/fileman"
@@ -69,6 +71,7 @@ import (
 	authsvc "github.com/dougong/dougong/internal/service/auth"
 	cronbacksvc "github.com/dougong/dougong/internal/service/cronback"
 	dbmgmtsvc "github.com/dougong/dougong/internal/service/dbmgmt"
+	dbtoolssvc "github.com/dougong/dougong/internal/service/dbtools"
 	dockersvc "github.com/dougong/dougong/internal/service/dockermgmt"
 	envsvc "github.com/dougong/dougong/internal/service/envmgmt"
 	filemansvc "github.com/dougong/dougong/internal/service/fileman"
@@ -82,6 +85,7 @@ import (
 	storeauth "github.com/dougong/dougong/internal/store/auth"
 	storecronback "github.com/dougong/dougong/internal/store/cronback"
 	storedbmgmt "github.com/dougong/dougong/internal/store/dbmgmt"
+	storedbtools "github.com/dougong/dougong/internal/store/dbtools"
 	storeenv "github.com/dougong/dougong/internal/store/envmgmt"
 	storefileman "github.com/dougong/dougong/internal/store/fileman"
 	storepanel "github.com/dougong/dougong/internal/store/panel"
@@ -316,6 +320,15 @@ func run(args []string) error {
 			Icon: "database", Order: 500, Visibility: []string{storeauth.RoleAdmin, storeauth.RoleReadonly}},
 	)
 
+	// db-tools：数据库工具集成（phpMyAdmin/mongo-express，ADR-032）——菜单构建期
+	// 登记（D-P18，Order 位于数据库管理之后）；两角色同项（ADR-018 目录/任务可看，
+	// 工具访问整体 admin 专属 ⚠️A10：readonly 操作面不渲染 + 工具路径 gating 网络层
+	// 闸门不可达）。HTTP 模块（/dbtool 路由组）随后端 B 阶段落仓挂载。
+	panelSvc.Menus().Register(
+		panelsvc.MenuItem{Key: "db-tools", Title: "数据库工具", Path: "/db-tools",
+			Icon: "dbtool", Order: 550, Visibility: []string{storeauth.RoleAdmin, storeauth.RoleReadonly}},
+	)
+
 	// terminal：Web 终端（M6）——零持久化内存态会话（I-04 无表无 DDL 无 SQL）；
 	// ptyx PTY 网关（creack/pty，参数数组 R-08）+ sysuser 系统用户实况直读
 	//（D-02）+ VerifyWs 复核联动（D-07）+ 开合两段审计（D-06）；限流 ADR-023
@@ -417,6 +430,37 @@ func run(args []string) error {
 			Icon: "env", Order: 850, Visibility: []string{storeauth.RoleAdmin, storeauth.RoleReadonly}},
 	)
 
+	// db-tools：数据库工具集成（D0 Q1~Q3 拍板 2026-11-19，api-db-tools v1.2）——
+	// db_tool/tool_deploy_task 双聚合（迁移 013）+ toolx 部署网关（下载 sha256
+	// 强制/npm 参数数组/stdlib 解压 zip-slip 防线）+ 凭据保险库 dbtool-cred.key
+	// 0600（I-02 永不回显）+ 跨模块 OHS 消费（db-mgmt 凭据网关/site-mgmt R-06
+	// 管线/env-mgmt 环境实况/panel-core 访问形态/account-auth 只读会话校验）。
+	// 安全底线：工具仅绑 localhost + nginx auth_request 面板会话 admin gating +
+	// signon HMAC 令牌四重校验 + 卸载不删数据库数据。启动恢复 I-09；signon
+	// 令牌台账 TTL 清扫下方以后台任务启动（goroutine 入 wg，G-06）。菜单
+	// /db-tools 两角色可见（查看类全可看 ADR-018；工具本体 admin 专属 ⚠️A10）。
+	dbtoolsStore := storedbtools.New(db)
+	dbtoolsVault, err := dbtoolssvc.OpenToolVault(panelDataDir)
+	if err != nil {
+		closeErr := db.Close()
+		return errors.Join(fmt.Errorf("open dbtools credential vault: %w", err), closeErr)
+	}
+	dbtoolsSvc := dbtoolssvc.New(dbtoolsStore, dbtoolsVault, dbtoolssvc.Deps{
+		Deploy:   toolx.NewGateway(),
+		Creds:    dbSvc,   // ToolCredentialGateway OHS（vault 解密仅服务端）
+		Pipeline: siteSvc, // ConfigWritePipeline OHS（R-06 四步）
+		Env:      envSvc,  // 环境实况读契约（PHP-FPM/Node/nginx 依赖就绪度）
+		Sysd:     sysdGateway,
+		PhpFpm:   phpfpmGw,
+		Nginx:    nginxxGw,
+		Panel:    panelSvc,
+		Session:  authSvc, // VerifyWs 只读会话校验（gating/signon 绑定）
+		Audit:    auditSvc,
+	}, dbtoolssvc.Options{DataDir: panelDataDir, Mirror: cfg.Tools.Mirror, NpmRegistry: cfg.Tools.NpmRegistry})
+	dbtoolsSvc.RecoverInFlight(ctx)
+	// 菜单已在构建期登记（icon=dbtool，Order 550）——此处不再重复 Register（W1 修复：
+	// MenuRegistry 纯 append 无去重，重复登记致侧栏渲染两个「数据库工具」项）。
+
 	// HTTP 骨架 + 模块挂载（后续模块在此追加 RegisterModules 参数）。
 	server := api.NewServer()
 	server.RegisterModules(
@@ -432,6 +476,7 @@ func run(args []string) error {
 		dockerapi.NewModule(authSvc, dockerSvc),
 		cronapi.NewModule(authSvc, cronSvc),
 		envapi.NewModule(authSvc, envSvc),
+		dbtoolapi.NewModule(authSvc, dbtoolsSvc, cfg.CookieSecure),
 	)
 
 	// D-P03：EntryPathGuard 为全局第一环，以 net/http 包装器包裹整个 gin
@@ -575,6 +620,22 @@ func run(args []string) error {
 			}
 		}()
 	}
+
+	// db-tools signon 令牌消费台账 TTL 清扫后台任务（D-09：30s tick 移除
+	// 过期 jti；goroutine 由 main 编排，ctx 取消退出——G-06；台账内存态
+	// 面板重启全部失效=安全保守）。
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		defer func() {
+			if r := recover(); r != nil { // 任务 panic 隔离（backend-03 §5）
+				slog.Error("dbtools token sweeper panic", "panic", r)
+			}
+		}()
+		if err := dbtoolsSvc.RunTokenSweeper(ctx); err != nil {
+			slog.ErrorContext(ctx, "dbtools token sweeper exited", "err", err)
+		}
+	}()
 
 	serveErr := make(chan error, 1)
 	// D-P06：boot 时 https_mode != off → TLS 监听，证书经 GetCertificate 按

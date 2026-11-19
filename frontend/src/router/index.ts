@@ -206,6 +206,19 @@ const router = createRouter({
           component: () => import('@/views/database-mgmt/mongo/documents.vue'),
           meta: { title: '文档浏览', engineGuard: 'mongodb', crumb: 'browse-collection' }
         },
+        // ---- db-tools（PageSpec db-tools v1.1 第 7 节：requiresAuth 继承布局路由；
+        // admin+readonly 同路由组件内子集渲染——readonly 操作区整区不渲染（6 负空间：
+        // install/upgrade/uninstall/rotate/open/reopen，ADR-018 + ⚠️A10 工具访问整体
+        // admin 专属）；工具本体路径（/dbtool/phpmyadmin/、/dbtool/mongo-express/）与
+        // /dbtool/access/reopen 非面板路由——nginx gating 网络层闸门/后端 GET 重定向落地，
+        // 前端无路由守卫承载；菜单项「数据库工具」由后端 ModuleMenuRegistry 按角色下发
+        // （两角色同项，Order 位于数据库管理之后）----
+        {
+          path: 'db-tools',
+          name: 'db-tools',
+          component: () => import('@/views/db-tools/index.vue'),
+          meta: { title: '数据库工具' }
+        },
         // ---- firewall（PageSpec 第 7 节：requiresAuth 继承布局路由；admin+readonly 同路由，
         // 组件内按角色渲染子集——readonly 无添加按钮+操作列整列不渲染（2 负空间，ADR-018）；
         // 菜单项由后端 ModuleMenuRegistry 按角色下发（防火墙菜单对两角色均可见）----

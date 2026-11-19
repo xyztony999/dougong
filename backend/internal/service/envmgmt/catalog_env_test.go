@@ -21,18 +21,25 @@ import (
 )
 
 func TestCatalogUnitNamesFullyQualified(t *testing.T) {
-	if len(Catalog) != 7 {
-		t.Fatalf("catalog entries = %d, want 7（v1.1 +MongoDB）", len(Catalog))
+	if len(Catalog) != 8 {
+		t.Fatalf("catalog entries = %d, want 8（v1.3 +Node）", len(Catalog))
 	}
 	families := []string{"apt", "dnf", "yum"}
 	for _, e := range Catalog {
 		for _, f := range families {
-			u := e.UnitByFamily[f]
-			if u == "" {
-				t.Fatalf("%s/%s unit empty", e.Type, f)
-			}
-			if !strings.HasSuffix(u, ".service") {
-				t.Fatalf("%s/%s unit %q 无 .service 后缀（D-13：EnableUnitFiles 无后缀补全→InvalidArgs）", e.Type, f, u)
+			if e.Type == storeenv.EnvNode {
+				// ⚠️A17 运行时型无服务单元：单元映射空为设计预期（FR-08②）。
+				if u := e.UnitByFamily[f]; u != "" {
+					t.Fatalf("node/%s unit = %q, want empty（运行时型无服务单元）", f, u)
+				}
+			} else {
+				u := e.UnitByFamily[f]
+				if u == "" {
+					t.Fatalf("%s/%s unit empty", e.Type, f)
+				}
+				if !strings.HasSuffix(u, ".service") {
+					t.Fatalf("%s/%s unit %q 无 .service 后缀（D-13：EnableUnitFiles 无后缀补全→InvalidArgs）", e.Type, f, u)
+				}
 			}
 			if len(e.PkgByFamily[f]) == 0 {
 				t.Fatalf("%s/%s candidates empty", e.Type, f)
@@ -98,8 +105,8 @@ func TestEnvListThreeStates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(data.Items) != 7 {
-		t.Fatalf("items = %d, want 7", len(data.Items))
+	if len(data.Items) != 8 {
+		t.Fatalf("items = %d, want 8（v1.3 +Node）", len(data.Items))
 	}
 	if !data.Channel.Available || data.Channel.Family != "apt" {
 		t.Fatalf("channel = %+v", data.Channel)
@@ -139,6 +146,10 @@ func TestEnvListThreeStates(t *testing.T) {
 	// apache 未装。
 	if got["apache"].inst == nil || *got["apache"].inst {
 		t.Fatalf("apache = %+v", got["apache"])
+	}
+	// node 已入目录且未装；运行时型单元名为空（⚠️A17）。
+	if got["node"].inst == nil || *got["node"].inst || got["node"].unit != "" {
+		t.Fatalf("node = %+v（want 未装+单元名空）", got["node"])
 	}
 }
 

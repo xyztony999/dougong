@@ -24,6 +24,7 @@ import type { DbInstanceItem } from '@/types/database'
 import { TCP_FIRST_LEGEND, dbmErrorText, rescanToastText } from '@/types/database'
 import { formatDateTime } from '@/utils/format'
 import InstanceCredentialsModal from './components/InstanceCredentialsModal.vue'
+import AdvancedManageEntry from './components/AdvancedManageEntry.vue'
 import {
   connModeTag,
   connStateTag,
@@ -177,11 +178,11 @@ const columns = computed<DataTableColumns<DbInstanceItem>>(() => {
     base.push({
       title: '操作',
       key: 'actions',
-      width: 240,
+      width: 330,
       fixed: 'right',
       render: (row) => {
         const removing = removingId.value === row.id
-        return [
+        const nodes = [
           // credentialsSet=false 时为主按钮态（未配置行引导配置，PageSpec 4.1）
           h(
             NButton,
@@ -223,6 +224,12 @@ const columns = computed<DataTableColumns<DbInstanceItem>>(() => {
             { default: () => '查看' }
           )
         ]
+        // v1.5 高级管理入口（PageSpec 4.1/6.8，admin only）：mysql/mariadb→phpMyAdmin、
+        // mongodb→mongo-express；redis 行无入口（Redis 集成工具 OUT，D0 范围边界）
+        if (row.engine !== 'redis') {
+          nodes.push(h(AdvancedManageEntry, { instanceId: row.id, engine: row.engine }))
+        }
+        return nodes
       }
     })
   } else {
@@ -242,7 +249,8 @@ const columns = computed<DataTableColumns<DbInstanceItem>>(() => {
   return base
 })
 
-const scrollX = computed(() => (authStore.isAdmin ? 1260 : 1120))
+// v1.5：admin 操作列 240→330（+高级管理入口，redis 行不渲染但列宽按最大值）
+const scrollX = computed(() => (authStore.isAdmin ? 1350 : 1120))
 
 function rowKey(row: DbInstanceItem): number {
   return row.id

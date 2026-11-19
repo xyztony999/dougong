@@ -9,6 +9,7 @@ import {
   AppsOutline,
   CloudDownloadOutline,
   CloudUploadOutline,
+  ConstructOutline,
   CubeOutline,
   DiscOutline,
   DocumentTextOutline,
@@ -97,7 +98,10 @@ const MENU_ICONS: Readonly<Record<string, Component>> = {
   cron: TimerOutline,
   backup: CloudUploadOutline,
   // env-mgmt 菜单项（main.go 登记 icon=env；两角色下发——ADR-018 全可看）
-  env: CloudDownloadOutline
+  env: CloudDownloadOutline,
+  // db-tools 菜单项（main.go 登记 icon=dbtool；两角色下发——ADR-018 目录/任务可看，
+  // 工具访问整体 admin 专属 ⚠️A10：readonly 操作面不渲染+工具路径 gating 不可达）
+  dbtool: ConstructOutline
 }
 
 function resolveIcon(name: string): Component {

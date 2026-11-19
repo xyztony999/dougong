@@ -559,3 +559,64 @@ W1/W2 维持报告原判（WARN 非本轮 FAIL 修复项）：views/monitoring �
   - views/env-mgmt/components/EnvTaskDrawer.vue：详情 +引导结果横幅（succeeded=NAlert success「配置就绪」+note+「前往数据库管理」router-link /databases；failed=NAlert warning「已安装·引导失败」+note+重试指引文案〔readonly 无恢复按钮，负空间〕；skipped=NAlert info「保守跳过」+note）；输出尾部标题补 [bootstrap] 行注记；boot-link/boot-hint 样式
   - 测试：types/__tests__/env.test.ts S8 锚点 6 用例（env_type 七值/env_task_action/env_task_status/package_manager_family/bootstrap_status 三值+颜色+独立维度）；stores/__tests__/env.test.ts +引导字段流 1 用例（loadTaskDetail 透传 bootstrapStatus/bootstrapNote，status=succeeded+bootstrapStatus=failed 独立）+既有 fixture 补两字段
 - [x] 门禁自验（2026-11-17 实跑 cwd=frontend/）：npx vue-tsc --noEmit exit 0、npx vitest run 18 文件 195 用例全过（+7 本轮）、npm run build exit 0（25.11s，chunk 体积警告既有 INFO）、产物同步 backend/web/dist + 同步后 go build ./...=0；F-01~F-05 禁项 grep 0 命中（改动面）；Action/路由/表单零变更（引导=worker 机制+OHS，结果经既有 task/detail 呈现，S7 10/10 不变）
+
+# 新模块 · db-tools 数据库工具集成（2026-11-19，前端编排 F01~F07）
+
+> 设计输入：PageSpec db-tools admin/readonly v1.1（ask 称 v1.0，仓内最新 v1.1 含 dbtoolReopen
+> GET 重定向落地声明——非前端 fetch Action，无对应函数/路由）+ database-mgmt v1.5 §6.8 高级入口；
+> 数据源 api-db-tools.md v1.2（面板面 9 接口=8 fetch Action+reopen GET 落地；内部端点 2 非前端 Action）
+> + D0 d0-clarification-db-tools-integration-2026-11-19.md（Q1~Q3 拍板+安全底线）。
+> 后端 db-tools 模块尚未落仓（INDEX backend=todo）——前端按契约先行（database-mgmt v1.4 先例）；
+> 菜单经 ModuleMenuRegistry 构建期登记（main.go，Order 550 位于数据库 500 之后，两角色可见）。
+
+- [x] F01 · 模块分析：tool-list=hybrid（工具卡片网格两条目+任务 Drawer 双区）；Pinia dbtoolStore
+  （跨页面共享：database-mgmt 高级入口同源消费工具全景，6.8 懒加载）
+- [x] F02 · types/dbtool.ts（DTO 逐形状 api v1.2：DbToolItem 含 boundInstanceId/running 三态/depsMissing；
+  可空显式 |null——installedVersion/boundInstanceId/running/instanceId/startedAt/finishedAt/error/tokenExpiresAt；
+  打开响应仅 url+tokenExpiresAt、轮换仅 rotatedAt 无口令字段 I-02）+ DBT_ERROR_TEXT 12 码 + dbtErrorText/
+  dbtReasonOf/dbtMissingOf/dbtTaskIdOf 收窄 + 纯函数助手（toolForEngine 引擎映射〔redis→null OUT〕/
+  depMissingText〔env_type displayName 透传，node 未知值原样不硬编码 D-18〕/depsMissingSummary/
+  installedStateTag/runningStateTag 三态/depsReadyTag/isDbToolTaskInFlight/openToastText/instanceIdentityText）；
+  enums.ts +DbToolType/DbToolTaskAction/DbToolTaskStatus 三字典（S8 池同值）+AUDIT_ACTION_TEXT +dbt_* 6 码
+- [x] F03 · api/dbtool.ts：8 fetch Action（dbtoolList/Install/Upgrade/Uninstall/TaskList/TaskDetail/Open/Rotate；
+  POST 经 http.ts 统一注入 X-CSRF-Token）；reopen 非 fetch Action 无函数（浏览器 302 顶层导航，PageSpec 第 2 节）
+- [x] F05 · stores/dbtool.ts：全景投影缓存（loadList 成败流 listError/generatedAt/loaded）+ensureLoaded 懒加载
+  （高级入口 6.8 步骤 1）+findByType+任务清单筛选（toolType/status，pageSize=50）+详情 running/pending 5s 轮询
+  终态即停+终态跃迁重拉全景与清单（4.3，env-mgmt 先例）+refreshAfterWrite；onUnmounted 清理由页面承载
+- [x] F04 · views/db-tools/index.vue：页头 NAlert 说明条（gating 安全口径+轻量入口并存 Q3）+刷新+generatedAt
+  「探测于 HH:mm:ss」；卡片网格（displayName+toolType tag+targetEngines 引擎色 tag/描述+目录版本/部署状态/
+  运行态三态〔已装才呈现，env-mgmt v0.1.4 先例〕/mongo_express 绑定实例反查 identityKey/依赖就绪度+depsMissing
+  清单〔env→/env 链接、extension→补装指引〕/在途标记查看引导）；操作区 admin only（readonly 整区不渲染）：
+  安装（phpMyAdmin NPopconfirm/mongo-express ToolInstanceModal 实例选择〔credentialsSet=false 禁用+tooltip+
+  /databases 链接〕；depsReady=false 禁用+tooltip 缺失清单）/打开（phpmyadmin 实例选择单实例免弹窗、
+  mongo_express 直开；window.open noopener 新标签页 4.4 裁定；令牌 60s toast）/升级 NPopconfirm（DBT_011 提示）/
+  卸载强确认 NModal（两段警示〔功能影响+数据保全绝不删数据〕+输入工具显示名锁定 ⚠️A5/D-15）/轮换凭据
+  NPopconfirm 仅 mongo_express（D-08/DBT_009，rotatedAt 呈现无口令）；在途变更按钮禁用（I-06）；
+  DBT 错误分流（001 内联清单/003 查看任务引导/004 引导安装/006 配置凭据引导/011/012 reason）；
+  components/DbtoolTaskDrawer.vue（历史筛选列表〔ID link/failed error tooltip〕+详情概要/失败原因/输出尾部
+  等宽块+手动刷新，两角色可看）+ components/ToolInstanceModal.vue（安装/打开共用实例选择器）
+- [x] database-mgmt 高级管理入口（v1.5 §6.8，admin only）：components/AdvancedManageEntry.vue 共用组件
+  （懒加载 dbtoolStore.ensureLoaded→引擎映射→未装引导弹窗〔依赖清单+/env 链接+到工具管理安装〕/
+  运行态 false/null 提示+到工具管理查看+重试打开/mongo-express boundInstanceId 绑定校验〔不一致明示绑定实例
+  identityKey 反查+仍要打开/到工具管理重新部署二选〕/已装运行中 dbtoolOpen→window.open noopener；
+  tooltip 安全口径文案；DBT_004/006 分流；readonly 角色兜底不渲染）；三处接线：db-list 实例行 operList
+  （redis 行无入口 OUT，操作列 240→330/scrollX 1260→1350）+mysql 库行（260→320/scrollX 700→760）+
+  mongo 库行（200→280/scrollX 820→900）；readonly 三处均不渲染（负空间）
+- [x] F06 · 路由 /db-tools（meta.title 数据库工具，requiresAuth 继承布局，两角色同路由组件内子集）+
+  vite dev proxy /dbtool + MainLayout MENU_ICONS dbtool→ConstructOutline + 后端 main.go ModuleMenuRegistry
+  登记（Key db-tools/数据库工具//db-tools/icon dbtool/Order 550/两角色——工具本体路径与 reopen 非 SPA 路由，
+  gating 网络层闸门，前端无守卫承载）
+- [x] 测试：types/__tests__/dbtool.test.ts 26 用例（S8 三字典锚点/toolForEngine 四引擎/依赖文案 env 透传 node/
+  三态助手/openToastText/instanceIdentityText/DBT_001~012 全覆盖防缺码/reason·missing·taskId 收窄）+
+  stores/__tests__/dbtool.test.ts 9 用例（loadList 成败流 api v1.2 形状/ensureLoaded 懒加载仅首拉/findByType/
+  taskFilter 联动/终态跃迁重拉/首拉终态不重拉〔面板重启中断 error 透传 I-09〕/clearTaskDetail 幂等/refreshAfterWrite）
+- [x] F07 · 门禁自验（2026-11-19 实跑）：npm --prefix frontend run build（vue-tsc --noEmit + vite build）
+  exit 0（35.06s，chunk 体积警告既有 INFO）；npm --prefix frontend run test（vitest run）21 文件 264 用例全过
+  （229 既有+35 新增）；F-01~F-05 grep 全 0 命中；dist 同步 backend/web/dist（rm -rf + cp -r + .gitkeep，
+  Makefile web 同步骤）；go -C backend build ./... + vet ./cmd/dougong/ exit 0（首跑曾因并行 env-mgmt Node
+  后端工作流 mid-edit vendorrepo.go 编译失败，非本轮改动，复跑全绿）
+- 偏差登记：①ask 称 PageSpec v1.0，仓内最新 v1.1（+dbtoolReopen 声明）——按 v1.1 落码，reopen 无前端函数/路由；
+  ②后端 db-tools HTTP 模块未落仓（backend=todo），前端按契约先行（v1.4 先例），菜单登记不依赖模块挂载；
+  ③env_type node 为 env-mgmt 待同步增量（api-env-mgmt 仍七值）——depsMissing 透传呈现经 dictItem 兜底原值，
+  不硬编码七/八值（D-18）；④readonly 页面可达（ADR-018 目录/任务全可看，PageSpec 第 7 节两角色同菜单项），
+  负空间=操作区整区不渲染+高级入口不渲染+工具本体 gating 不可达（ask「工具管理/入口不可达」按工具访问面解读）

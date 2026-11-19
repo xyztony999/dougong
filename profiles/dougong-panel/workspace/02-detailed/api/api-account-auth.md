@@ -2,9 +2,9 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v1.0 |
+| 版本 | v1.2 |
 | 状态 | 稳定 |
-| 最后更新 | 2026-11-12 |
+| 最后更新 | 2026-11-19（v1.2 db-tools gating OHS 消费登记，零 HTTP/DDL 变更；表头版本订正——v1.1 Gate 1 W2/W3 修正行早已在 6.1 而表头滞后 v1.0） |
 | 输入 | prd-account-auth.md v1.0（完备性检查通过）、domain-model.md v1.0、d0-clarification-account-auth.md |
 | 接口规约 | 无激活技术栈（ACTIVE_STACKS 为空）——按通用 REST/JSON 契约设计；认证=HttpOnly Cookie 会话 + CSRF token（R-02/ADR-019）；鉴权=RBAC 两角色边界矩阵（ADR-018） |
 
@@ -52,6 +52,7 @@
 |--------|------|------|
 | 全部业务域（site-mgmt/file-manager/…） | 被依赖 | OHS：`AuditService.Record`（审计四要素，R-03）；遵奉者：HTTP 域走 Cookie+CSRF 协议（R-02） |
 | terminal（Web 终端） | 被依赖 | OHS：`SessionAuthService.VerifyWs`（R-18）；连接限流归 terminal |
+| **db-tools（数据库工具集成，v1.2 登记）** | **被依赖** | **OHS：`SessionAuthService.VerifyWs`（gating 只读会话校验，同 I-11 判定只读不续期）——工具路径 auth_request 内部端点由 db-tools 自持（api-db-tools.md D-11 /dbtool/gate/verify），本模块不新增 HTTP 接口；readonly/无会话经 gating 拒绝（⚠️A10 工具访问 admin 专属）** |
 | panel-core | 消费其 HTTP 骨架 | 路由挂载/入口面归 panel-core（R-10）；会话有效期配置暂自持（D-10） |
 
 ## 2. 跨聚合根设计
@@ -111,7 +112,7 @@ audit_log * ─── 引用任意业务对象（object_type/object_id 弱引用
 |------|------|------|
 | panel-core HTTP 骨架/gin | 框架 | 路由组挂载 `/auth`；中间件注册顺序固定（3.1） |
 | SQLite (modernc.org/sqlite) | 存储 | 单连接写串行；审计写入与业务变更同事务（I-05） |
-| terminal | 下游消费方 | 仅经 `SessionAuthService.VerifyWs`，不得直查 session 表 |
+| terminal / db-tools（gating，v1.2） | 下游消费方 | 仅经 `SessionAuthService.VerifyWs`，不得直查 session 表 |
 | 密码哈希 | 算法 | 抗暴力慢哈希（bcrypt 类，cost ≥10）；常量时间比较 |
 | TOTP | 算法 | RFC 6238，30 秒窗口 ±1，6 位数字码 |
 
@@ -322,7 +323,7 @@ panel_user：`active ⇄ locked`（R-01）——locked 由 `locked_until` 表达
 
 #### 4.2.5 领域事件与集成
 
-仓储契约：`SessionRepository { Create, GetByTokenHash, Touch(续期), Revoke, ListActive, DeleteByUser, DeleteExpired }`。对外集成：`SessionAuthService.VerifyWs(rawToken) → (userId, role, err)`（terminal WS 握手复用，R-18；验证同一 I-11 逻辑，只读不续期）。
+仓储契约：`SessionRepository { Create, GetByTokenHash, Touch(续期), Revoke, ListActive, DeleteByUser, DeleteExpired }`。对外集成：`SessionAuthService.VerifyWs(rawToken) → (userId, role, err)`（terminal WS 握手复用，R-18；**db-tools gating 复用，v1.2 登记**；验证同一 I-11 逻辑，只读不续期）。
 
 ### 4.3 audit_log（台账报表类）
 
@@ -444,7 +445,7 @@ AuthService.InitViaCLI(ctx, username, password, totpOpt) error
 | 服务方法 | 消费方 | 契约要点 |
 |---------|--------|---------|
 | AuditService.Record(entry) | 全部业务模块 | R-03 四要素；同事务；见 4.3.4 |
-| SessionAuthService.VerifyWs(rawToken) | terminal 等 WS 域 | 返回 (userId, role)；只读验证（R-18） |
+| SessionAuthService.VerifyWs(rawToken) | terminal 等 WS 域；**db-tools gating（v1.2 登记）** | 返回 (userId, role)；只读验证（R-18）；**db-tools 工具路径 auth_request 内部端点复用同判定（只读不续期，避免逐请求滑动续期写放大，api-db-tools.md D-11）；本模块不新增 HTTP 接口** |
 | AuthService.InitViaCLI(...) | CLI 子命令（cmd/dougong） | 与向导同仲裁；见 4.4.4 |
 | 中间件 InitGuard / AuthRequired / CsrfGuard / RoleRequired | api 路由层 | 顺序见 3.1 |
 
@@ -535,6 +536,7 @@ CREATE TABLE IF NOT EXISTS init_state (
 | v1.0 | 2026-11-12 | initial | 首次生成：18 个 HTTP 接口（/auth/{init,session,user,audit-log}/*）+ 4 个进程内 OHS 服务契约（AuditService.Record / SessionAuthService.VerifyWs / AuthService.InitViaCLI / 中间件链）+ 5 表 DDL + 8 枚举定稿 + 15 错误码（AUTH_001~014 + OK）；无旧版对比 | — |
 | v1.1 | 2026-11-12 | rule_changed | Gate 1 W2 修正：D-10 会话有效期配置载体由"策略表单行配置"改为面板配置文件（internal/config，重启生效 MVP），5 表 DDL 不变；两个固定值（审计保留 90 天/密码最小 8 位）明确为编译期常量 | 1.3 / 3.4 |
 | v1.1 | 2026-11-12 | interface_changed | Gate 1 W3 修正：/auth/audit-log/list 与 /auth/audit-log/export 的 query 补 objectId?（等值匹配），对齐 PRD T4"对象标识"筛选维度；接口数不变 18 | 4 |
+| v1.2 | 2026-11-19 | rule_added（OHS 消费登记） | db-tools 集成联动登记（api-db-tools.md v1.0 D-11 消费方，同轮提供方登记沿 v2.2 先例）：SessionAuthService.VerifyWs OHS 消费方 +db-tools gating（工具路径 auth_request 内部端点 /dbtool/gate/verify 由 db-tools 自持，复用同 I-11 只读判定不续期——避免工具静态资源逐请求滑动续期写放大）；**本模块零新增 HTTP 接口/零 DDL 变更/零错误码变更**（gating 端点归 db-tools，会话校验能力既有）；1.5/3.2/4.2.5/5.1 消费登记同步；表头版本订正（v1.1 W2/W3 行早在 6.1 而表头滞后 v1.0，本轮升 v1.2 一并闭环） | 1.5 / 3.2 / 4.2.5 / 5.1 |
 
 ### 6.2 变更类型词汇表
 

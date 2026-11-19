@@ -2,9 +2,9 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v2.3.1 |
+| 版本 | v2.4 |
 | 状态 | 稳定 |
-| 最后更新 | 2026-11-18（v2.3.1 §3.4 补记 DBM_029 ENGINE_UNAUTHORIZED——A-DB13 编号裁定跨层同步闭环；v2.3 表级/集合文档治理 + TCP 优先探测增量） |
+| 最后更新 | 2026-11-19（v2.4 db-tools ToolCredentialGateway OHS 提供方登记，零 HTTP/DDL 变更；v2.3.1 §3.4 补记 DBM_029 沿存） |
 | 输入 | prd-database-mgmt.md v1.2、domain-model.md v1.23、d0-clarification-database-mgmt.md、D1 三文档 v1.2；**v2.3 增量**：d0-clarification-database-mgmt-ux-2026-11-18.md（用户实机反馈 5 项拍板 Q1~Q6）、ADR-031（D-18 修订）、prd-database-mgmt.md v1.2 FR-24~39 与待对齐-11；v2.2 安装后配置就绪联动输入沿旧（d0-clarification-2026-11-17-bootstrap.md、api-env-mgmt.md v1.2、prd-env-mgmt.md v1.2 FR-07） |
 | 接口规约 | 无激活技术栈（ACTIVE_STACKS 为空）——按通用 REST/JSON 契约设计；认证=HttpOnly Cookie 会话 + CSRF token（R-02）；鉴权=RBAC 两角色边界矩阵（ADR-018）；与 api-account-auth.md 同一响应/错误码契约 |
 
@@ -52,6 +52,7 @@
 | D-24 | **角色口径 Q6（v2.3）：元数据两角色 / 数据内容+写操作 admin 专属**——元数据 GET（table/list、table/structure、mcoll/list、mdb/list 既有）admin+readonly；数据内容 GET（row/list、mdoc/list）admin 专属（沿 key/list D0 先例「key 值属数据内容取出」）；全部新增 POST admin+CSRF；readonly 进入浏览页可见元数据，数据区负空间「数据内容仅管理员可见」（前端不请求数据内容接口；越界请求 AUTH_008 全局边界拒绝） | D0 Q6 拍板；ADR-018 全可看口径在数据内容维度的从紧细化，与既有 key 浏览判例一致；权限矩阵见 3.3 |
 | D-25 | **D-18 修订（ADR-031）+ Mongo 系统库删除保护（v2.3）**：库清单由只读投影改为可管理——mdb/list DTO 不变（前端操作列承载），+mdb/dropdb（dropDatabase 不可逆强确认）；**系统库 admin/config/local 拒绝删除**（DBM_028，服务端硬校验——删除 admin 库将摧毁面板纳管凭据语境，config/local 为引擎内部库）；无独立建库接口（隐式建库经 mcoll/create 达成，D-23）；集合/文档治理见 D-23 | ADR-031（kb design-decisions）：D-18 把「隐式建库语义」过度解读为「不可管理」，用户要管理（F4）；系统库保护为本域推导（防自毁纳管根基，R-14 服务端校验不信任前端） |
 | D-26 | **资源段命名与编号裁定（v2.3，关闭待对齐-11）**：新增资源段 table（MySQL 表元数据+删表）/row（MySQL 行数据+行写）/mcoll（Mongo 集合，mc 前缀沿 mdb/muser 先例）/mdoc（Mongo 文档）；删库复用既有资源段 mdb（mdb/dropdb，与 mdb/list 同资源）；全三段式 /db/{resource}/{action}（G1-08/M2）；错误码续编 DBM_022~028（7 个）；审计动作码 +10（table_dropped/row_updated/row_deleted/mongo_database_dropped/mongo_collection_created/mongo_collection_dropped/mongo_document_inserted/mongo_document_updated/mongo_document_deleted/instance_merged）；总接口 30→44（GET 18/POST 26） | 资源段语义自洽（table=元数据面、row=数据内容面，权限分裂自然映射 D-24）；mcoll/mdoc 与 mdb/muser 复合缩写同构保三段式；编号接续既有最大值（DBM_021/动作码 18 个）不复用 |
+| D-27 | **工具凭据 OHS（v2.4，ToolCredentialGateway）**：本模块提供进程内 OHS `ToolCredentialGateway { InstanceCredentialsForTool(ctx, instanceID) → ToolCreds{Username,Password,Host,Port,Engine}; InstanceReadyForTool(ctx, instanceID) → ReadyInfo{Ready,Reason,Engine} }` 供 db-tools 消费（signon 桥接取 MySQL 凭据 / mongo-express 部署取 Mongo 凭据，api-db-tools.md D-10）。编排：InstanceReadyForTool=实例存在+credentialsSet+引擎匹配校验（phpmyadmin→mysql/mariadb；mongo_express→mongodb）；InstanceCredentialsForTool=CredentialVault.Decrypt 仅服务端内存态（**明文用毕即弃，不落库不入日志不入审计，调用方 db-tools 不复制不持久化**）；实例不存在/凭据未配置→错误（db-tools 映射 DBT_006 引导配置）。**无新领域对象/无新表/无 HTTP 接口**——复用 db_instance 聚合与 cred_cipher 密文列、CredentialVault、InstanceRepository（与 D-20 BootstrapAfterInstall 同构） | db-tools D3 消费契约（api-db-tools.md v1.0 D-10/4.1.5，同轮提供方登记沿 v2.2 先例）；I-02 凭据零回显（密文不出本模块，明文仅服务端通道） |
 
 ### 1.4 领域对象总览
 
@@ -75,6 +76,7 @@
 | MySQL/MariaDB/Redis 引擎（本机系统组件） | 数据源与动作通道 | dbmysql/dbredis 适配器（idea.md §5.3）承载连接/查询/命令，经 **DbGateway 网关契约**（4.1.5）收敛——引擎协议概念止步于此（非外部业务系统，无 ACL 必要，domain-model v1.9 第六部分） |
 | cron-backup（M8，后续模块） | 被依赖（预期） | 数据库备份源拟复用 DbGateway.DumpDatabase（4.1.5）；契约口径由该模块 D2/D3 定义，本模块不预先建模 |
 | **env-mgmt（v2.2 安装后配置就绪）** | **被消费（进程内 OHS 提供）** | **本模块提供 BootstrapAfterInstall OHS（§5.1/§4.6）：env-mgmt worker 数据库类环境安装成功后消费——建管理账户/设随机强密码 + 注册 db_instance 与凭据密文（装完即可管）；单向依赖 env-mgmt→db-mgmt（与 cron-backup 消费 DumpStream 同构）；引导通道（MySQL socket root auth_socket / Redis 免认证 / MongoDB localhost exception）区别于 TCP+密码治理通道；幂等保守不覆盖用户已有配置；引导结果 BootstrapOutcome 回传（不含密码）** |
+| **db-tools（v2.4 工具凭据 OHS）** | **被消费（进程内 OHS 提供）+ 被依赖（读契约）** | **本模块提供 ToolCredentialGateway OHS（§5.1/§4.9/D-27）：db-tools signon 桥接/mongo-express 注入消费 vault 凭据取出（InstanceCredentialsForTool/InstanceReadyForTool，明文仅服务端通道，db-tools 不复制不持久化）；单向依赖 db-tools→db-mgmt（与 env-mgmt 消费 BootstrapAfterInstall 同构）；另 db-tools 提供 ToolStatusForEngine 读契约与打开能力供本模块高级管理入口消费（PageSpec 渲染待同步项，api-db-tools.md 5.1）** |
 | service-mgmt | 边界互斥 | 实例进程启停/自启经 systemd 归 service-mgmt；本模块对 unreachable 实例只如实呈现与报错（DBM_003），不操作进程（**安装后配置就绪的服务启动归 env-mgmt 经 SysdGateway，本模块不操作进程**） |
 | **panel-core（v2.3 呈现层消费）** | **消费方（呈现能力，非领域集成）** | **顶栏面包屑返回导航（F5）：本模块多级页面（数据库→治理·identity→库→表/集合）消费 panel-core S-09-01 通用面包屑能力——动态段 identity 取 instance/list 既有 DTO（dbStore 档案缓存）、database/table/collection 取路由 params；本 API 文档零新增接口承载（呈现层变更归 D4 PageSpec 与 panel-core）；能力本体增量归 panel-core（跨模块待同步项，D1 AA 附录B 登记）** |
 
@@ -636,6 +638,30 @@ MongoBootstrap {
 
 无 MQ、无领域事件（R-09，mongo-driver 进程内库非外部集成）。出站：AuditService.Record（mongo_database_dropped/mongo_collection_created/mongo_collection_dropped/mongo_document_inserted/mongo_document_updated/mongo_document_deleted，同事务脱敏）。网关：MongoGateway v2.3 扩展（4.5.1，dbmongo 既有 dial/withClient，D-15）。
 
+### 4.9 工具凭据 OHS（v2.4 新增，ToolCredentialGateway）
+
+**定位**：本模块对 db-tools 提供的进程内 OHS（非 HTTP 接口，无权限矩阵/CSRF——调用方 db-tools 已在 admin 发起的打开/部署上下文内）。db-tools 集成 phpMyAdmin（signon 桥接注入 MySQL 凭据）与 mongo-express（systemd env 注入 Mongo 凭据）消费本 OHS 取出 vault 凭据（D-27）。**无新领域对象/无新表**——复用 db_instance 聚合与 cred_cipher 密文列、CredentialVault、InstanceRepository。
+
+**OHS 签名**：
+
+```
+ToolCredentialGateway {
+  InstanceCredentialsForTool(ctx context.Context, instanceID int64) (ToolCreds, error)
+  InstanceReadyForTool(ctx context.Context, instanceID int64) (ReadyInfo, error)
+}
+ToolCreds { Username, Password, Host string; Port int; Engine string }
+ReadyInfo { Ready bool; Reason string; Engine string }
+```
+
+**编排**：
+
+| 方法 | 步骤 | 失败语义 |
+|------|------|---------|
+| InstanceReadyForTool | GetByID(instanceID) → 存在性 + credentialsSet（cred_cipher 非空）+ 引擎匹配（调用方工具类型→引擎族：phpmyadmin→mysql/mariadb；mongo_express→mongodb） | 不存在/未配凭据/引擎不匹配 → Ready=false + Reason（db-tools 映射 DBT_006 引导到本模块配置凭据） |
+| InstanceCredentialsForTool | GetByID → CredentialVault.Decrypt(cred_cipher)（仅服务端内存态）→ 组装 ToolCreds（host/port 取档案 identity） | 解密失败/不存在 → error（db-tools 映射 DBT_006/DBT_012）；**明文用毕即弃，不落库不入日志不入审计** |
+
+**安全口径（I-02）**：凭据明文仅经进程内 OHS 返回给 db-tools 服务端（db-tools 经 loopback/systemd env 通道注入工具，永不进浏览器）；本模块侧无审计动作（凭据取出为读操作，R-03 语义为变更留痕；db-tools 侧打开动作审计 dbt_tool_accessed 脱敏）；密钥 db-cred.key 0600 不经任何接口下发（既有口径不变）。
+
 ## 5. 模块清单汇总
 
 ### 5.1 对外服务清单（进程内 OHS/内部服务）
@@ -647,6 +673,7 @@ MongoBootstrap {
 | InstanceProber / CredentialVault / BackupService | 本模块内部 | 4.1.1 领域服务；busy 任务表 D-12；**v2.3 InstanceProber 两阶段 TCP 优先探测 + rescan 保守清理（D-21）** |
 | **TableGovernanceService / MongoGovernanceService（v2.3 新增）** | **本模块内部** | **4.7.1/4.8.1 领域服务：表级治理（单列主键判定 I-10 + JSON_OBJECT 行分页 D-22）与集合文档治理（_id 定位 + JSON 校验 D-23 + 系统库保护 I-12）；审计同事务脱敏（行/文档内容不入 detail）** |
 | **BootstrapAfterInstall(ctx, engine, actorName) → BootstrapOutcome（v2.2 提供）** | **env-mgmt（安装后配置就绪 worker 消费）** | **进程内 OHS（§4.6/D-20）：建管理账户/设随机强密码 + 注册 db_instance 与凭据密文（装完即可管）；幂等保守（已配置/已存在跳过不覆盖）；治理通道 TCP 验证后落库（D-03 哲学）；BootstrapOutcome{Status,Note,InstanceID} 回传（Note 不含密码）；审计 instance_bootstrapped 同事务脱敏；引擎引导窄接口注入（零 runner 实况依赖）** |
+| **ToolCredentialGateway.InstanceCredentialsForTool/InstanceReadyForTool（v2.4 提供）** | **db-tools（signon 桥接/mongo-express 注入消费）** | **进程内 OHS（§4.9/D-27）：vault 凭据取出仅服务端内存态（ToolCreds{Username,Password,Host,Port,Engine}，明文用毕即弃不落库不入日志不入审计）；InstanceReadyForTool 存在性+credentialsSet+引擎匹配校验；复用 db_instance/CredentialVault/InstanceRepository（无新表无 HTTP）；db-tools 侧映射 DBT_006 引导配置** |
 | 中间件 AuthRequired / CsrfGuard / RoleRequired | 复用 account-auth | 顺序见 3.1 |
 
 ### 5.2 SQL 清单（SQLite 侧，全部参数绑定，D-13）
@@ -731,6 +758,7 @@ CREATE INDEX IF NOT EXISTS idx_dbinst_engine ON db_instance(engine);
 | v2.2 | 2026-11-17 | rule_added + event_added（OHS） | 安装后配置就绪联动增量（env-mgmt 主导轮，d0-clarification-2026-11-17-bootstrap.md 拍板 Q1~Q4，api-env-mgmt.md v1.2 消费方）：**新增进程内 OHS BootstrapAfterInstall（§4.6/D-20）供 env-mgmt worker 消费**——建管理账户/设随机强密码 + 注册 db_instance 与凭据密文（装完即可管）；①D-20 引导编排（幂等前置 credentialsSet→skipped / 引导通道建账户〔MySQL socket root auth_socket→dougong@localhost ALL WITH GRANT OPTION、Redis CONFIG SET requirepass+REWRITE、MongoDB localhost exception admin root〕/ 治理通道 TCP 验证 / 加密 UPSERT+审计）；②引擎引导窄接口 MySQLBootstrap/RedisBootstrap/MongoBootstrap（与治理接口分离，注入替身零 runner 实况依赖）；③审计动作码 +instance_bootstrapped（脱敏）；④1.5 上下文映射 +env-mgmt 被消费行；⑤5.1 OHS 清单 +BootstrapAfterInstall。**HTTP 接口/DTO/错误码/DDL 零变更**（复用 db_instance 聚合与 cred_cipher 密文列、CredentialVault、InstanceRepository；无新表无新聚合根）；服务就绪归 env-mgmt（本模块不操作进程）；密码零回显（I-02） | 1.3（D-20）/ 1.5 / 3.4（审计动作码）/ 4.6（新增）/ 5.1 / 6.1 |
 | v2.3 | 2026-11-18 | interface_added / rule_changed / rule_added | database-mgmt v1.4 用户实机反馈轮（d0-clarification-database-mgmt-ux-2026-11-18.md 拍板 Q1~Q6，prd v1.2 FR-24~39/domain-model v1.23，关闭待对齐-11）：**①interface_added +14 接口（总 30→44，GET 18/POST 26）**——MySQL 6：table/{list,structure,drop} + row/{list,update,delete}（4.7 新增；行写单列主键约束 I-10，JSON_OBJECT 逐行聚合 D-22，分页默认 20 上限 100）；Mongo 8：mcoll/{list,create,drop} + mdb/dropdb + mdoc/{list,insert,update,delete}（4.8 新增；ReplaceOne/DeleteOne by _id，JSON 双层校验，系统库保护 I-12）；资源段 table/row/mcoll/mdoc 裁定 D-26 全三段式；GET 元数据两角色/数据内容 GET admin 专属/POST admin+CSRF（D-24/I-11，Q6 沿 redis key 先例）；**②rule_changed**——D-18 修订（ADR-031/D-25：mdb/list 只读投影→可管理清单，DTO 零变更）、探测登记策略 TCP 优先两阶段+socket 兜底+rescan 保守清理无凭据冗余 socket 行（D-21：instance/list +redundantSocket:boolean、rescan +merged:n 均 additive，identity_key 语义不变，已配凭据 socket 行保留+标注不做凭据自动迁移）；**③rule_added**——错误码 +DBM_022~028（TABLE_NOT_FOUND/NO_SINGLE_PK/ROW_NOT_FOUND/COLLECTION_NOT_FOUND/INVALID_DOCUMENT_JSON/DOCUMENT_NOT_FOUND/SYSTEM_DATABASE_PROTECTED）、审计动作码 +10（table_dropped/row_updated/row_deleted/mongo_database_dropped/mongo_collection_created/mongo_collection_dropped/mongo_document_inserted/mongo_document_updated/mongo_document_deleted/instance_merged，共 28；行/文档内容不入 detail）、不变量 +I-10~I-12、DbGateway/MongoGateway 扩展方法（4.1.5/4.5.1）、分页常量 TABLE_PAGE_LIMIT/DOC_PAGE_LIMIT；**④DDL 零变更/零迁移/零新表**（4 投影实体零台账）；**⑤零新增枚举**（存储引擎/排序规则实况开放集合沿字符集先例）；3.4 枚举表补正 v2.0 遗漏（db_engine +mongodb/mongo_role 行）；1.5 +panel-core 面包屑呈现层消费（F5 零接口承载，归 D4/panel-core）；F2 tooltip/图例归前端呈现（D4） | 1.1 / 1.2 / 1.3（D-18 修订+D-21~D-26）/ 1.4 / 1.5 / 2.1 / 2.2 / 2.3 / 3.1 / 3.3 / 3.4 / 4.1.4 / 4.1.5 / 4.5.1 / 4.5.2 / 4.7（新增）/ 4.8（新增）/ 5.1 / 5.2 / 5.3 / 6.1 |
 | v2.3.1 | 2026-11-18 | rule_added（补记） | Gate 2 E1/AL-005 闭环（A-DB13「统一门控前须同步」项）：§3.4 错误码表补记 DBM_029 ENGINE_UNAUTHORIZED 行——引擎操作被拒（凭据账户权限不足，身份对但无权执行；data.reason=引擎原文；区别 DBM_005 认证被拒）。编号沿革：v0.1.4 修复轮 ErrDBMEngineUnauthorized 原占 DBM_022，与 v2.3 定稿 DBM_022=TABLE_NOT_FOUND 冲突，后端增量轮按 A-DB13 裁定改编号 DBM_029（续接空号不复用，符号/语义不变，errcode/dbmgmt.go + service.go translateGatewayErr 对 dbmongo.ErrUnauthorized code 13 翻译上线，触达 mongo/status、muser/*、v2.3 全部 mongo 治理接口）；本行为设计侧补记（此前 §3.4 缺行致机械 diff BE=29/FE=28）。跨层同步已闭环：前端 types/database.ts DBM_ERROR_TEXT +DBM_029（dbmErrorText 不再 null 静默吞错，reason 追加分支 +029）、MongoCreateUserModal/MongoRoleManageModal 旧 DBM_022 判定/语义映射改判 DBM_029、vitest +4 用例（含 DBM_001~029 全覆盖锚点）。**HTTP 接口/DTO/DDL/枚举零变更**（错误码补记非新码——后端已实发） | 3.4 / 6.1 |
+| v2.4 | 2026-11-19 | rule_added + event_added（OHS） | db-tools 集成联动登记（api-db-tools.md v1.0 D-10 消费方，同轮提供方登记沿 v2.2 先例）：**新增进程内 OHS ToolCredentialGateway（§4.9/D-27）供 db-tools signon 桥接/mongo-express 注入消费**——InstanceCredentialsForTool（vault 解密仅服务端内存态，ToolCreds 明文用毕即弃不落库不入日志不入审计）+ InstanceReadyForTool（存在性+credentialsSet+引擎匹配校验）；①D-27 决策行；②§4.9 OHS 签名+编排+安全口径（I-02）；③1.5 +db-tools 被消费行（含 ToolStatusForEngine 读契约被依赖登记）；④5.1 OHS 清单 +ToolCredentialGateway 行。**HTTP 接口/DTO/错误码/DDL/枚举零变更**（复用 db_instance 聚合与 cred_cipher 密文列、CredentialVault、InstanceRepository；无新表无新聚合根）；db-tools 高级管理入口 PageSpec 渲染为跨模块待同步项 | 1.3（D-27）/ 1.5 / 4.9（新增）/ 5.1 / 6.1 |
 
 ### 6.2 变更类型词汇表
 

@@ -12,7 +12,7 @@ import {
 } from '../enums'
 
 describe('env 字典 S8 锚点（枚举池同值）', () => {
-  it('ENV_TYPE 七值含 mongodb（v1.1 扩值同步）', () => {
+  it('ENV_TYPE 八值含 mongodb/node（v1.1 +mongodb；v1.3 +node，db-tools 轮 W2 同步）', () => {
     expect(Object.keys(ENV_TYPE)).toEqual([
       'nginx',
       'apache',
@@ -20,9 +20,11 @@ describe('env 字典 S8 锚点（枚举池同值）', () => {
       'mysql',
       'redis',
       'php_fpm',
-      'mongodb'
+      'mongodb',
+      'node'
     ])
     expect(ENV_TYPE.mongodb.label).toBe('MongoDB')
+    expect(ENV_TYPE.node.label).toBe('Node.js')
   })
 
   it('ENV_TASK_ACTION 三动作', () => {

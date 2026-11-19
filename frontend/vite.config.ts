@@ -62,6 +62,12 @@ export default defineConfig({
         target: backendAddr,
         changeOrigin: true
       },
+      // db-tools（api-db-tools.md 3.1：/dbtool/{resource}/{action} 三段式，读 GET + 写 POST 同前缀；
+      // SPA 路由 /db-tools 带连字符不命中本前缀，无冲突）
+      '/dbtool': {
+        target: backendAddr,
+        changeOrigin: true
+      },
       // firewall（api-firewall.md 3.1：/firewall/{resource}/{action} 三段式，读 GET + 写 POST 同前缀）
       '/firewall': {
         target: backendAddr,

@@ -2,7 +2,7 @@
   "_generated": {
     "version": 3,
     "note": "本文件由 engine-gui 文档中心根据项目架构自动生成，可手工编辑（编辑后原样生效）；删除本文件后下次访问将按最新架构重新生成。",
-    "generatedAt": "2026-11-18T03:23:27.920Z",
+    "generatedAt": "2026-11-19T05:40:43.857Z",
     "generator": "engine-gui doc-center 生成器（/dc/api/domains · /api/projects/:id/funcview）"
   },
   "names-map": {},
@@ -11,7 +11,7 @@
       "账户与安全基座（account-auth）": {
         "name": "账户与安全基座（account-auth）",
         "layer": "支撑域",
-        "related": "全部业务域（被依赖：审计接口/会话鉴权/权限基线）；panel-core（入口面归其）、terminal（限流归其）",
+        "related": "全部业务域（被依赖：审计接口/会话鉴权/权限基线）；panel-core（入口面归其）、terminal（限流归其）；**db-tools（v1.24 被消费：gating 会话校验端点——新增内部能力，仅 loopback 子请求通道，三文档同步待同步项）**",
         "fishbone": {
           "spine": [
             {
@@ -127,7 +127,7 @@
       "数据库管理（database-mgmt）": {
         "name": "数据库管理（database-mgmt）",
         "layer": "支撑域",
-        "related": "account-auth（遵奉会话鉴权与只读边界 R-02/ADR-018；消费审计写入 OHS R-03）；枚举共享 audit_result 与本域 3 枚举（入池共享口径）；cron-backup（被依赖：数据库备份源复用 DumpStream OHS）；**env-mgmt（v1.22 被消费：BootstrapAfterInstall 实例引导注册 OHS——安装后配置就绪建账户/设密码/注册实例凭据）**；MySQL/Redis/MongoDB 引擎（本机系统组件，dbmysql/dbredis/dbmongo 适配器，非业务域）",
+        "related": "account-auth（遵奉会话鉴权与只读边界 R-02/ADR-018；消费审计写入 OHS R-03）；枚举共享 audit_result 与本域 3 枚举（入池共享口径）；cron-backup（被依赖：数据库备份源复用 DumpStream OHS）；**env-mgmt（v1.22 被消费：BootstrapAfterInstall 实例引导注册 OHS——安装后配置就绪建账户/设密码/注册实例凭据）**；**db-tools（v1.24 被消费：实例凭据 OHS——signon 桥接/mongo-express 注入取出 vault 凭据，进程内单向；高级管理入口经读契约消费 db-tools 工具状态与打开能力，跨模块待同步项）**；MySQL/Redis/MongoDB 引擎（本机系统组件，dbmysql/dbredis/dbmongo 适配器，非业务域）",
         "fishbone": {
           "spine": [
             {
@@ -214,16 +214,37 @@
           "lowerRibs": []
         }
       },
-      "环境管理（env-mgmt）（v1.19 追加；v1.22 安装后配置就绪）": {
-        "name": "环境管理（env-mgmt）（v1.19 追加；v1.22 安装后配置就绪）",
+      "环境管理（env-mgmt）（v1.19 追加；v1.22 安装后配置就绪；v1.24 +Node）": {
+        "name": "环境管理（env-mgmt）（v1.19 追加；v1.22 安装后配置就绪；v1.24 +Node）",
         "layer": "支撑域",
-        "related": "account-auth（遵奉会话鉴权与只读边界 R-02/ADR-018；消费审计写入 OHS R-03）；service-mgmt（共享 SysdGateway systemd 适配层资产，进程内共享非模块调用）；**database-mgmt（v1.22 消费其 BootstrapAfterInstall 进程内 OHS——安装后配置就绪建账户/注册实例凭据，单向硬依赖）**；docker-mgmt/database-mgmt/site-mgmt（被消费：环境未装实况软引导）；apt/dnf·yum/systemd（本机系统组件，envpack 适配器，非业务域）",
+        "related": "account-auth（遵奉会话鉴权与只读边界 R-02/ADR-018；消费审计写入 OHS R-03）；service-mgmt（共享 SysdGateway systemd 适配层资产，进程内共享非模块调用）；**database-mgmt（v1.22 消费其 BootstrapAfterInstall 进程内 OHS——安装后配置就绪建账户/注册实例凭据，单向硬依赖）**；docker-mgmt/database-mgmt/site-mgmt/db-tools（被消费：环境未装实况软引导；**db-tools v1.24 消费环境实况读契约〔PHP-FPM/Node/nginx 依赖就绪度〕与 Node 供给**）；apt/dnf·yum/systemd（本机系统组件，envpack 适配器，非业务域）",
         "fishbone": {
           "spine": [
             {
               "code": "AGG-1",
               "name": "env_install_task",
               "desc": "目标环境（env_type）、动作、状态、发起者、发起时间、开始/结束时间、命令输出尾部（终态定格）、失败原因、**引导…"
+            }
+          ],
+          "upperRibs": [],
+          "lowerRibs": []
+        }
+      },
+      "数据库工具集成（db-tools）（v1.24 追加）": {
+        "name": "数据库工具集成（db-tools）（v1.24 追加）",
+        "layer": "支撑域",
+        "related": "account-auth（遵奉会话鉴权与只读边界 R-02/ADR-018；消费审计写入 OHS R-03；**消费 gating 会话校验端点——新增内部能力，三文档同步待同步项**）；env-mgmt（消费环境实况读契约：PHP-FPM/Node/nginx 依赖就绪度；Node 供给为其 v1.24 增量；依赖缺失软引导回其安装页）；site-mgmt（消费站点创建/移除 S-27-02/S-27-03/S-28+安全写入治理 S-30 R-06：工具路径/gating/注入配置落盘）；service-mgmt（共享 SysdGateway 适配层资产：mongo-express 单元创建/启停/查询）；**database-mgmt（消费其实例凭据 OHS——vault 取出 MySQL/Mongo 连接凭据，进程内单向，凭据不出服务端边界；被消费：高级管理入口经读契约消费工具状态与打开能力）**；phpMyAdmin/mongo-express（外部现成工具，ACL 封装，localhost 经 gating 访问）；nginx/PHP-FPM/systemd/npm（本机系统组件，非业务域）",
+        "fishbone": {
+          "spine": [
+            {
+              "code": "AGG-1",
+              "name": "db_tool（工具部署档案）",
+              "desc": "工具类型、已装版本、部署路径、站点引用、服务单元引用（mongo-express）、目标实例引用（mongo-expre…"
+            },
+            {
+              "code": "AGG-2",
+              "name": "tool_deploy_task（工具部署任务）",
+              "desc": "目标工具（db_tool_type）、动作、状态、发起者、发起时间、开始/结束时间、命令输出尾部（终态定格）、失败原因"
             }
           ],
           "upperRibs": [],
@@ -704,8 +725,8 @@
           }
         ]
       },
-      "环境管理（env-mgmt）（v1.19 追加；v1.22 安装后配置就绪）": {
-        "description": "运行环境本体供给（软件包层，v0.1.2 反馈第 4 项补位）：内置七环境目录+实况实时探测合并呈现（nginx/Apache/Docker/MySQL/Redis/PHP-FPM/MongoDB，⚠️A1/A7/A9，零环境台账投影——包管理器/systemd 为事实源）、apt/dnf·yum 双系通道探测择一与官方仓库源代配（⚠️A2/A10，写入审计）、异步变更任务四态机 pending→running→succeeded/failed（⚠️A3，同环境互斥、任务台账落 SQLite、重启恢复 running→failed）、安装与升级同通道幂等（⚠️A4，先刷新索引）、卸载保守语义（⚠️A6 remove 保留配置数据+强确认风险提示）、**安装后配置就绪（v1.22，⚠️A11~A15：数据库类安装成功后 worker 经 db-mgmt OHS 建管理账户/设随机强密码+注册实例凭据，装完即可管；引导结果独立维度 bootstrap_status/note 入任务台账，幂等保守不覆盖）**、已装环境服务启停自启（复用 service-mgmt SysdGateway 共享适配层，操作限定目录环境单元）、变更与任务终态审计留痕（R-03）、包操作参数数组纪律（R-08）",
+      "环境管理（env-mgmt）（v1.19 追加；v1.22 安装后配置就绪；v1.24 +Node）": {
+        "description": "运行环境本体供给（软件包层，v0.1.2 反馈第 4 项补位）：内置八环境目录+实况实时探测合并呈现（nginx/Apache/Docker/MySQL/Redis/PHP-FPM/MongoDB/Node.js，⚠️A1/A7/A9，零环境台账投影——包管理器/systemd 为事实源；**v1.24 +Node.js：NodeSource 三系代配+LTS 轨道钉死+npm 随包 ⚠️A16，运行时型无服务单元——服务态 null/启停入口禁用/装完即用无引导 ⚠️A17**）、apt/dnf·yum 双系通道探测择一与官方仓库源代配（⚠️A2/A10，写入审计）、异步变更任务四态机 pending→running→succeeded/failed（⚠️A3，同环境互斥、任务台账落 SQLite、重启恢复 running→failed）、安装与升级同通道幂等（⚠️A4，先刷新索引）、卸载保守语义（⚠️A6 remove 保留配置数据+强确认风险提示）、**安装后配置就绪（v1.22，⚠️A11~A15：数据库类安装成功后 worker 经 db-mgmt OHS 建管理账户/设随机强密码+注册实例凭据，装完即可管；引导结果独立维度 bootstrap_status/note 入任务台账，幂等保守不覆盖）**、已装环境服务启停自启（复用 service-mgmt SysdGateway 共享适配层，操作限定目录环境单元，Node 无单元不适用）、变更与任务终态审计留痕（R-03）、包操作参数数组纪律（R-08）",
         "tablePrefix": "",
         "tableCount": 6,
         "aggregateRoot": "env_install_task",
@@ -719,7 +740,7 @@
             "condition": ""
           },
           {
-            "name": "环境条目（env entry）",
+            "name": "工具条目（tool entry）",
             "table": "",
             "type": "entity",
             "relation": "投影集合条目（目录条目编译期常量+实况运行时探测合并，无聚合根守门）",
@@ -727,10 +748,42 @@
             "condition": ""
           },
           {
-            "name": "发行版映射（distro mapping）",
+            "name": "目录映射（tool catalog mapping）",
             "table": "",
             "type": "entity",
             "relation": "内嵌于环境条目（编译期，1:N per 发行版族）",
+            "parent": null,
+            "condition": ""
+          }
+        ]
+      },
+      "数据库工具集成（db-tools）（v1.24 追加）": {
+        "description": "数据库高级管理现成工具集成（宝塔式路线 ADR-032，用户拍板 2026-11-19）：内置两工具目录（phpMyAdmin→MySQL/MariaDB、mongo-express→MongoDB，版本钉死编译期 ⚠️A1）+实况实时探测合并呈现（部署状态/版本/运行态/依赖就绪度，零工具台账投影）、工具部署与变更（安装〔依赖前置 ⚠️A2+下载钉版本 sha256 强制校验+镜像 ⚠️A12+站点/服务落位+凭据生成密文落库〕/升级〔目录钉死新版本，配置凭据保留 ⚠️A4〕/卸载〔解除部署**绝不删数据库数据** ⚠️A5〕，异步任务四态机同工具互斥台账落 SQLite ⚠️A3）、**工具安全访问（localhost 绑定 ⚠️A6+面板会话 gating 反代 auth_request 校验会话+admin 角色 ⚠️A7/A10+phpMyAdmin signon 桥接〔HMAC 令牌防伪+短时效+一次性+绑定实例，vault MySQL 凭据 loopback 注入永不进浏览器〕⚠️A8+mongo-express basic auth 服务端注入与轮换〔Mongo 凭据 vault→systemd env〕⚠️A9+统一打开入口）、凭据 AES-256-GCM 密文零回显（I-02）、变更/打开/轮换审计同事务脱敏（R-03）、外部命令参数数组（R-08）、零遥测下载用户主动例外（R-09）**；轻量入口（面板内浏览）保留并存（Q3/⚠️A13），治理台账仍归 database-mgmt",
+        "tablePrefix": "",
+        "tableCount": 6,
+        "aggregateRoot": "db_tool（工具部署档案）",
+        "objects": [
+          {
+            "name": "db_tool（工具部署档案）",
+            "table": "",
+            "type": "aggregate",
+            "relation": "",
+            "parent": null,
+            "condition": ""
+          },
+          {
+            "name": "tool_deploy_task（工具部署任务）",
+            "table": "",
+            "type": "aggregate",
+            "relation": "—（与 db_tool 为同域两个独立聚合：执行事实与部署档案各自一致性边界，终态驱动档案登记/更新同事务协作——backup_job/backup_run 同构）",
+            "parent": null,
+            "condition": ""
+          },
+          {
+            "name": "工具凭据",
+            "table": "db_tool",
+            "type": "entity",
+            "relation": "内嵌于 db_tool（密文列整体加密）",
             "parent": null,
             "condition": ""
           }

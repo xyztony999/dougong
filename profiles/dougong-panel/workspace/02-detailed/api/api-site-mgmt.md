@@ -2,9 +2,9 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v2.7 |
+| 版本 | v2.8 |
 | 状态 | 稳定 |
-| 最后更新 | 2026-11-17 |
+| 最后更新 | 2026-11-19（v2.8 db-tools ConfigWritePipeline OHS 提供方登记，零 HTTP/DDL 变更） |
 | 输入 | prd-site-mgmt.md v1.2（Gate 1 改判 DNS-01 纳入 ⚠️A20；v1.1 增量完备性复核通过 ⚠️A18/A19）、domain-model.md v1.18（零新对象注记）、d0-clarification-site-mgmt.md、D1 三文档（BA/AA/FL v1.1）；v1.0 基线输入见变更记录 |
 | 接口规约 | 无激活技术栈（ACTIVE_STACKS 为空）——按通用 REST/JSON 契约设计；认证=HttpOnly Cookie 会话 + CSRF token（R-02，复用 account-auth）；鉴权=RBAC 两角色边界矩阵（ADR-018）；安全写入=R-06 四步强制前置（本模块核心约束） |
 
@@ -46,6 +46,7 @@
 | D-18 | **证书手动更新双通道**（v1.2，C-09-03）：①`cert/renew`（acme 来源手动立即续期）——状态守卫 valid/expiring_soon/renew_failed（pending 在途/expired 过期拒绝 CERT_002），进入 4.1.3 同一续期通道同步终态（ACME_TIMEOUT）；**失败状态迁移分流**：当前 valid → 保持 valid + last_error 落库（旧证书仍在用，renew_failed 语义=应续而未续的风险态，不误标）；当前 expiring_soon/renew_failed → 转 renew_failed。②`cert/replace`（imported 来源文件替换）——certPem 服务端 x509 解析校验（CERT_008）；写前备份原文件至面板数据目录 cert-backup/{certId}/（保留 5 份，CERT_BACKUP_KEEP）→ 原子写回 origin_path → **自动 reload 生效**（nginx 证书更换需 reload；ssl_cert 路径未变无需改配置）；替换后元数据读时刷新（D-08 通道）；私钥不在替换范围（续期同 key 场景，换 key 归 shell/file-manager 通道，如实声明）；acme 来源调用 replace 拒绝 CERT_002（data.reason=source） | v0.1.2 用户反馈第 2 项；域名集合差异不硬阻断（证书可能扩域名，响应返回新 domains/notAfter 供前端呈现差异） |
 | D-19 | **HTTP-01 挑战落点策略**（v1.2 ⚠️A19 显性化；v2.2 多块注入；**v2.3 跨文件+默认兜底**）：cert/request（http_01）验证文件放置三级策略——①目标域名 80 端口 server 块存在且有 root → 直写 `{root}/.well-known/acme-challenge/{token}`（签发后删除）；②既有配置已含 acme-challenge location（alias/proxy 指向）→ 复用其指向目录写文件（v2.2 起复用判定扩至**全扫描相关块**）；③兜底 → 经 WritePipeline 向**全扫描跨文件的全部相关 server 块**（server_name 与申请域名精确/泛域名匹配，含 80 与 443 块；**v2.3：匹配块中无 80 端口块时追加注入 80 默认兜底块**——default_server 优先、否则扫描序首个 80 块，即 LE 首跳 http 请求的实际落点，常见为全局 `server_name _` catch-all 重定向块）临时注入挑战 location（root 指向 **/var/www/dougong-acme/**——v2.4 迁出 0700 数据目录：nginx worker 须可读挑战文件，数据目录不可穿越否则 403；Debian/RHEL 标准 httpd 内容目录兼 SELinux httpd_sys_content_t，^~ 前缀），**并对注入块内 server 级 301/302 跳转（return 301/302、rewrite … permanent\|redirect）临时包裹为 `location / { 原跳转 }`**——nginx 的 server 级 return 先于 location 匹配执行，不包裹则挑战请求被整块重定向到无挑战入口的块（实机两次 404：v2.2 前=单文件单块；v2.3 前=跨文件/全局 catch-all 漏注入）；包裹后挑战路径走 ^~ location、其余路径保持原跳转语义；cleanup 逐文件逆序字节级复原（R-06 管线，panel-core 面板证书同族策略）。TLS-ALPN 无文件落点（443 TLS 握手内挑战）；**存量 HTTPS 在跑的域名优先建议 dns_01（D-20）** | v0.1.2 用户反馈第 3 项；v2.2/v2.3 修正=2026-11-17 两次实机 HTTP-01 404 |
 | D-20 | **DNS-01 DNS API 自动化**（v2.0，⚠️A20/Gate 1 改判）：①**dns_credential 聚合根**（新增，双聚合根之一）——凭据材料按 provider 形态校验（cloudflare=APIToken 单值 / aliyun=AccessKeyId+AccessKeySecret / dnspod=SecretId+SecretKey），AES-256-GCM 密文单列+独立密钥文件 dns-cred.key 0600（沿 database-mgmt CredentialVault 先例），明文永不回显（list 仅 id/name/provider/时间）、审计 detail 零凭据材料；轮换=删除重建（MVP 无 update）；admin 专属（readonly 全负空间——解释性决策：敏感配置最小暴露）。②**签发通道**：cert/request 扩展——challenge=dns_01 时 dnsCredentialId 必填；域名来源 siteId 与 domains 二选一（domains 支持泛域名 `*.domain` 形态校验，适用无站点/泛域名场景）；AcmeGateway 经 lego DNS provider 自动 TXT 添加→ACME 验证→签发→TXT 清理（清理失败不阻断签发、运行日志警示）；证书行落 dns_credential_id 引用。③**续期**：4.1.3 对 dns_01 证书复用凭证自动续期；凭证已删=失败转 renew_failed（last_error=「DNS 凭证已删除」）。④R-09 例外语义与 ACME CA 同判（用户主动/续期调度）；服务商初始清单 Cloudflare/阿里云 DNS/腾讯云 DNSPod（lego v4 官方内置 provider，适配器注册表可扩展） | Gate 1 用户改判（2026-11-16，反馈第 3 项 P2）；手动 TXT OUT（每次续期需人工介入，与自动续期承诺互斥） |
+| D-21 | **ConfigWritePipeline 泛化 OHS**（v2.8，db-tools 集成联动）：本模块 R-06 四步安全写入管线（pipeline.go:21 applyPipeline 先例：备份→写入→nginx -t→失败回滚）向 db-tools 开放泛化进程内 OHS `ConfigWritePipeline { Apply(ctx, file, newContent string, allowNew bool) error; Remove(ctx, file string) error }`——db-tools 工具路径 location 注入/撤除（面板域 server 块持久注入，api-db-tools.md D-03）经此通道，**注入内容由 db-tools 组合（工具 location 模板），本模块仅提供管线语义不承载工具业务**；nginxx 适配层（ExtractServers/ServerBlock.Proxy() 落点识别）与 PhpFpmGateway（ListPools）共享复用（进程内适配器非模块调用）；本模块 HTTP 接口/DDL/错误码零变更 | db-tools D3 消费契约（api-db-tools.md v1.0 D-03/4.1.5，同轮提供方登记沿 v1.1 panel-core 先例）；管线泛化不改变 R-06 四步语义 |
 
 ### 1.4 领域对象总览
 
@@ -65,6 +66,7 @@
 | account-auth | 遵奉者 + OHS 消费 | 全部接口位于 Cookie 会话后（R-02，AuthRequired）；站点列表/详情/证书清单/日志尾部两角色同等（D0 口径）、全部变更 admin 专属（ADR-018，RoleRequired + AUTH_008 边界拒绝）；写接口 CSRF（R-02，CsrfGuard）；审计写入 AuditService.Record（R-03，D-12 事务边界） |
 | panel-core | 消费其 HTTP 骨架 | `/sites` 路由组挂载；入口面/外壳归 panel-core（R-10） |
 | panel-core（面板证书 ACME，v1.1 增量） | **被依赖 + OHS 提供方** | 面板自身证书 ACME 签发/续期复用本模块 AcmeGateway（4.1.5 ACL，D-09）与 nginx 安全写回通道（WritePipeline/NginxGateway，4.2.5）：HTTP-01 挑战 location 的临时注入/撤除经 R-06 安全流程，不新增独立 80 端口监听；申请/续期编排与契约细节归 panel-core 设计文档（ADR-029；OHS 行见 5.1） |
+| **db-tools（数据库工具集成，v2.8 登记）** | **被依赖 + OHS 提供方** | **本模块提供 ConfigWritePipeline 泛化 OHS（D-21/5.1）：db-tools 工具路径 location 持久注入/撤除经 R-06 四步管线（面板域 server 块，api-db-tools.md D-03）；nginxx 落点识别（ExtractServers/Proxy()）与 PhpFpmGateway pool 实况共享复用；注入内容归 db-tools 组合，本模块不承载工具业务；单向依赖 db-tools→site-mgmt** |
 | ACME CA（Let's Encrypt 等） | 外部系统，**ACL（防腐层）** | 本项目首个真实外部系统 ACL：ACME 协议交互经 AcmeGateway（lego 封装）翻译为 certificate 对象，外部概念不渗透领域模型；R-09 除外条款的唯一外呼路径（用户主动申请/既有证书续期调度）；D-09 账户密钥与 CA 配置 |
 | nginx / php-fpm（本机系统组件） | 数据源与动作通道 | nginxx 适配器（ADR-010 自研核心资产）承载指令树解析/序列化与 `nginx -t`/reload 通道（NginxGateway，4.2.5）；php-fpm pool 实况读取（PhpFpmGateway，D-14）；本机资源非外部业务系统对接，无 ACL 必要 |
 | 前端网站管理页 | 唯一消费方 | 仅经 18 个 HTTP 接口消费（5.1）；cron-backup 等后续模块如引用站点对象另行在对应模块 D2 定义（PRD T1a） |
@@ -490,8 +492,9 @@ PhpFpmGateway { ListPools() ([]{name, socket}, error) }   // pool 实况读取�
 | 中间件 AuthRequired / CsrfGuard / RoleRequired | （复用） | account-auth 提供（3.1） |
 | AuditService.Record | （出站调用） | 操作审计写入（R-03，D-12；certificate 侧同事务例外） |
 | AcmeGateway + nginx 安全写回（进程内 OHS，非 HTTP，v1.1 增量） | panel-core（面板证书 ACME 签发/续期编排，ADR-029） | AcmeGateway Issue/Renew 通道复用（4.1.5，R-09 唯一外呼路径不旁路）；HTTP-01 挑战 location 临时注入/撤除经 WritePipeline 四步（R-06，4.2.5）；不新增独立 80 端口监听（存量服务器 80 已归 nginx） |
+| **ConfigWritePipeline.Apply/Remove（进程内 OHS，非 HTTP，v2.8 增量）** | **db-tools（工具路径 location 注入/撤除，api-db-tools.md D-03）** | **R-06 四步管线泛化（D-21）：Apply(ctx,file,newContent,allowNew)/Remove(ctx,file)；db-tools 组合注入内容（工具 location+gate internal location+秘密文件 include），本模块提供管线语义；nginxx/PhpFpmGateway 共享适配层复用** |
 
-本模块对外 OHS 服务契约仅上表末行一项（v1.1 新增，ADR-029）：AcmeGateway 与 nginx 安全写回通道向 panel-core 面板证书业务开放（进程内 OHS 非 HTTP，被依赖登记见 1.5）；其余潜在消费方（cron-backup 等）仍另行定义。
+本模块对外 OHS 服务契约上表末二行（v1.1 AcmeGateway+nginx 安全写回向 panel-core，ADR-029；**v2.8 ConfigWritePipeline 泛化管线向 db-tools**）；被依赖登记见 1.5；其余潜在消费方（cron-backup 等）仍另行定义。
 
 ### 5.2 SQL 清单
 
@@ -564,6 +567,7 @@ CREATE INDEX IF NOT EXISTS idx_dns_cred_provider ON dns_credential(provider);
 | v2.4 | 2026-11-17 | rule_changed | **HTTP-01 webroot 迁出 0700 数据目录**（第二层根因：v2.3 注入修好后挑战文件仍不可达——webroot={dataDir}/acme-webroot 位于 0700 root 数据目录内，nginx worker（www-data/nginx）不可穿越→必然 403；RHEL SELinux 下 var_t 亦拒 httpd 读）：默认 webroot 迁至 **/var/www/dougong-acme**（Debian/RHEL 标准 httpd 内容目录、httpd_sys_content_t、certbot webroot 同族；MkdirAll 0755、挑战文件 0644）；三处派生同源收敛（acme.Gateway.WebrootDir / panel WithAcmeChannel / sitemgmt Options 默认）；sitemgmt Options.WebrootDir 保留测试注入；账户密钥/备份/证书仍留 0700 数据目录（安全面不变）。接口/错误码/枚举零变更 | D-19、4.1.5 |
 | v2.3 | 2026-11-17 | rule_changed | **HTTP-01 跨文件+默认兜底注入修正**（二次实机 404：v2.2 仅覆盖 entry 单文件——①80/443 块分属不同 conf；②域名仅 443 在服、http 首跳落全局 `server_name _` catch-all 重定向块〔server_name 不匹配被 v2.2 跳过〕）：D-19 ③注入范围扩至全扫描跨文件全部匹配块；匹配块无 80 端口时追加注入 80 默认兜底块（default_server 优先/否则扫描序首个 80 块）并包裹其跳转；逐文件 R-06 写回、cleanup 逆序逐文件字节复原；复用判定同步全扫描。接口/错误码/枚举零变更（回归锁 TestCertRequestHTTP01CrossFile / TestCertRequestHTTP01DefaultCatchAll，onIssue 钩子快照注入态） | D-19、4.1.4 |
 | v2.2 | 2026-11-17 | rule_changed | **HTTP-01 多块注入修正**（实机 LE 404：`Invalid response from https://…/.well-known/acme-challenge/…: 404`——存量站点常见 server 级 `return 301 https://…` 先于 location 匹配执行，挑战请求被整块重定向到 443 块、443 块无挑战入口）：D-19 三级策略③升级——注入目标从单块改为**同文件全部相关 server 块**（server_name 精确/泛域名匹配，80+443），并对相关块内 server 级跳转（return 301/302、rewrite … permanent\|redirect）临时包裹 `location / { 原跳转 }`（^~ 挑战 location 优先命中，其余路径语义不变）；②复用判定同步扩至全部相关块（acmeWebroot 一致）；cleanup 整文件字节级复原不变；接口/错误码/枚举零变更（实现：prepareChallengeBlocks 树变换 + wrapServerRedirect，回归测试 TestPrepareChallengeBlocks〔含幂等与无关块原样〕+ TestCertRequestHTTP01ServerLevelRedirect E2E；存量 HTTPS 在跑域名建议 dns_01） | D-19、4.1.4 |
+| v2.8 | 2026-11-19 | rule_added（OHS 提供方登记） | db-tools 集成联动登记（api-db-tools.md v1.0 D-03/4.1.5 消费方，同轮提供方登记沿 v1.1 panel-core 先例）：D-21 ConfigWritePipeline 泛化 OHS（Apply/Remove，R-06 四步管线向 db-tools 工具路径 location 注入/撤除开放，注入内容归 db-tools 组合）；1.5 +db-tools 被依赖行；5.1 +ConfigWritePipeline OHS 行+尾注订正（末二行）；nginxx/PhpFpmGateway 共享适配层复用登记；**本模块 HTTP 接口/DDL/错误码/枚举零变更**（23 接口不变） | 1.3（D-21）、1.5、5.1 |
 
 ### 6.2 变更类型词汇表
 

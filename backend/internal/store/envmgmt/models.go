@@ -25,6 +25,7 @@ const (
 	EnvRedis   = "redis"
 	EnvPHPFPM  = "php_fpm"
 	EnvMongoDB = "mongodb" // v1.1 W1 修复轮：七环境目录（⚠️A1/迁移 010）
+	EnvNode    = "node"    // v1.3 Node 增量（prd FR-08/⚠️A16：八环境目录，迁移 014；运行时型无服务单元 ⚠️A17）
 
 	ActionInstall   = "install"
 	ActionUpgrade   = "upgrade"

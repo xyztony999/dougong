@@ -34,6 +34,7 @@ import type {
 import { dbmErrorText, isMongoSystemDatabase } from '@/types/database'
 import { formatBytes, formatDateTime } from '@/utils/format'
 import { ConnStateTag, EngineTag, identityText } from '../render'
+import AdvancedManageEntry from '../components/AdvancedManageEntry.vue'
 import MongoCreateUserModal from './components/MongoCreateUserModal.vue'
 import MongoRoleManageModal from './components/MongoRoleManageModal.vue'
 
@@ -169,10 +170,16 @@ const dbColumns = computed<DataTableColumns<MongoDatabaseItem>>(() => {
     cols.push({
       title: '操作',
       key: 'actions',
-      width: 200,
+      width: 280,
       fixed: 'right',
       render: (row) => {
-        const nodes = [browseBtn(row)]
+        // v1.5 高级管理入口（PageSpec 6.3/6.8，admin only）：mongo-express 打开分发
+        // （工具绑定实例与当前治理实例不一致时入口明示绑定实例并引导重新部署——
+        // boundInstanceId 判定由 AdvancedManageEntry 承载）
+        const nodes = [
+          browseBtn(row),
+          h(AdvancedManageEntry, { instanceId: instanceId.value, engine: 'mongodb' })
+        ]
         if (isMongoSystemDatabase(row.name)) {
           // 系统库删除保护前端镜像（I-12）：禁用态+tooltip，服务端 DBM_028 为最终守卫
           nodes.push(
@@ -410,7 +417,7 @@ onMounted(() => {
             :columns="dbColumns"
             :data="databases"
             :loading="databasesLoading"
-            :scroll-x="authStore.isAdmin ? 820 : 740"
+            :scroll-x="authStore.isAdmin ? 900 : 740"
             :row-key="(r: MongoDatabaseItem) => r.name"
             size="small"
           >

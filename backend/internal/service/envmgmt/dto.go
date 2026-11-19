@@ -161,6 +161,12 @@ func (s *Service) ServiceOp(ctx context.Context, actor *authsvc.Identity, envTyp
 	if entry == nil {
 		return nil, errcodeInvalidEnvType()
 	}
+	// ⚠️A17 运行时型无服务单元（v1.3 Node，FR-08③）：不在服务操作对象集——
+	// 如实拒绝（ENV_006 data.reason），不发起任何 systemd 调用。
+	if len(entry.UnitByFamily) == 0 && len(entry.UnitPatternByFamily) == 0 {
+		return nil, errcode.ErrEnvUnitOpFailed.WithData(map[string]any{
+			"reason": "运行时环境无常驻服务单元，服务操作不适用（" + envType + "）"})
+	}
 	ch := s.pack.DetectChannel()
 	if ch.Available {
 		if _, _, found, ok := s.installedPkg(ctx, entry, ch.Family); ok && !found {

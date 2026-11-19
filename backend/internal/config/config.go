@@ -28,6 +28,17 @@ type Config struct {
 	DB DB `json:"db"`
 	// Cron 计划任务与备份（cron-backup）CLI 通道参数（重启生效）。
 	Cron Cron `json:"cron"`
+	// Tools 数据库工具集成（db-tools）下载镜像参数（api-db-tools §3.4 配置项）。
+	Tools Tools `json:"tools"`
+}
+
+// Tools 是 db-tools 模块的下载分发镜像参数（默认空=官方源；其余编译期
+// 常量不入配置，⚠️A1 非用户可配）。
+type Tools struct {
+	// Mirror 下载镜像拼接式前缀（DOUGONG_MIRROR 同构，install.sh:38-45）。
+	Mirror string `json:"mirror"`
+	// NpmRegistry npm registry 镜像（--registry 选项；空=官方 registry）。
+	NpmRegistry string `json:"npm_registry"`
 }
 
 // Sites 是 site-mgmt 模块的 nginx 通道参数（重启生效；惯例根下目录优先级
@@ -167,6 +178,12 @@ func overrideByEnv(cfg *Config) {
 	}
 	if v := os.Getenv("DOUGONG_SHELL_BIN"); v != "" {
 		cfg.Cron.ShellBin = v
+	}
+	if v := os.Getenv("DOUGONG_TOOLS_MIRROR"); v != "" {
+		cfg.Tools.Mirror = v
+	}
+	if v := os.Getenv("DOUGONG_TOOLS_NPM_REGISTRY"); v != "" {
+		cfg.Tools.NpmRegistry = v
 	}
 }
 

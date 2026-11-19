@@ -32,6 +32,17 @@ const (
 	mongodbYumRepo  = vendorYumRepoDir + "/mongodb-org-" + mongodbTrack + ".repo"
 	dockerCEYumRepo = vendorYumRepoDir + "/docker-ce.repo"
 
+	// nodeTrack NODE_LTS_TRACK：NodeSource LTS 大版本轨道（api-db-tools.md
+	// D-13 钉 22；prd-env-mgmt FR-08 ⚠️A16——轨道为面板编译期选定，升级语义
+	// =轨道内仓库最新版）。源 URL 经官方 setup_22.x 脚本落码取证（tasks.md
+	// A-DBT2③）：apt nodistro main / rpm pub_22.x/nodistro/nodejs/$basearch。
+	nodeTrack     = "22"
+	nodeKeyURL    = "https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key"
+	nodeKeyPath   = vendorKeyringDir + "/nodesource.asc"
+	nodeAptList   = vendorAptListDir + "/nodesource.list"
+	nodeYumRepo   = vendorYumRepoDir + "/nodesource-nodejs.repo"
+	nodeRPMKeyURL = "https://rpm.nodesource.com/gpgkey/ns-operations-public.key"
+
 	pgpArmorHeader = "-----BEGIN PGP PUBLIC KEY BLOCK-----"
 )
 
@@ -87,8 +98,63 @@ func (g *Gateway) EnsureVendorRepo(ctx context.Context, envType, family string) 
 		return "", fmt.Errorf("envpack: vendor repo unsupported family %q", family)
 	case envType == "docker" && (family == "dnf" || family == "yum"):
 		return g.ensureDockerCEYum(rel)
+	case envType == "node":
+		switch family {
+		case "apt":
+			return g.ensureNodeApt(ctx, rel)
+		case "dnf", "yum":
+			return g.ensureNodeYum(rel)
+		}
+		return "", fmt.Errorf("envpack: vendor repo unsupported family %q", family)
 	}
 	return "（该环境-通道组合无需第三方源，跳过）", nil
+}
+
+// ensureNodeApt Debian 系 NodeSource 源（FR-08 ⚠️A16）：NodeSource 现行仓库
+// 为 nodistro 统一代际（官方 setup_22.x 取证：URIs=node_22.x Suites=nodistro
+// Components=main，架构 amd64/arm64）——不再按 Ubuntu/Debian 代际分支，仅
+// 发行版身份限定 debian/ubuntu（支持矩阵外组合 failed 如实零写入）。
+// signed-by 引用面板下载的官方 armored 公钥（mongodb 同机制，noble 实测可用）。
+func (g *Gateway) ensureNodeApt(ctx context.Context, rel osRelease) (string, error) {
+	switch rel.ID {
+	case "ubuntu", "debian": // nodistro 仓库覆盖全部现行代际
+	default:
+		return unsupportedMsg("nodejs", rel)
+	}
+	opts := "signed-by=" + nodeKeyPath
+	switch runtime.GOARCH { // NodeSource apt 仅 amd64/arm64（官方脚本同限定）
+	case "amd64", "arm64":
+		opts = "arch=" + runtime.GOARCH + " " + opts
+	}
+	content := fmt.Sprintf("deb [%s] https://deb.nodesource.com/node_%s.x nodistro main\n", opts, nodeTrack)
+	listPart, err := g.writeKeyAndList(ctx, content, nodeAptList, nodeKeyPath, nodeKeyURL, rel.ID+" nodistro")
+	if err != nil {
+		return "", err
+	}
+	return "nodejs " + nodeTrack + ".x LTS（apt）: " + listPart, nil
+}
+
+// ensureNodeYum RHEL 系 NodeSource 源（官方 setup_22.x 取证：baseurl=
+// pub_22.x/nodistro/nodejs/$basearch，gpgkey=ns-operations-public.key，
+// module_hotfixes=1——RHEL 8/9 模块化过滤放行）。支持主版本 8/9（mongodb 同矩阵）。
+func (g *Gateway) ensureNodeYum(rel osRelease) (string, error) {
+	if !rel.isRHELFamily() || rel.rhelMajor() != "8" && rel.rhelMajor() != "9" {
+		return unsupportedMsg("nodejs", rel)
+	}
+	content := fmt.Sprintf(`[nodesource-nodejs]
+name=Node.js Packages for Linux RPM based distros - $basearch
+baseurl=https://rpm.nodesource.com/pub_%s.x/nodistro/nodejs/$basearch
+priority=9
+enabled=1
+gpgcheck=1
+gpgkey=%s
+module_hotfixes=1
+`, nodeTrack, nodeRPMKeyURL)
+	s, err := g.writeVendorFile(nodeYumRepo, content)
+	if err != nil {
+		return "", err
+	}
+	return "nodejs " + nodeTrack + ".x LTS（" + rel.ID + " " + rel.rhelMajor() + "）: " + s, nil
 }
 
 // ensureMongoApt：Debian 系 mongodb-org 源（Ubuntu：focal/jammy/noble +
@@ -127,7 +193,7 @@ func (g *Gateway) ensureMongoApt(ctx context.Context, rel osRelease) (string, er
 	content := fmt.Sprintf(
 		"deb [%s] https://repo.mongodb.org/apt/%s %s/mongodb-org/%s %s\n",
 		opts, rel.ID, suite, mongodbTrack, component)
-	listPart, err := g.writeKeyAndList(ctx, content, mongodbAptList, rel.ID+" "+suite)
+	listPart, err := g.writeKeyAndList(ctx, content, mongodbAptList, mongodbKeyPath, mongodbKeyURL, rel.ID+" "+suite)
 	if err != nil {
 		return "", err
 	}
@@ -176,25 +242,26 @@ gpgkey=https://download.docker.com/linux/centos/gpg
 
 // writeKeyAndList apt 双写：公钥（不存在时经 HTTPS 下载，校验 PGP armored
 // 头防错页落盘；已存在复用不重复下载）+ 源 list 文件（幂等写入）。
-func (g *Gateway) writeKeyAndList(ctx context.Context, listContent, listPath, distro string) (string, error) {
+// keyPath/keyURL 参数化（v1.3 Node 增量泛化：mongodb/node 共用同一机制）。
+func (g *Gateway) writeKeyAndList(ctx context.Context, listContent, listPath, keyPath, keyURL, distro string) (string, error) {
 	keyPart := ""
-	if _, err := g.readFile(mongodbKeyPath); err == nil {
-		keyPart = "公钥已存在（复用 " + mongodbKeyPath + "）"
+	if _, err := g.readFile(keyPath); err == nil {
+		keyPart = "公钥已存在（复用 " + keyPath + "）"
 	} else {
-		key, err := g.httpGet(ctx, mongodbKeyURL)
+		key, err := g.httpGet(ctx, keyURL)
 		if err != nil {
-			return "", fmt.Errorf("envpack: download mongodb key: %w", err)
+			return "", fmt.Errorf("envpack: download vendor key %s: %w", keyURL, err)
 		}
 		if !strings.Contains(string(key), pgpArmorHeader) {
-			return "", fmt.Errorf("envpack: mongodb key content invalid (missing %q)", pgpArmorHeader)
+			return "", fmt.Errorf("envpack: vendor key content invalid (missing %q)", pgpArmorHeader)
 		}
 		if err := g.mkdirAll(vendorKeyringDir, 0o755); err != nil {
 			return "", fmt.Errorf("envpack: mkdir %s: %w", vendorKeyringDir, err)
 		}
-		if err := g.writeFile(mongodbKeyPath, key, 0o644); err != nil {
-			return "", fmt.Errorf("envpack: write key %s: %w", mongodbKeyPath, err)
+		if err := g.writeFile(keyPath, key, 0o644); err != nil {
+			return "", fmt.Errorf("envpack: write key %s: %w", keyPath, err)
 		}
-		keyPart = "公钥已写入 " + mongodbKeyPath
+		keyPart = "公钥已写入 " + keyPath
 	}
 	if err := g.mkdirAll(vendorAptListDir, 0o755); err != nil {
 		return "", fmt.Errorf("envpack: mkdir %s: %w", vendorAptListDir, err)

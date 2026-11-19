@@ -2,11 +2,11 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v1.4 |
+| 版本 | v1.5 |
 | 状态 | 稳定 |
-| 最后更新 | 2026-11-18 |
+| 最后更新 | 2026-11-19（v1.5 db-tools 高级管理入口增量） |
 | 用户类型 | admin |
-| 唯一数据源 | 02-detailed/api/api-database-mgmt.md v2.3 |
+| 唯一数据源 | 02-detailed/api/api-database-mgmt.md v2.4（本模块接口）+ 02-detailed/api/api-db-tools.md v1.0（跨模块高级入口消费：dbtoolList/dbtoolOpen） |
 | 组件体系 | Vue 3 + Naive UI（knowledge/architecture-choices 栈版本表；无激活栈 profile，不使用 vue3-engine 栈 Scm* 组件） |
 | 确认方式 | headless run：7 项交互确认依据 D3 契约（api-database-mgmt.md）+ ADR-018 + FL v1.0 推导，标注于各节 |
 
@@ -71,6 +71,8 @@
 | mongoDocumentDelete | POST | /db/mdoc/delete | mongo-documents（行内，v1.4） | admin | ✓ |
 
 > S7 一致性：44 Action 与 api-database-mgmt.md v2.3 44 接口一一对应（一接口一 Action，无未覆盖接口、无虚构接口；v1.2 +mongo 7、v1.4 +table/row 6 +mcoll/mdoc/mdb-dropped 8）；backupExport 成功=文件流下载（双形态响应，按 Content-Type 分流，api D-06）。**v1.4 数据内容 Action（rowList/mongoDocumentList）admin 专属（Q6/I-11，沿 redisKeyList 先例）；元数据 Action（tableList/tableStructure/mongoCollectionList）两角色（readonly 视角见 readonly 文档）**。
+>
+> **跨模块 Action 引用（v1.5，非本模块 S7 计数——本模块 api 零新增接口）**：`dbtoolList`（GET /dbtool/tool/list，db-tools，admin+readonly）+ `dbtoolOpen`（POST /dbtool/access/open，db-tools，admin+CSRF）——高级管理入口消费（6.8）：工具状态判定（installed/running）+ 打开分发（新标签页，signon/gating）；Action 定义权威归 db-tools PageSpec v1.0 第 2 节，本模块仅引用不重复定义（沿 F5 面包屑消费 panel-core 能力先例——呈现层跨模块消费，本模块 S7 44/44 不变）。
 
 ## 第 3 节 字典 Key 清单
 
@@ -138,6 +140,7 @@
 | 按钮 | Action | 交互 |
 |------|--------|------|
 | 配置凭据 | instanceCredentials | NModal 表单弹窗（见 5.1）；credentialsSet=false 时为主按钮态 |
+| 高级管理（v1.5，admin only） | dbtoolOpen（跨模块 db-tools） | 引擎∈mysql/mariadb→phpMyAdmin、engine=mongodb→mongo-express（redis 行无此按钮——Redis 集成工具 OUT）；工具状态判定+打开/未装引导（6.8）；readonly 不渲染 |
 | 移除 | instanceRemove | NPopconfirm 强确认：文案明示「仅解除面板管理，不卸载实例、不删除数据」（⚠️A20）；DBM_016 在途时按钮禁用+提示 |
 | 查看（readonly 同） | —（路由跳转） | 按引擎进入 mysql-manage / redis-manage |
 
@@ -296,8 +299,9 @@
 **Tab 1 数据库**（admin+readonly；readonly 无工具栏与操作列）：
 
 - 工具栏（admin）：`新建数据库`（5.2 弹窗）。
-- 表格列：序号/库名(text, 240)/字符集(text, 140)/操作(action, 260 fixed:right：**「浏览」两角色可见（v1.4 F3）**+ admin only：导出/导入/删除)。
+- 表格列：序号/库名(text, 240)/字符集(text, 140)/操作(action, 320 fixed:right：**「浏览」两角色可见（v1.4 F3）**+ **「高级管理」admin only（v1.5，6.8）**+ admin only：导出/导入/删除)。
 - **「浏览」入口（v1.4）**：库行「浏览」按钮 → router.push `/databases/mysql/:instanceId/browse/:database`（mysql-tables 表清单页，6.4）；admin+readonly 均可见（Q6 元数据入口；readonly 数据区负空间见 readonly 文档）。
+- **「高级管理」入口（v1.5）**：库行「高级管理」按钮 → phpMyAdmin 打开分发（6.8，dbtoolOpen toolType=phpmyadmin instanceId=当前实例；库名不参与 signon 绑定——phpMyAdmin 进入后自选库，工具内全库可达 admin 专属）；admin only（readonly 负空间）。
 - 数据源：databaseList（实时投影，响应 generatedAt 标注「快照时间」，D-04）。
 
 **Tab 2 用户**（admin+readonly；readonly 无工具栏与操作列）：
@@ -335,8 +339,9 @@
 
 **Tab 1 状态概览**（admin+readonly）：NDescriptions 呈现 mongoStatus 白名单（version/uptimeSec/connections.current/available/memResidentMb/opcounters×4，D-08 同构）。
 
-**Tab 2 数据库**（admin+readonly；**v1.4 修订：D-18 只读口径废止，ADR-031/D-25 可管理清单**）：表格列 序号/库名(text,240)/大小(sizeBytes→人类可读呈现,140,右对齐)/集合数(collections,120,右对齐)/操作(action,200 fixed:right,**v1.4 新增**：「浏览集合」两角色可见 +「删除库」admin only)；无工具栏（无独立建库入口——隐式建库经集合清单页「新建集合」达成，5.13 说明文案）；generatedAt 快照标注。
+**Tab 2 数据库**（admin+readonly；**v1.4 修订：D-18 只读口径废止，ADR-031/D-25 可管理清单**）：表格列 序号/库名(text,240)/大小(sizeBytes→人类可读呈现,140,右对齐)/集合数(collections,120,右对齐)/操作(action,280 fixed:right,**v1.4 新增**：「浏览集合」两角色可见 +「删除库」admin only；**v1.5 新增**：「高级管理」admin only)；无工具栏（无独立建库入口——隐式建库经集合清单页「新建集合」达成，5.13 说明文案）；generatedAt 快照标注。
 - **「浏览集合」入口**：库行 → router.push `/databases/mongo/:instanceId/browse/:database`（mongo-collections 集合清单页，6.6）。
+- **「高级管理」入口（v1.5）**：库行「高级管理」按钮 → mongo-express 打开分发（6.8，dbtoolOpen toolType=mongo_express；instanceId 部署时已绑定——**工具绑定实例与当前治理实例不一致时入口提示明示绑定实例并引导重新部署**（6.8 步骤 4，boundInstanceId 判定）；admin only（readonly 负空间）。
 - **「删除库」**：mongoDatabaseDrop（5.15 强确认）；系统库 admin/config/local 禁用态+tooltip（DBM_028/I-12）；readonly 操作列整列不渲染。
 
 **Tab 3 用户**（admin+readonly；readonly 无工具栏与操作列）：
@@ -422,6 +427,30 @@
 - 数据源：mongoDocumentList（find skip/limit，BSON→JSON 映射如实——ObjectId/$date 扩展 JSON 形态透传，api 4.8.4）；DBM_025/026/027 分流见第 1 节。
 - 空态 NEmpty「该集合暂无文档」（插入文档入口引导）。
 
+### 6.8 高级管理入口规格（v1.5 新增，db-tools 集成消费，admin 专属）
+
+**定位**：database-mgmt 实例治理面打开集成工具（phpMyAdmin/mongo-express）的统一入口（D0 Q3 高级入口，与面板内轻量浏览并存）；能力归 db-tools（api-db-tools.md v1.0 D-09/D-11/4.4），本模块仅呈现层消费（跨模块 Action 引用 dbtoolList/dbtoolOpen，第 2 节）。
+
+**入口位置**（三处，共用本规格）：
+
+| 位置 | 引擎映射 | 行级语境 |
+|------|---------|---------|
+| 4.1 db-list 实例行 operList「高级管理」 | mysql/mariadb→phpmyadmin；mongodb→mongo_express；**redis 行无入口**（Redis 集成工具 OUT，D0 范围边界） | 实例级 |
+| 6.1 mysql-manage 库 Tab 库行「高级管理」 | phpmyadmin | 库级（进入工具后自选库，signon 绑定实例不绑定库） |
+| 6.3 mongo-manage 数据库 Tab 库行「高级管理」 | mongo_express | 库级（工具绑定实例，进入后全库可达） |
+
+**交互流程**（admin only；readonly 入口不渲染——见 readonly 文档负空间）：
+
+1. **工具状态判定**：首次点击入口时懒加载 dbtoolList（dbtoolStore 缓存，手动刷新语义同 db-tools PageSpec 4.1）；按引擎映射取目标工具条目。
+2. **已装分支**（installed=true）：
+   - running=true → 直接 dbtoolOpen（phpmyadmin 携当前 instanceId；mongo_express 部署时已绑定）→ 响应 url → **window.open 新标签页**（db-tools PageSpec 4.4 裁定，noopener）；
+   - running=false/null → NModal 提示「工具服务未运行」+「到工具管理查看」（/db-tools 链接）+ 可选重试打开（DBT_012 服务端兜底）。
+3. **未装分支**（installed=false）：NModal 引导「{工具 displayName} 未安装——安装后可经面板安全访问进行高级数据库管理」+ 依赖就绪度呈现（depsReady=false 时列出缺失项 + 「到环境管理安装」链接 /env）+「到工具管理安装」主按钮（router.push /db-tools）。
+4. **mongo-express 实例绑定校验**：工具部署时绑定目标实例（api D-07）；dbtoolList 条目 `boundInstanceId`（api v1.1 新增，mongo_express=绑定实例 id，phpmyadmin=null）与当前治理实例 id 比对——**不一致时**入口 NModal 明示「mongo-express 部署时绑定实例 {boundInstanceId 经 instanceList 缓存反查 identityKey}，打开将进入该实例」+「仍要打开」/「到工具管理重新部署」（/db-tools，卸载重装切换绑定）二选；一致时直接打开。
+5. **错误分流**：DBT_006（实例未就绪/凭据未配置）→「到数据库管理配置凭据」链接（本模块 5.1 弹窗语境）；DBT_004（未装）→ 未装分支引导；AUTH_008（readonly 越界）→ 边界原因提示（前端本不渲染入口，双保险）。
+
+**安全口径呈现**：入口 tooltip「经面板会话安全访问（仅管理员）；工具仅监听本机，凭据加密存储不回显」（⚠️A6~A10 用户面文案）；打开后浏览器经 gating 进入工具（readonly/无会话不可达，网络层闸门）。
+
 ## 第 7 节 路由定义
 
 | 路由 | 页面 | meta |
@@ -476,6 +505,7 @@
 | 10 | 引擎守卫与页面路由一一对应（mysql 族/redis/mongo 三治理路由 + v1.4 四浏览路由同链，DBM_018 前端镜像） | ✅ 第 7 节 |
 | 11（v1.4） | 面包屑 crumb 链与路由层级一一对应（7.2）；动态段 dbStore+params 组装不虚构（档案缺失兜底 instanceId） | ✅ |
 | 12（v1.4） | 单列主键行写禁用态与服务端 I-10 同源判定（singlePk 派生，DBM_023 兜底）；系统库删除禁用态与 I-12 同源（DBM_028 兜底） | ✅ 5.12/5.15/6.5 |
+| 13（v1.5） | 高级管理入口跨模块消费：dbtoolList/dbtoolOpen 引用归 db-tools PageSpec（本模块 S7 44/44 不变，api 零新增接口）；入口 admin only（readonly 负空间）；引擎映射 mysql/mariadb→phpmyadmin、mongodb→mongo_express、redis 无入口（OUT）；绑定校验 boundInstanceId（api v1.1）；打开=新标签页（db-tools 4.4 裁定） | ✅ 4.1/6.1/6.3/6.8 |
 
 ## 第 9 节 文档版本与变更记录
 
@@ -486,5 +516,6 @@
 | v1.2 | 2026-11-17 | interface_added / enum_added | v0.1.4 反馈第 3 项 MongoDB 增量（API v2.0 同步）：+7 Action（S7 30/30）——mongoStatus/mongoDatabaseList/mongoUserList（两角色）+mongoUserCreate/Delete/Grant/Revoke（admin+CSRF）；新页面 6.3 mongo-manage（三 Tab：状态概览白名单/数据库只读投影（名称/大小/集合数，无建删库 D-18）/用户治理（三档库级角色 D-19））；表单 5.9 建用户/5.10 角色管理/5.11 删除行内；字典 +mongo_role 三值 + db_engine +mongodb（S8 5/5 同值）；路由 +/databases/mongo/:instanceId（engineGuard mongodb）；配色 mongodb=green、mongo_role 三色 | 2/3/5/6/7/8 |
 | v1.3 | 2026-11-17 | rule_changed | v0.1.6 后 DBM_005 诊断轮 UX 增强（API v2.1 同步，d0-clarification-2026-11-17-dbm005.md）：5.1 凭据弹窗 DBM_005/006 内联追加 data.reason 服务器原文；DBM_005 另按引擎族呈现可操作排查指引（dbmAuthRejectedTips 纯函数）；DBM_005 文案订正不再断言「用户名或密码错误」；Action/接口/字典零变更（S7 30/30 保持）；readonly 无凭据配置面（负空间）无需同步 | 5.1 |
 | v1.4 | 2026-11-18 | interface_added / rule_changed | database-mgmt v1.4 用户实机反馈轮（API v2.3 同步，d0-clarification-database-mgmt-ux-2026-11-18.md Q1~Q6）：①+14 Action（S7 44/44）——tableList/tableStructure/tableDrop/rowList/rowUpdate/rowDelete + mongoCollectionList/Create/Drop + mongoDatabaseDrop + mongoDocumentList/Insert/Update/Delete；②+4 页面（6.4 mysql-tables 表清单/6.5 mysql-table-detail 数据浏览+结构两 Tab/6.6 mongo-collections 集合清单/6.7 mongo-documents 文档 JSON 分页）+4 路由（browse 层级，engineGuard 同链）；③库行「浏览」入口（6.1 两角色）+mongo 库行「浏览集合」「删除库」（6.3，D-18 只读口径废止 ADR-031，系统库 DBM_028 禁用态）；④表单 5.12 行编辑（单列主键约束禁用态 I-10/NULL 勾选/主键只读）/5.13 新建集合（隐式建库说明）/5.14 文档 JSON 编辑（双层校验）/5.15 五个强确认行内动作；⑤rule_changed——4.1 实例清单 TCP 优先呈现（天然一行 TCP，无归并展开 UI）+说明文案+connState/credentialsSet NTooltip 语义包裹+图例（F2）+redundantSocket 冗余标注+rescan toast merged 统计（F1/D-21）；⑥7.2 MainLayout 面包屑规格（F5，crumb 链+动态段 dbStore+params，能力归 panel-core S-09-01 消费）；⑦错误分流 +DBM_022~028；字典/配色零新增（沿用 5 Key）；分页默认 20 上限 100（TABLE/DOC_PAGE_LIMIT）；本轮无插入行/建表入口（OUT-12） | 1/2/3/4/5/6/7/8 |
+| v1.5 | 2026-11-19 | interface_added（跨模块引用） | db-tools 高级管理入口增量（api-db-tools.md v1.0/v1.1 消费，D0 Q3 高级入口兑现，api-database-mgmt 待同步项闭环）：①4.1 db-list 实例行 operList +「高级管理」（admin only，mysql/mariadb→phpmyadmin、mongodb→mongo_express、redis 无入口 OUT）；②6.1 mysql-manage 库行 +「高级管理」（操作列 260→320）；③6.3 mongo-manage 库行 +「高级管理」（操作列 200→280，绑定实例校验提示）；④新增 6.8 高级管理入口规格（工具状态懒加载判定/已装打开〔新标签页，db-tools 4.4 裁定〕/未装引导安装〔依赖就绪度+环境管理链接〕/mongo-express boundInstanceId 绑定校验〔api v1.1 联动〕/错误分流 DBT_004/006/012）；⑤第 2 节跨模块 Action 引用声明（dbtoolList/dbtoolOpen，**本模块 S7 44/44 不变，api 零新增接口**——沿 F5 面包屑消费先例）；⑥第 8 节 +检查 13；readonly 同步（入口负空间，见 readonly v1.5）；字典/配色/路由零新增 | 2/4.1/6.1/6.3/6.8/8 |
 
 > FX 质量清单说明：FX-001~FX-141 逐条清单文件未随引擎 0.5.2 payload 发布（find 验证无 checklist.md，与 account-auth PageSpec 同判），本节按分册 9 节结构逐节落实，并以第 8 节 10 项全局一致性自查替代可机械执行部分；全量 141 项留待 Gate 1 validation 执行。

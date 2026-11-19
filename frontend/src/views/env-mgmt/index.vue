@@ -269,7 +269,7 @@ onUnmounted(() => {
       </n-alert>
     </n-card>
 
-    <!-- 环境卡片网格（七条目 v1.1 +MongoDB；readonly 操作区整区不渲染——ADR-018 负空间） -->
+    <!-- 环境卡片网格（八条目 v1.1 +MongoDB、v1.3 +Node.js；readonly 操作区整区不渲染——ADR-018 负空间） -->
     <div class="grid">
       <n-card v-for="item in store.items" :key="item.envType" size="small" class="env-card">
         <template #header>
@@ -284,8 +284,10 @@ onUnmounted(() => {
           </n-tag>
         </template>
         <div class="env-desc">{{ item.description }}</div>
-        <!-- 未安装环境不渲染服务态行（v0.1.4：曾显示「已停止/自启关」误导） -->
-        <div v-if="item.installed !== false" class="env-service">
+        <!-- 未安装环境不渲染服务态行（v0.1.4：曾显示「已停止/自启关」误导）；
+             运行时型无服务单元（unitName=""，v1.3 Node ⚠️A17）整行不渲染——
+             null 服务态非「探测失败」语义，不呈现「服务态未探测」误导文案 -->
+        <div v-if="item.installed !== false && item.unitName !== ''" class="env-service">
           <template v-if="item.serviceRunning !== null">
             <n-tag :type="item.serviceRunning ? 'success' : 'default'" size="small" :bordered="false">
               {{ item.serviceRunning ? '运行中' : '已停止' }}
@@ -308,33 +310,38 @@ onUnmounted(() => {
                 <template #trigger>
                   <n-button size="small" :loading="installing === item.envType">升级</n-button>
                 </template>
-                将通过 {{ dictItem(PACKAGE_MANAGER_FAMILY, store.channel.family ?? 'apt').label }} 升级到仓库最新版（先刷新包索引，可能需要数分钟；需第三方官方源的环境——MongoDB、RHEL 系 Docker CE——将自动写入源配置并留痕）。
+                将通过 {{ dictItem(PACKAGE_MANAGER_FAMILY, store.channel.family ?? 'apt').label }} 升级到仓库最新版（先刷新包索引，可能需要数分钟；需第三方官方源的环境——MongoDB、RHEL 系 Docker CE、Node.js〔NodeSource LTS 22.x〕——将自动写入源配置并留痕）。
               </n-popconfirm>
               <n-button size="small" type="error" ghost @click="openUninstall(item)">卸载</n-button>
-              <n-popconfirm @positive-click="onServiceOp(item, 'start')">
-                <template #trigger><n-button size="small" :disabled="serviceBusy === `${item.envType}:start`">启动</n-button></template>
-                启动 {{ item.unitName }}
-              </n-popconfirm>
-              <n-popconfirm @positive-click="onServiceOp(item, 'stop')">
-                <template #trigger><n-button size="small" :disabled="serviceBusy === `${item.envType}:stop`">停止</n-button></template>
-                停止 {{ item.unitName }}
-              </n-popconfirm>
-              <n-popconfirm @positive-click="onServiceOp(item, 'restart')">
-                <template #trigger><n-button size="small" :disabled="serviceBusy === `${item.envType}:restart`">重启</n-button></template>
-                重启 {{ item.unitName }}
-              </n-popconfirm>
-              <n-switch
-                :value="item.serviceEnabled === true"
-                :loading="serviceBusy === `${item.envType}:enable` || serviceBusy === `${item.envType}:disable`"
-                @update:value="(v: boolean) => onServiceOp(item, v ? 'enable' : 'disable')"
-              />
+              <!-- 服务操作组仅对有服务单元的环境渲染（unitName 非空）；运行时型
+                   （v1.3 Node ⚠️A17，serviceState null/unitName=""）不渲染——
+                   后端 ServiceOp 对 node 拒绝 ENV_006 兜底，前端不呈现无效入口 -->
+              <template v-if="item.unitName !== ''">
+                <n-popconfirm @positive-click="onServiceOp(item, 'start')">
+                  <template #trigger><n-button size="small" :disabled="serviceBusy === `${item.envType}:start`">启动</n-button></template>
+                  启动 {{ item.unitName }}
+                </n-popconfirm>
+                <n-popconfirm @positive-click="onServiceOp(item, 'stop')">
+                  <template #trigger><n-button size="small" :disabled="serviceBusy === `${item.envType}:stop`">停止</n-button></template>
+                  停止 {{ item.unitName }}
+                </n-popconfirm>
+                <n-popconfirm @positive-click="onServiceOp(item, 'restart')">
+                  <template #trigger><n-button size="small" :disabled="serviceBusy === `${item.envType}:restart`">重启</n-button></template>
+                  重启 {{ item.unitName }}
+                </n-popconfirm>
+                <n-switch
+                  :value="item.serviceEnabled === true"
+                  :loading="serviceBusy === `${item.envType}:enable` || serviceBusy === `${item.envType}:disable`"
+                  @update:value="(v: boolean) => onServiceOp(item, v ? 'enable' : 'disable')"
+                />
+              </template>
             </template>
             <template v-else-if="item.installed === false">
               <n-popconfirm @positive-click="onInstall(item)">
                 <template #trigger>
                   <n-button size="small" type="primary" :loading="installing === item.envType">安装</n-button>
                 </template>
-                将通过包管理器安装 {{ item.displayName }} 到仓库最新版（先刷新包索引，可能需要数分钟；需第三方官方源的环境——MongoDB、RHEL 系 Docker CE——将自动写入源配置并留痕）。
+                将通过包管理器安装 {{ item.displayName }} 到仓库最新版（先刷新包索引，可能需要数分钟；需第三方官方源的环境——MongoDB、RHEL 系 Docker CE、Node.js〔NodeSource LTS 22.x〕——将自动写入源配置并留痕）。
               </n-popconfirm>
             </template>
           </div>
@@ -369,7 +376,7 @@ onUnmounted(() => {
         {{ uninstallTarget.displayName }} 服务当前正在运行，卸载将使其立即不可用。
       </n-alert>
       <n-alert type="error" title="关联模块影响" style="margin-bottom: 10px">
-        卸载后对应功能将失去运行环境——Docker：容器管理；MySQL/MongoDB：数据库管理；nginx/PHP-FPM：网站管理。
+        卸载后对应功能将失去运行环境——Docker：容器管理；MySQL/MongoDB：数据库管理；nginx/PHP-FPM：网站管理；Node.js：数据库工具（mongo-express）。
         请先到对应模块确认数据已处置（面板不做跨模块数据检查）。
       </n-alert>
       <n-form label-placement="left" label-width="110">

@@ -11,6 +11,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/dougong/dougong/internal/adapter/envpack"
@@ -63,7 +64,8 @@ type CatalogEntry struct {
 	VendorRepo          map[string]bool     // family → 是否需第三方官方源代配（D-06）
 }
 
-// Catalog 七环境静态目录（⚠️A1；v1.1 W1 修复轮六→七 +MongoDB；扩展走面板版本迭代）。
+// Catalog 八环境静态目录（⚠️A1；v1.1 六→七 +MongoDB；v1.3 七→八 +Node
+// 〔prd FR-08/⚠️A16〕；扩展走面板版本迭代）。
 var Catalog = []CatalogEntry{
 	{Type: storeenv.EnvNginx, DisplayName: "nginx",
 		Description:  "高性能 Web 服务器与反向代理",
@@ -104,6 +106,15 @@ var Catalog = []CatalogEntry{
 		PkgByFamily:  map[string][]string{"apt": {"mongodb-org"}, "dnf": {"mongodb-org"}, "yum": {"mongodb-org"}},
 		// mongodb-org 不在任何发行版官方源——三系均需第三方官方仓库代配（⚠️A10，W1/W2 拍板）。
 		VendorRepo: map[string]bool{"apt": true, "dnf": true, "yum": true}},
+	{Type: storeenv.EnvNode, DisplayName: "Node.js",
+		Description: "Node.js 运行时（LTS 22.x 轨道，npm 随包供给）",
+		// ⚠️A17 运行时型无服务单元：单元映射空——EnvList 不发起单元查询、
+		// 服务态/自启态 null 如实；ServiceOp 对 node 如实拒绝（不在操作对象集）。
+		UnitByFamily: map[string]string{},
+		// nodejs 三系包名同（NodeSource 仓库）；npm 随 nodejs 包不单独安装（FR-08①）。
+		PkgByFamily: map[string][]string{"apt": {"nodejs"}, "dnf": {"nodejs"}, "yum": {"nodejs"}},
+		// NodeSource 官方源三系代配（⚠️A16，沿 ⚠️A10 同构机制；LTS 轨道编译期钉死）。
+		VendorRepo: map[string]bool{"apt": true, "dnf": true, "yum": true}},
 }
 
 // CatalogByType 目录索引。
@@ -134,10 +145,45 @@ func (s *Service) installedPkg(ctx context.Context, e *CatalogEntry, family stri
 	return "", "", false, !anyErr
 }
 
-// probeInstalled installedPkg 的布尔投影（EnvList/Install/ServiceOp 用）。
-func (s *Service) probeInstalled(ctx context.Context, e *CatalogEntry, family string) (version string, installed, ok bool) {
+// probeInstalled installedPkg 的投影（EnvList/Install/ServiceOp/EnvStatus 用）。
+// version 为指针（nil=版本不可知如实——Node 运行时型版本经 node --version
+// 查询〔FR-08②〕，二进制缺席不虚构版本；包数据库版本非运行时呈现口径）。
+func (s *Service) probeInstalled(ctx context.Context, e *CatalogEntry, family string) (version *string, installed, ok bool) {
 	_, v, found, probeOK := s.installedPkg(ctx, e, family)
-	return v, found, probeOK
+	if !found || !probeOK {
+		return nil, found, probeOK
+	}
+	if e.Type == storeenv.EnvNode {
+		if bv, err := s.pack.BinaryVersion(ctx, "node"); err == nil {
+			bv = strings.TrimPrefix(strings.TrimSpace(bv), "v")
+			return &bv, true, true
+		}
+		return nil, true, true // 已装（包数据库判定）但版本查询不可用→null 如实
+	}
+	return &v, true, true
+}
+
+// EnvStatus 环境实况读契约 OHS（v1.3 提供，prd FR-08⑤/api-db-tools D-18：
+// db-tools 依赖就绪度数据源——PHP-FPM/Node/nginx 已装态与版本，进程内单向
+// 被消费）。probeOK=false=通道不可用/探测真错误（调用方按「就绪不可确认」
+// 保守处理，不与「未装」混同，D-01 三态同口径）。
+func (s *Service) EnvStatus(ctx context.Context, envType string) (installed bool, version string, probeOK bool) {
+	entry := CatalogByType(envType)
+	if entry == nil {
+		return false, "", false
+	}
+	ch := s.pack.DetectChannel()
+	if !ch.Available {
+		return false, "", false
+	}
+	ver, inst, ok := s.probeInstalled(ctx, entry, ch.Family)
+	if !ok {
+		return false, "", false
+	}
+	if ver != nil {
+		return inst, *ver, true
+	}
+	return inst, "", true
 }
 
 // unitFor 解析环境在目标族的实际 systemd 单元（规范全名）：字面映射名 GetUnit
@@ -211,7 +257,7 @@ func (s *Service) EnvList(ctx context.Context) (*EnvListData, error) {
 			} else if inst {
 				installed := true
 				item.Installed = &installed
-				item.Version = &ver
+				item.Version = ver
 			} else {
 				installed := false
 				item.Installed = &installed

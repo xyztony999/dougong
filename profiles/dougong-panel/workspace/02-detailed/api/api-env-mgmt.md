@@ -2,17 +2,17 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v1.2 |
+| 版本 | v1.3 |
 | 状态 | 稳定 |
-| 最后更新 | 2026-11-17（v1.2 安装后配置就绪增量轮） |
-| 输入 | prd-env-mgmt.md v1.2（完备性检查通过：G 5/5、T 适用 6/6、N 4/4；FR-07 安装后配置就绪）、domain-model.md v1.22（env_install_task 聚合根 +bootstrap_status/note 引导结果维度）、D1 三文档（BA/AA/FL v1.1，⚠️A1~A15）、d0-clarification-2026-11-17-bootstrap.md（拍板 Q1~Q4） |
+| 最后更新 | 2026-11-19（v1.3 Node 环境增量同步轮——db-tools Gate 2 W2 闭环，D0 Q1 一步到位） |
+| 输入 | prd-env-mgmt.md v1.3（FR-08 Node 增量 ⚠️A16/A17；v1.2 完备性检查通过：G 5/5、T 适用 6/6、N 4/4；FR-07 安装后配置就绪）、domain-model.md v1.25（env_type 八值同步，v1.24 +node）、D1 三文档（BA/AA/FL v1.2，⚠️A1~A17）、d0-clarification-2026-11-17-bootstrap.md（拍板 Q1~Q4）、d0-clarification-db-tools-integration-2026-11-19.md（Q1 一步到位 Node 环境） |
 | 接口规约 | 栈规约 backend-02-api-conventions.md（go-vue3）；认证=HttpOnly Cookie 会话 + CSRF token（R-02，复用 account-auth）；鉴权=RBAC 两角色边界矩阵（ADR-018）；外部命令一律字面量参数数组（R-08） |
 
 ## 1. 模块设计概述
 
 ### 1.1 业务背景及目标
 
-环境管理是面板的运行环境供给模块（v0.1.2 用户反馈第 4 项，参照宝塔「软件商店」按本项目定位裁剪）：经发行版包管理器（apt / dnf·yum 双系探测择一，⚠️A2）安装、升级、卸载七类运行环境（nginx/Apache/Docker/MySQL/Redis/PHP-FPM/MongoDB，⚠️A1——v1.1 扩 MongoDB），提供已装环境版本/服务状态观测与服务启停自启入口（复用 service-mgmt SysdGateway 通道资产）。安装/卸载为异步任务（四态状态机 ⚠️A3，任务台账落 SQLite），升级=重装幂等（⚠️A4），卸载保守（⚠️A6）。与既有模块四层分界：本模块管软件包层；实例层归 database-mgmt、容器层归 docker-mgmt、通用单元层归 service-mgmt、站点层归 site-mgmt。服务对象：admin 执行全部变更；readonly 查看环境全景与任务状态输出（ADR-018）。
+环境管理是面板的运行环境供给模块（v0.1.2 用户反馈第 4 项，参照宝塔「软件商店」按本项目定位裁剪）：经发行版包管理器（apt / dnf·yum 双系探测择一，⚠️A2）安装、升级、卸载八类运行环境（nginx/Apache/Docker/MySQL/Redis/PHP-FPM/MongoDB/Node.js，⚠️A1——v1.1 扩 MongoDB；v1.3 扩 Node.js ⚠️A16，db-tools D0 Q1 一步到位），提供已装环境版本/服务状态观测与服务启停自启入口（复用 service-mgmt SysdGateway 通道资产；Node 为运行时型无服务单元 ⚠️A17——服务态 null、服务操作不适用）。安装/卸载为异步任务（四态状态机 ⚠️A3，任务台账落 SQLite），升级=重装幂等（⚠️A4），卸载保守（⚠️A6）。与既有模块四层分界：本模块管软件包层；实例层归 database-mgmt、容器层归 docker-mgmt、通用单元层归 service-mgmt、站点层归 site-mgmt。服务对象：admin 执行全部变更；readonly 查看环境全景与任务状态输出（ADR-018）。
 
 ### 1.2 边界说明
 
@@ -26,15 +26,15 @@
 
 | # | 决策 | 理由 |
 |---|------|------|
-| D-01 | **实时探测投影**：env/list 每请求即时探测七环境实况（已装/版本/服务状态）与通道可用性，无缓存层、无陈旧回退，响应带 generatedAt；**三态如实区分（v1.1 精确化，⚠️A9）**：通道级不可用（channel.available=false，全条目 installed/version=null + 页头横幅）/ 条目级探测失败（installed=null「探测不可用」角标——仅真错误：查询命令超时/通道异常；包名不在包数据库**不算**错误）/ 未装（installed=false）；服务状态仍可经 systemd 探测 | site-mgmt D-01「投影真实性」同口径；包管理器数据库与 systemd 为事实源；七条目探测成本可接受；W1 实机缺陷 2（未装误显「探测不可用」）修复口径 |
-| D-02 | **编译期目录与映射表**（⚠️A1/A7）：env_type 七值目录（v1.1 六→七 +MongoDB；显示名/描述/关联模块提示）与每发行版族映射为编译期常量，非用户可配；**映射表结构 v1.1**：包名=有序候选数组（检测任一命中即已装；安装取首选〔发行版原生优先，MongoDB 例外=mongodb-org〕；卸载移除实际命中者）+ systemd 单元名=规范全名（.service 后缀，⚠️A8/D-13）+ php-fpm apt 系版本化单元（phpX.Y-fpm.service）经 systemd ListUnits 前缀扫描解析；目录扩展走面板版本迭代 | BA ⚠️A1/A7 拍板 + v1.1 修订（多候选覆盖官方源自装形态 docker-ce/mysql-community-server；Ubuntu php-fpm 版本化单元实况） |
+| D-01 | **实时探测投影**：env/list 每请求即时探测八环境实况（已装/版本/服务状态）与通道可用性，无缓存层、无陈旧回退，响应带 generatedAt；**三态如实区分（v1.1 精确化，⚠️A9）**：通道级不可用（channel.available=false，全条目 installed/version=null + 页头横幅）/ 条目级探测失败（installed=null「探测不可用」角标——仅真错误：查询命令超时/通道异常；包名不在包数据库**不算**错误）/ 未装（installed=false）；服务状态仍可经 systemd 探测 | site-mgmt D-01「投影真实性」同口径；包管理器数据库与 systemd 为事实源；八条目探测成本可接受；W1 实机缺陷 2（未装误显「探测不可用」）修复口径；v1.3 Node 运行时型版本经 `node --version` 查询（FR-08②，二进制缺席 version=null 不虚构），服务态/自启态 null（无单元不发起查询，⚠️A17） |
+| D-02 | **编译期目录与映射表**（⚠️A1/A7）：env_type 八值目录（v1.1 六→七 +MongoDB；v1.3 七→八 +Node.js ⚠️A16，Node 目录条目见 4.2.1；显示名/描述/关联模块提示）与每发行版族映射为编译期常量，非用户可配；**映射表结构 v1.1**：包名=有序候选数组（检测任一命中即已装；安装取首选〔发行版原生优先，MongoDB 例外=mongodb-org〕；卸载移除实际命中者）+ systemd 单元名=规范全名（.service 后缀，⚠️A8/D-13）+ php-fpm apt 系版本化单元（phpX.Y-fpm.service）经 systemd ListUnits 前缀扫描解析；目录扩展走面板版本迭代 | BA ⚠️A1/A7 拍板 + v1.1 修订（多候选覆盖官方源自装形态 docker-ce/mysql-community-server；Ubuntu php-fpm 版本化单元实况） |
 | D-03 | **通道探测与双系择一**（⚠️A2）：exec.LookPath 探测 apt/dnf/yum（R-08，非 shell、非外呼）；择一规则=apt 存在→apt；否则 dnf→dnf；否则 yum→yum；皆无→通道不可用（ENV_001 前置拒绝变更接口，列表如实标注）；全部安装/升级/卸载命令经择一族执行 | Debian/RHEL 双系支持矩阵（install.sh 同源）；探测为二进制存在性检查零副作用 |
 | D-04 | **异步任务与同环境互斥**（⚠️A3）：install/uninstall 同步校验（通道/envType/已装态/在途互斥 ENV_003）→ INSERT env_install_task（status=pending）与发起审计同事务 → 立即返回 taskId；worker goroutine（wg 编排，创建即触发非轮询调度）消费：running 落库 → 执行命令链 → 终态（succeeded/failed）落库 + 终态审计；互斥=创建事务内判定同 env_type 存在 pending/running 即拒（SQLite 单连接写串行保证原子）；任务取消不做（OUT-4）；**重启恢复**：启动扫描 running 任务标 failed（error=「面板重启中断」），worker 不续跑（包管理器中断态不安全） | prd FR-03/FR-05/N2；与 backup_run 执行互斥（idx 部分唯一索引）同构但互斥粒度为 env_type（一环境一任务） |
 | D-05 | **升级=重装幂等**（⚠️A4）：install 对已装环境不拒绝——任务 action 按实况判定（未装=install / 已装=upgrade）；执行链统一「刷新包索引 → [仓库代配] → 安装仓库最新版」；重复升级终态一致。**v0.1.3a 实机补丁**：apt 系一律 `apt-get`（apt 无稳定脚本接口）+ `DEBIAN_FRONTEND=noninteractive` + `--force-confdef/--force-confold`（dpkg conffile 交互提示无 stdin 必败；本地已改配置保持现版、新版 .dpkg-dist 旁置） | ⚠️A4 拍板；「检测可升级版本并提示」二期 OUT（不主动检测，用户主动发起）；conffile 保守策略=无人值守绝不静默覆盖生产配置 |
-| D-06 | **官方仓库代配**（⚠️A2/⚠️A10）：映射表 needsVendorRepo 标志的环境-族组合（v1.1 清单：MongoDB 三系〔mongodb-org 不在任何发行版官方源〕+ RHEL 系 docker-ce；apt 系 docker 装发行版原生 docker.io 不代配；MySQL 官方源不代配——Debian12 无 mysql-server 属已知限制如实失败呈现），任务执行链在**索引刷新之前**写入发行版仓库源配置（v1.1 次序前移：新源须参与本次 update/makecache）；实现（v1.1 落定，v1.0 为空转日志）：按 /etc/os-release 判定（ID/ID_LIKE + VERSION_CODENAME/VERSION_ID）目标发行版与代际，支持矩阵外组合任务 failed 如实（不写任何文件）；apt=写 /etc/apt/sources.list.d/mongodb-org-8.0.list（signed-by 引用面板 HTTPS 下载的官方公钥 .asc，经 Go net/http 落 /usr/share/keyrings/mongodb-server-8.0.asc，不依赖 curl/gpg 外部命令）；dnf/yum=写 /etc/yum.repos.d/{mongodb-org-8.0,docker-ce}.repo（gpgkey URL 内联，$releasever/$basearch 由包管理器展开）；文件写入经 os.WriteFile 字面量路径（R-08 非命令拼接；公钥内容校验 PGP armored 头防错页落盘）；写入动作独立审计 env_repo_configured（object_type=env，object_id=envType，detail 含路径与发行版判定结论）；写入/下载失败任务终态 failed（不进入安装步骤）；公钥下载与文件写入提供注入点（测试环境无关，CI 预防） | ⚠️A2 拍板（面板代配并审计留痕）+ v1.1 ⚠️A10 补真实现（MongoDB 8.0 轨道 ⚠️待主会话终确认）；R-08 文件写入非命令拼接。**v0.1.3b 实机补丁**：apt 单行源多选项以空格分隔（逗号把 signed-by 并入 arch 值被静默吞掉 → NO_PUBKEY；WSL noble 复现+验证），组件仅 multiverse/main 无附加 |
+| D-06 | **官方仓库代配**（⚠️A2/⚠️A10）：映射表 needsVendorRepo 标志的环境-族组合（v1.1 清单：MongoDB 三系〔mongodb-org 不在任何发行版官方源〕+ RHEL 系 docker-ce；apt 系 docker 装发行版原生 docker.io 不代配；MySQL 官方源不代配——Debian12 无 mysql-server 属已知限制如实失败呈现；**v1.3 +Node 三系**〔nodejs LTS 轨道不在发行版官方源，NodeSource 官方源代配 ⚠️A16〕），任务执行链在**索引刷新之前**写入发行版仓库源配置（v1.1 次序前移：新源须参与本次 update/makecache）；实现（v1.1 落定，v1.0 为空转日志）：按 /etc/os-release 判定（ID/ID_LIKE + VERSION_CODENAME/VERSION_ID）目标发行版与代际，支持矩阵外组合任务 failed 如实（不写任何文件）；apt=写 /etc/apt/sources.list.d/mongodb-org-8.0.list（signed-by 引用面板 HTTPS 下载的官方公钥 .asc，经 Go net/http 落 /usr/share/keyrings/mongodb-server-8.0.asc，不依赖 curl/gpg 外部命令）；dnf/yum=写 /etc/yum.repos.d/{mongodb-org-8.0,docker-ce}.repo（gpgkey URL 内联，$releasever/$basearch 由包管理器展开）；**v1.3 Node**：apt=写 /etc/apt/sources.list.d/nodesource.list（NodeSource nodistro 统一代际 `deb [arch=… signed-by=/usr/share/keyrings/nodesource.asc] https://deb.nodesource.com/node_22.x nodistro main`，公钥经面板 HTTPS 下载 deb.nodesource.com/gpgkey/nodesource-repo.gpg.key；发行版身份限 debian/ubuntu、架构限 amd64/arm64——官方脚本同限定）；dnf/yum=写 /etc/yum.repos.d/nodesource-nodejs.repo（baseurl=rpm.nodesource.com/pub_22.x/nodistro/nodejs/$basearch，gpgkey=ns-operations-public.key，module_hotfixes=1 模块化过滤放行；RHEL 系主版本 8/9）；矩阵外组合同样 failed 如实零写入；文件写入经 os.WriteFile 字面量路径（R-08 非命令拼接；公钥内容校验 PGP armored 头防错页落盘）；写入动作独立审计 env_repo_configured（object_type=env，object_id=envType，detail 含路径与发行版判定结论）；写入/下载失败任务终态 failed（不进入安装步骤）；公钥下载与文件写入提供注入点（测试环境无关，CI 预防） | ⚠️A2 拍板（面板代配并审计留痕）+ v1.1 ⚠️A10 补真实现（MongoDB 8.0 轨道 ⚠️待主会话终确认）；R-08 文件写入非命令拼接。**v0.1.3b 实机补丁**：apt 单行源多选项以空格分隔（逗号把 signed-by 并入 arch 值被静默吞掉 → NO_PUBKEY；WSL noble 复现+验证），组件仅 multiverse/main 无附加 |
 | D-07 | **卸载保守与风险提示两层**（⚠️A6，PRD FR-04 落地口径）：uninstall 前置已装校验（ENV_004）；执行包 remove（保留系统配置与数据目录，无 purge 选项）；强确认交互归前端（NModal 呈现：本域服务运行实况警示 + 关联模块静态影响文案），**服务端不硬阻断**（知情决策）；风险提示数据=env/list 实况（服务 running 态），无跨模块动态计数（OUT-9） | ⚠️A6 拍板；与 firewall FW_005 两段式的差异=无危险端口类硬阻断语义，知情决策口径 |
 | D-08 | **任务输出尾部采集**：执行中 ring 缓冲采集 stdout/stderr 合并尾部 TASK_OUTPUT_TAIL_LINES=200 行；running 阶段每次追加即更新 output_tail 列（低频写入量级小，避免 running 中详情无输出可看），终态定格 | prd FR-05 排障呈现；行数上限防失控 |
-| D-09 | **服务操作复用 SysdGateway**：start/stop/restart/enable/disable 经 service-mgmt 同一 systemd 网关实现（进程内适配器共享非模块调用）；单元名经映射表（⚠️A7）；操作等待终态语义与 service-mgmt 一致；操作对象限定目录环境单元（不开放任意单元名入参，R-14：请求仅 envType） | AA 附录B 契约；防任意单元操作越界面（service-mgmt 保持通用治理） |
+| D-09 | **服务操作复用 SysdGateway**：start/stop/restart/enable/disable 经 service-mgmt 同一 systemd 网关实现（进程内适配器共享非模块调用）；单元名经映射表（⚠️A7）；操作等待终态语义与 service-mgmt 一致；操作对象限定目录环境单元（不开放任意单元名入参，R-14：请求仅 envType）；**v1.3 运行时型排除（⚠️A17）：node 无服务单元不在操作对象集，ServiceOp 前置拒绝 ENV_006 不发起 systemd 调用** | AA 附录B 契约；防任意单元操作越界面（service-mgmt 保持通用治理） |
 | D-10 | **包操作最小权限与超时**：全部包命令字面量参数数组（R-08）；PKG_OP_TIMEOUT=600s（安装可达数分钟）单命令超时，超时终止进程组任务终态 failed（error=timeout）；命令执行不经 shell、无用户输入拼接（envType 经映射表转包名，无注入面） | prd 第五部分 R-08/最小权限拍板；timeout 按 failed 终态记不扩枚举（backup_run 超时同构） |
 | D-11 | **任务台账全量保留**：不建清理任务（低频操作量级小；避免常驻清理 goroutine）；列表分页查询（公共分页约定） | N1 锁定项 |
 | D-12 | 混合模式（MIXED）声明：全部对象实际为自管（无外部数据同步源；包管理器为本机通道非数据源），不设 manage_mode 字段，权限管控按角色区分（ADR-018） | 分册 Step 2 默认混合模式；本模块无托管侧 |
@@ -121,18 +121,18 @@
 |------|------|----------|------|
 | 0 | OK | 成功 | — |
 | ENV_001 | CHANNEL_UNAVAILABLE | 拒绝 | 包管理器通道不可用（非 Linux / apt 与 dnf·yum 皆未检出，D-03）；data.reason；变更接口前置拒绝，列表不报错（channel.available=false 呈现） |
-| ENV_002 | INVALID_ENV_TYPE | 参数错误 | envType 不在 env_type 七值内（R-14；v1.1 七值） |
+| ENV_002 | INVALID_ENV_TYPE | 参数错误 | envType 不在 env_type 八值内（R-14；v1.1 七值，v1.3 八值 +node） |
 | ENV_003 | TASK_IN_FLIGHT | 参数冲突 | 同环境在途任务互斥（D-04，data.taskId 指向在途任务） |
 | ENV_004 | NOT_INSTALLED | 拒绝 | 环境未安装（uninstall/service 前置；data.installed=false 实况） |
 | ENV_005 | TASK_NOT_FOUND | 拒绝 | 任务不存在（台账实况） |
-| ENV_006 | UNIT_OP_FAILED | 操作失败 | systemd 服务操作失败（D-09）；data.reason（网关错误详情） |
+| ENV_006 | UNIT_OP_FAILED | 操作失败 | systemd 服务操作失败（D-09）；data.reason（网关错误详情）；**v1.3 Node 运行时型无服务单元（⚠️A17）：服务操作对 node 如实拒绝 ENV_006（reason=「运行时环境无常驻服务单元，服务操作不适用」），不发起任何 systemd 调用** |
 | AUTH_001/002/003/008 | （复用） | — | 未登录/过期/CSRF 失败/readonly 越界（account-auth 归口） |
 
 **枚举**（本模块 D2 定稿入池 4 项，本次引用）：
 
 | 枚举标识 | 取值 | 用途 |
 |---------|------|------|
-| env_type | nginx \| apache \| docker \| mysql \| redis \| php_fpm \| mongodb | 环境标识（全部接口 envType 参数/响应；目录键；v1.1 增 mongodb，七值） |
+| env_type | nginx \| apache \| docker \| mysql \| redis \| php_fpm \| mongodb \| node | 环境标识（全部接口 envType 参数/响应；目录键；v1.1 增 mongodb，v1.3 增 node，八值） |
 | env_task_action | install \| upgrade \| uninstall | 任务动作（task/list·detail 响应；D-05 实况判定） |
 | env_task_status | pending \| running \| succeeded \| failed | 任务状态（task/list·detail 响应与筛选；D-04 四态机） |
 | package_manager_family | apt \| dnf \| yum | 通道族（env/list channel.family；探测结论） |
@@ -149,6 +149,7 @@
 | TASK_OUTPUT_TAIL_LINES | 200 | 任务输出尾部采集行数（D-08；终态定格 output_tail） |
 | TASK_LIST_PAGE_SIZE | 50 | 任务列表默认分页（公共分页约定内取值） |
 | MONGODB_ORG_TRACK | 8.0 | MongoDB 仓库源版本轨道（⚠️A10；repo.mongodb.org baseurl/list 路径段；待主会话终确认 ⚠️） |
+| NODE_LTS_TRACK | 22 | NodeSource LTS 大版本轨道（v1.3 ⚠️A16；编译期钉死——deb.nodesource.com/node_22.x 与 rpm.nodesource.com/pub_22.x 路径段；升级语义=轨道内仓库最新版，多版本切换 OUT；api-db-tools D-13 同值） |
 | VENDOR_KEYRING_DIR | /usr/share/keyrings | apt 系第三方公钥落位目录（D-06；signed-by 引用） |
 | VENDOR_APT_LIST_DIR | /etc/apt/sources.list.d | apt 系第三方源文件目录（D-06） |
 | VENDOR_YUM_REPO_DIR | /etc/yum.repos.d | dnf/yum 系第三方源文件目录（D-06） |
@@ -170,7 +171,7 @@
 | 字段 | 类型 | 约束 | 说明 |
 |------|------|------|------|
 | id | INTEGER | PK AUTOINCREMENT | 聚合根标识（taskId） |
-| env_type | TEXT | NOT NULL CHECK(in 七值，v1.1) | 目标环境（env_type） |
+| env_type | TEXT | NOT NULL CHECK(in 八值，v1.3) | 目标环境（env_type；v1.1 七值，v1.3 +node） |
 | action | TEXT | NOT NULL CHECK(in install,upgrade,uninstall) | env_task_action（D-05 实况判定落库） |
 | status | TEXT | NOT NULL DEFAULT 'pending' CHECK(in pending,running,succeeded,failed) | env_task_status（四态机 D-04） |
 | output_tail | TEXT | NOT NULL DEFAULT '' | 命令输出尾部（D-08 ring 采集，running 追加更新/终态定格） |
@@ -225,12 +226,12 @@ env_task_status 四态状态机（⚠️A3）：
 
 **接口详情**（全部写接口隐含 CSRF 与 AUTH_008 角色边界；install/uninstall 隐含通道可用性 ENV_001 前置与互斥 ENV_003，不再逐条重复）：
 
-- **GET /env/env/list**：无参。处理：ChannelDetector 探测（D-03）→ EnvCatalog 七条目 × EnvProber 逐环境探测（已装/版本经 EnvPackGateway 多候选查询〔D-02/D-14〕，服务运行/自启经 SysdGateway 单元名映射〔⚠️A8 全名；php-fpm apt 版本化单元经 ListUnits 前缀扫描〕）→ 在途任务标记（I-01 查询 pending/running 归组）。响应 data=`{channel:{family: package_manager_family|null, available: boolean}, items:[{envType, displayName, description, installed: boolean|null, version: string|null, serviceRunning: boolean|null, serviceEnabled: boolean|null, unitName: string, runningTaskId: number|null}], generatedAt}`（三态 D-01：通道不可用=全条目 null+页头横幅；条目级真错误=该条目 null「探测不可用」角标；未装=installed=false 含包名不在包数据库形态；unitName 随映射表下发供呈现）。审计：—（查看类）。
+- **GET /env/env/list**：无参。处理：ChannelDetector 探测（D-03）→ EnvCatalog 八条目 × EnvProber 逐环境探测（已装/版本经 EnvPackGateway 多候选查询〔D-02/D-14〕，服务运行/自启经 SysdGateway 单元名映射〔⚠️A8 全名；php-fpm apt 版本化单元经 ListUnits 前缀扫描〕；**v1.3 Node 特化**：版本经 `node --version` 二进制查询〔FR-08②，去 v 前缀；二进制缺席 version=null 不虚构，已装判定仍归包数据库〕，单元映射空→不发起单元查询、unitName=""、serviceRunning/serviceEnabled=null 如实〔⚠️A17〕）→ 在途任务标记（I-01 查询 pending/running 归组）。响应 data=`{channel:{family: package_manager_family|null, available: boolean}, items:[{envType, displayName, description, installed: boolean|null, version: string|null, serviceRunning: boolean|null, serviceEnabled: boolean|null, unitName: string, runningTaskId: number|null}], generatedAt}`（三态 D-01：通道不可用=全条目 null+页头横幅；条目级真错误=该条目 null「探测不可用」角标；未装=installed=false 含包名不在包数据库形态；unitName 随映射表下发供呈现）。审计：—（查看类）。
 - **POST /env/env/install**：req `{envType}`。校验：envType ∈ env_type（ENV_002）；通道可用（ENV_001，data.reason）；I-01 互斥（ENV_003，data.taskId）。执行：action 按实况判定（未装=install/已装=upgrade〔多候选任一命中即已装〕，D-05）→ INSERT 任务（pending）+ 发起审计同事务（I-03）→ worker 异步执行（D-06 仓库代配〔needsVendorRepo 时**先于索引刷新**，env_repo_configured 审计；发行版不支持组合任务 failed〕→索引刷新→安装〔候选首选〕→**安装后配置就绪引导〔v1.2，仅 env_type∈BOOTSTRAP_ENV_TYPES 且包操作成功：服务就绪（SysdGateway 幂等 start，D-19）→消费 db-mgmt BootstrapAfterInstall OHS（建账户/设密码/注册实例凭据，D-15/D-16）→引导结果 bootstrap_status/note，幂等保守 D-17；引导失败不改包安装 succeeded，D-18〕**→终态落库+审计〔bootstrap_status/note 同事务定格，I-09〕）。响应 data=`{taskId, action: env_task_action}`（引导异步执行，结果经 task/detail 呈现）。审计：env_install_started / env_upgrade_started（change，detail={envType, action}）+ env_repo_configured（代配时）+ **env_bootstrap（引导时，detail={envType, bootstrapStatus}，不含密码）** + env_task_finished（终态）。
 - **POST /env/env/uninstall**：req `{envType}`。校验：envType（ENV_002）；通道（ENV_001）；已装（ENV_004，data.installed）；I-01 互斥（ENV_003）。执行：INSERT 任务（action=uninstall，pending）+审计 → worker 执行 remove（保留配置与数据，D-07；卸载目标=候选数组中实际命中〔已装〕的包）。响应 data=`{taskId, action:"uninstall"}`。审计：env_uninstall_started + env_task_finished。
 - **GET /env/task/list**：query `{envType?(env_type), status?(env_task_status), page?, pageSize?(默认 50)}`。响应 data=`{items:[{id, envType, action, status, requestedBy, createdAt, startedAt?, finishedAt?, error?, bootstrapStatus?: bootstrap_status|null, bootstrapNote?: string|null}], total}`（created_at 倒序；**v1.2 +bootstrapStatus/bootstrapNote**——NULL=无引导步骤，前端列表引导角标数据源，D-18）。审计：—（查看类）。
 - **GET /env/task/detail**：query `{taskId}`。校验：任务存在（ENV_005）。响应 data=`{...list 项全字段（含 bootstrapStatus/bootstrapNote）, outputTail}`（outputTail 含 [bootstrap] 行；前端详情引导结果横幅数据源，D-18）。审计：—（查看类）。
-- **POST /env/service/{start|stop|restart|enable|disable}**：req `{envType}`（路径段承载服务动作）。校验：envType（ENV_002）；已装（ENV_004——服务操作对象为已装环境单元）；单元存在（单元不存在经网关错误 ENV_006）。执行：SysdGateway 按映射单元名操作（D-09，等待终态语义同 service-mgmt）→ 同事务审计。响应 data=`{envType, unit: unitName, result: "ok"|失败 ENV_006 data.reason}`。审计：env_service_started/stopped/restarted/enabled/disabled（change，detail={envType, unit}）。
+- **POST /env/service/{start|stop|restart|enable|disable}**：req `{envType}`（路径段承载服务动作）。校验：envType（ENV_002）；**v1.3 运行时型前置拒绝（⚠️A17）：node 无服务单元（单元映射空）→ ENV_006 data.reason=「运行时环境无常驻服务单元，服务操作不适用（node）」，先于已装校验、不发起任何 systemd 调用**；已装（ENV_004——服务操作对象为已装环境单元）；单元存在（单元不存在经网关错误 ENV_006）。执行：SysdGateway 按映射单元名操作（D-09，等待终态语义同 service-mgmt）→ 同事务审计。响应 data=`{envType, unit: unitName, result: "ok"|失败 ENV_006 data.reason}`。审计：env_service_started/stopped/restarted/enabled/disabled（change，detail={envType, unit}）。
 
 **跨接口复用规则**：实况探测统一 EnvProber（list/安装 action 判定/卸载前置共用）；任务执行统一 TaskWorker（install/uninstall 共用命令链骨架）；服务操作统一 ServiceOps；审计统一 AuditService.Record（I-03 同事务）。
 
@@ -248,6 +249,7 @@ EnvPackGateway {
   EnsureVendorRepo(envType, family) (summary string, err)  // 仓库源代配（D-06 v1.1 实现：os-release 判定 + apt keyring 下载/yum repo 写入；summary 进任务输出；探测/文件写入/HTTP 可注入测试）
   Install(family, pkgName, timeout) (outputTail, err)      // 参数数组（D-10）
   Remove(family, pkgName, timeout) (outputTail, err)
+  BinaryVersion(ctx, bin) (version string, err)            // v1.3：node --version 参数数组（FR-08②）；二进制不存在=错误如实，调用方 version=null
 }
 SysdGateway（复用 service-mgmt 适配器，D-09）{ UnitState(unit) / Start / Stop / Restart / Enable / Disable / ListUnits }
 约束：全部命令字面量参数数组（R-08）；超时 PKG_OP_TIMEOUT；TaskWorker 组合 EnsureVendorRepo→RefreshIndex→Install/Remove 完成命令链（D-04/D-05/D-06 v1.1 次序）；单元名一律规范全名（⚠️A8/D-13）
@@ -259,6 +261,19 @@ SysdGateway（复用 service-mgmt 适配器，D-09）{ UnitState(unit) / Start /
 
 **表结构组合**：无表（零环境台账 D2 判定——包管理器数据库与 systemd 为事实源，实况每次请求实时探测 D-01；目录条目为编译期常量 D-02）。
 
+**Node 目录条目（v1.3，⚠️A16/A17，prd FR-08；与 service/envmgmt Catalog EnvNode 项同值）**：
+
+| 项 | 值 | 说明 |
+|----|-----|------|
+| env_type / displayName | node / Node.js | 八值目录第八项（v1.3 +node） |
+| description | Node.js 运行时（LTS 22.x 轨道，npm 随包供给） | 运行时型环境 |
+| 版本轨道 | NODE_LTS_TRACK=22（Node.js LTS 22.x） | 编译期钉死（⚠️A16）；升级=轨道内仓库最新版（D-05），多版本切换 OUT |
+| 包名（三系同） | apt/dnf/yum 均 nodejs（单候选） | NodeSource 仓库包；**npm 随 nodejs 包供给不单独安装**（FR-08①） |
+| 仓库代配 | 三系均需（needsVendorRepo=true×3） | NodeSource 官方源（D-06 v1.3 清单；apt nodesource.list / rpm nodesource-nodejs.repo） |
+| systemd 单元映射 | 空（运行时型无服务单元，⚠️A17） | env/list 不发起单元查询：unitName=""、serviceRunning/serviceEnabled=null 如实；**ServiceOp 对 node 前置拒绝 ENV_006（非 systemd 服务，不发起 systemd 调用）**；前端服务操作入口对 Node 不渲染（PageSpec） |
+| 版本查询 | `node --version` 参数数组（R-08，FR-08②） | 去 v 前缀呈现；二进制缺席 version=null 不虚构（已装判定仍归包数据库 nodejs） |
+| 安装后引导 | 无（不在 BOOTSTRAP_ENV_TYPES） | 运行时型装完即用（⚠️A17）；db-tools 经 EnvStatus OHS 消费其已装态/版本（api-db-tools D-18） |
+
 **投影条目字段清单**（env/list 响应数据源）：见 4.1.4 env/list 响应结构（目录字段+实况字段+在途标记合并条目）。
 
 **不变量**：
@@ -267,7 +282,7 @@ SysdGateway（复用 service-mgmt 适配器，D-09）{ UnitState(unit) / Start /
 |------|--------|---------|
 | I-06 | 投影真实性：env/list 恒为当次探测快照，无缓存层（D-01）；generatedAt 标注；探测失败字段为 null（不虚构已装/运行态） | 读取侧保证 |
 | I-07 | 零持久化：环境条目不落库，面板重启无环境台账；变更历史经任务台账+审计 | 结构保证（无表） |
-| I-08 | 目录常量：七条目与映射表编译期内置（v1.1 六→七），运行期只读（⚠️A1/A7）；无用户配置入口 | 编译期保证 |
+| I-08 | 目录常量：八条目与映射表编译期内置（v1.1 六→七；v1.3 七→八 +Node），运行期只读（⚠️A1/A7）；无用户配置入口 | 编译期保证 |
 
 **领域服务**：见 4.1.1（EnvCatalog/EnvProber 为本对象投影编排主体）。
 
@@ -324,7 +339,7 @@ SysdGateway（复用 service-mgmt 适配器，D-09）{ UnitState(unit) / Start /
 ```sql
 CREATE TABLE IF NOT EXISTS env_install_task (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
-  env_type     TEXT    NOT NULL CHECK (env_type IN ('nginx','apache','docker','mysql','redis','php_fpm','mongodb')),
+  env_type     TEXT    NOT NULL CHECK (env_type IN ('nginx','apache','docker','mysql','redis','php_fpm','mongodb','node')),
   action       TEXT    NOT NULL CHECK (action IN ('install','upgrade','uninstall')),
   status       TEXT    NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','running','succeeded','failed')),
   output_tail  TEXT    NOT NULL DEFAULT '',           -- 命令输出尾部（D-08，≤200 行定格）
@@ -341,7 +356,7 @@ CREATE INDEX IF NOT EXISTS idx_env_task_env_status ON env_install_task(env_type,
 CREATE INDEX IF NOT EXISTS idx_env_task_created ON env_install_task(created_at);
 ```
 
-> 迁移：008_env_mgmt.sql（初建，env_type 六值）；v1.1 env_type CHECK 扩七值（+mongodb）经 **010_env_mgmt_mongodb.sql**（009 已被 site-mgmt DNS-01 占用）——SQLite CHECK 约束不可 ALTER，迁移内表重建（CREATE 新表（七值 CHECK）→ INSERT SELECT 全量拷贝 → DROP 旧表 → RENAME → 重建两索引；AUTOINCREMENT 序列经 sqlite_sequence 保持，无既有行丢失）。**v1.2 +bootstrap_status/bootstrap_note 经 012_env_bootstrap.sql（011 已被 database-mgmt MongoDB 占用）——新增可空列用 ALTER TABLE ADD COLUMN（SQLite 支持带 CHECK 的可空列追加，无需表重建）：`ALTER TABLE env_install_task ADD COLUMN bootstrap_status TEXT CHECK(...)` + `ADD COLUMN bootstrap_note TEXT`；既有行两列 NULL（无引导步骤），无数据丢失。**
+> 迁移：008_env_mgmt.sql（初建，env_type 六值）；v1.1 env_type CHECK 扩七值（+mongodb）经 **010_env_mgmt_mongodb.sql**（009 已被 site-mgmt DNS-01 占用）——SQLite CHECK 约束不可 ALTER，迁移内表重建（CREATE 新表（七值 CHECK）→ INSERT SELECT 全量拷贝 → DROP 旧表 → RENAME → 重建两索引；AUTOINCREMENT 序列经 sqlite_sequence 保持，无既有行丢失）。**v1.2 +bootstrap_status/bootstrap_note 经 012_env_bootstrap.sql（011 已被 database-mgmt MongoDB 占用）——新增可空列用 ALTER TABLE ADD COLUMN（SQLite 支持带 CHECK 的可空列追加，无需表重建）：`ALTER TABLE env_install_task ADD COLUMN bootstrap_status TEXT CHECK(...)` + `ADD COLUMN bootstrap_note TEXT`；既有行两列 NULL（无引导步骤），无数据丢失。** **v1.3 env_type CHECK 扩八值（+node）经 014_env_mgmt_node.sql（013 已被 db-tools 两表占用）——沿 010 先例表重建（CREATE 新表〔八值 CHECK〕→ INSERT SELECT 全量拷贝〔含 012 bootstrap_status/bootstrap_note 两列〕→ DROP 旧表 → RENAME → 重建两索引；AUTOINCREMENT 序列随显式 id 拷贝保持，既有台账零丢失）。**
 
 ## 6. 更新记录
 
@@ -353,6 +368,7 @@ CREATE INDEX IF NOT EXISTS idx_env_task_created ON env_install_task(created_at);
 | v1.0 | 2026-11-16 | initial | 首次生成：10 个 HTTP 接口（/env/{env,task,service}/*——GET 3 两角色（env/list、task/list、task/detail）/ POST 7 admin+CSRF（install、uninstall、service/{start,stop,restart,enable,disable}））+ 1 表 DDL（env_install_task：四态任务台账，env_type+status 索引承载互斥查询）+ 2 网关契约（EnvPackGateway 包操作 R-08 参数数组+PKG_OP_TIMEOUT=600s；SysdGateway 复用 service-mgmt 适配层）+ 6 错误码（ENV_001~006 + 复用 AUTH 族）+ 4 枚举引用（本域 D2 定稿入池）+ 10 审计动作常量 + 12 项设计决策（D-01 实时探测/D-02 编译期目录映射/D-03 双系通道/D-04 异步任务互斥+重启恢复/D-05 升级幂等/D-06 仓库代配/D-07 卸载保守/D-08 输出尾部 200 行/D-09 服务操作复用通道/D-10 超时与最小权限/D-11 台账全量保留/D-12 混合模式声明）；关闭 prd-env-mgmt.md 待对齐-1（DDL/上限值定稿：TASK_OUTPUT_TAIL_LINES=200）/待对齐-2（仓库代配落点=编译期模板内置，D-06）；待对齐-3（在途呈现节奏）归 D4；无旧版对比 | — |
 | v1.1 | 2026-11-17 | enum_value_added + rule_changed×4 + rule_added×2 + table_changed | W1 实机冒烟缺陷修复轮（v0.1.2 实测 3 项）：①enum_value_added：env_type +mongodb（七值；DDL CHECK 同步→迁移 010 表重建；ENV_002 取值域七值；4.1.1 字段约束/I-08 目录七条目）；②rule_changed：D-01 三态如实区分（通道级/条目级/未装，W1 缺陷 2 修复口径）、D-02 映射表多候选包名+单元名规范全名+php-fpm 版本化单元解析、D-05/D-07 多候选编排（安装首选/卸载命中者）、D-06 代配补真（os-release 判定/apt keyring/yum repo 文件/env_repo_configured 审计落地/次序前移至索引刷新前）；③rule_added：D-13 单元名规范全名（EnableUnitFiles 无后缀补全→InvalidArgs，W1 缺陷 1 根因）、D-14 QueryInstalled 未装判定口径（dpkg Status 字段+LC_ALL=C+no-packages-found=未装）；④table_changed：env_install_task env_type CHECK 六值→七值（010_env_mgmt_mongodb.sql 表重建，009 已占用）；⑤业务常量 +4（MONGODB_ORG_TRACK=8.0 ⚠️待主会话终确认/VENDOR_* 路径×3/QUERY_TIMEOUT=30s）；4.1.5 契约 EnsureVendorRepo 签名落定 | 1.3（D-01/D-02/D-06/D-13/D-14）、3.4（枚举/常量/ENV_002）、4.1.1（字段约束）、4.1.4（env/list·install·uninstall）、4.1.5、5.3（DDL+迁移）、4.2 I-08 |
 | v1.2 | 2026-11-17 | rule_added×5 + field_added×2 + enum_added + interface_changed×2 + table_changed | 安装后配置就绪增量轮（d0-clarification-2026-11-17-bootstrap.md，D0 拍板 Q1~Q4）：①rule_added D-15~D-19（触发与归属〔worker 后置步骤+db-mgmt BootstrapAfterInstall OHS 单向消费〕/引导通道与账户〔MySQL socket root auth_socket→dougong@localhost ALL WITH GRANT OPTION、Redis CONFIG SET+REWRITE、MongoDB localhost exception admin root、随机强密码密文零回显〕/幂等保守〔已配置跳过〕/引导失败独立维度〔bootstrap_status/note，任务 status 仍包操作结果〕/服务就绪与超时〔幂等 start+BOOTSTRAP_READY_TIMEOUT=60s 有界重试+全注入化 CI 预防〕）；②field_added：env_install_task +bootstrap_status(CHECK 三值可空)/bootstrap_note（迁移 012 ADD COLUMN，011 已占用）；③enum_added：bootstrap_status{succeeded,failed,skipped} 入池（NULL=无引导步骤非值）；④interface_changed：task/list·task/detail 响应 +bootstrapStatus/bootstrapNote（无新接口，S7 Action 数不变 10）；install 执行链 +引导步骤；⑤table_changed：DDL +两列；⑥业务常量 +env_bootstrap 审计动作 +BOOTSTRAP_READY_TIMEOUT/BOOTSTRAP_PASSWORD_BYTES/BOOTSTRAP_ENV_TYPES；⑦仓储契约 Finish 扩展 +BootstrapGateway OHS 消费契约；⑧I-09 引导结果与终态同事务；1.5/3.2/5.1 +db-mgmt OHS 消费登记；关闭 prd 待对齐-4 | 1.3（D-15~D-19）、1.5、3.4（枚举/常量/审计）、4.1.1（字段/I-09/领域服务）、4.1.4（install·task/list·task/detail）、4.1.5、5.1、5.2（SQL#7）、5.3（DDL+迁移 012） |
+| v1.3 | 2026-11-19 | enum_value_added + rule_changed×4 + table_changed | Node 环境增量同步轮（db-tools Gate 2 W2 闭环，D0 Q1 一步到位；prd-env-mgmt v1.3 FR-08 ⚠️A16/A17）：①enum_value_added：env_type +node（八值；ENV_002 取值域八值；4.1.1 字段约束/I-08 目录八条目）；②rule_changed：D-01 八环境探测+Node 版本经 node --version/服务态 null、D-02 八值目录+4.2.1 Node 目录条目（Node.js LTS 22.x/NodeSource 三系源/nodejs 包三系同/npm 随包/单元映射空）、D-06 代配清单 +Node 三系（nodesource.list/nodesource-nodejs.repo，nodistro 统一代际，apt 限 debian/ubuntu+amd64/arm64，rpm 限 RHEL 8/9）、D-09 运行时型排除（ServiceOp 对 node 前置拒绝 ENV_006 不发起 systemd 调用）；③table_changed：env_type CHECK 七值→八值（014_env_mgmt_node.sql 表重建沿 010 先例，013 已占用，含 012 引导两列全量拷贝）；④业务常量 +NODE_LTS_TRACK=22；⑤4.1.5 契约 +BinaryVersion（node --version 参数数组 R-08）；⑥env/list Node 特化（unitName=""/serviceRunning/serviceEnabled=null）；无新接口（S7 Action 数不变 10）；db-tools 侧经 EnvStatus OHS 消费（api-db-tools D-18 跨模块待同步项本轮落定）；关闭 prd 待对齐-5（LTS 版本号=22/NodeSource 源落点/CHECK 迁移 014/node 拒绝码 ENV_006/PageSpec v1.4 呈现） | 1.1、1.3（D-01/D-02/D-06/D-09）、3.4（ENV_002/ENV_006/枚举/常量）、4.1.1（字段约束）、4.1.4（env/list·service/*）、4.1.5、4.2.1（Node 目录条目/I-08）、5.3（DDL+迁移 014） |
 
 ### 6.2 变更类型词汇表
 

@@ -207,6 +207,22 @@ func (g *Gateway) DisableUnit(ctx context.Context, name string) error {
 	return nil
 }
 
+// DaemonReload systemd Manager.Reload（db-tools D-07 新增扩展：单元文件
+// 写入/移除后重载管理器配置；参数化 dbus 方法调用 R-08，非 shell；既有
+// 方法零改动）。interactive=false（无人值守，不触发 polkit 交互）。
+func (g *Gateway) DaemonReload(ctx context.Context) error {
+	conn, err := g.ensureConn()
+	if err != nil {
+		return err
+	}
+	call := conn.Object(systemdDest, systemdPath).
+		CallWithContext(ctx, managerIface+".Reload", 0, false)
+	if call.Err != nil {
+		return g.callErr("daemon-reload", call.Err)
+	}
+	return nil
+}
+
 // runUnitJob 是 start/stop/restart 共用编排（§4.1.5 等待包装）：提交 Job →
 // JobRemoved 等待（job path 匹配，A-S7：StartUnit 返回的 job path 即移除
 // 路径——merged job 语义）→ 尽力读取终态运行态。

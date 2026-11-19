@@ -2,6 +2,41 @@
 
 发布说明按版本倒序排列；每个版本的完整说明也会作为 GitHub Release 正文发布。
 
+## v0.1.14 - 2026-11-19
+
+数据库**现成 Web 工具集成**（宝塔式）：面板一键部署 phpMyAdmin / mongo-express 作高级管理，复用环境管理已管理的 PHP/Node 运行时；访问经面板会话 gating，工具不直接公网暴露（新模块 db-tools，ADR-032）。
+
+### 变更内容
+
+**新增：数据库工具集成（db-tools）**
+- **phpMyAdmin**（管 MySQL/MariaDB）：复用 PHP-FPM 环境，下载钉版本 + sha256 校验 → 部署 → 经面板 nginx 以 PHP 站点承载；PHP 扩展依赖检测（缺失引导补装）
+- **mongo-express**（管 MongoDB）：npm 安装 → systemd 服务 → 面板 nginx 反代；目标实例选择 + 凭据从面板保险库取出注入
+- 工具管理页：状态/版本/运行态/依赖就绪度，安装/升级/卸载（异步任务台账），卸载**不删除数据库数据**（强确认）
+- 数据库治理页/库行新增「高级管理」入口（admin）；**面板内轻量表/文档浏览保留**作快速入口，两者并存
+
+**新增：Node.js 环境纳入环境管理（env-mgmt v1.3）**
+- 八环境目录 +Node.js（LTS 22.x 轨道，NodeSource 官方源三系代配，npm 随包）；版本经 `node --version` 探测
+- Node 为运行时非 systemd 服务，无 start/stop 语义（服务操作如实拒绝）；为 mongo-express 与未来 Node 项目铺路
+
+**安全：面板会话 gating 反代（不可妥协底线）**
+- 工具**仅绑 localhost**，不暴露独立公网端口；唯一访问路径=面板域下工具路径 nginx 反代，经 `auth_request` 校验面板登录会话 + admin 角色（无会话/readonly→401）
+- phpMyAdmin **signon 桥接**：HMAC-SHA256 令牌 + 60s 时效 + 一次性防重放 + 实例/会话双绑定；MySQL 凭据经 loopback 服务端注入，**永不进浏览器**
+- mongo-express basic auth 面板生成经 nginx 服务端注入；凭据 AES-256-GCM 密文零回显
+- 内部鉴权端点 loopback 源校验 + 秘密头双防护；下载为用户主动发起（零遥测例外）
+
+**修复（实机反馈）**
+- 实例清单工具菜单重复登记致侧栏双项 → 去重
+- env_type 前端/文档同步八值（含 node），env-mgmt 页面可见 Node.js 安装入口
+
+### 安装与升级
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/xyztony999/dougong/main/install.sh | sudo bash
+dougong version   # 应为 v0.1.14
+```
+
+升级后验证（数据库工具）：①环境管理可安装 Node.js（LTS 22.x）与 PHP-FPM；②数据库工具页安装 phpMyAdmin（需要 PHP-FPM + 扩展）/mongo-express（需要 Node + 目标 Mongo 实例已纳管配凭据）；③「打开」经面板会话进入工具（未登录/readonly 不可达）；④卸载工具不删除数据库数据。工具仅绑 localhost 经面板反代，无需额外放行公网端口。
+
 ## v0.1.13 - 2026-11-19
 
 修复 MongoDB 浏览系统集合报「参数错误」（v0.1.12 表级/文档治理增量实机热修）。

@@ -558,7 +558,14 @@ export const AUDIT_ACTION_TEXT: Readonly<Record<string, string>> = {
   backup_job_deleted: '删除备份任务',
   backup_run_triggered: '立即执行备份',
   backup_artifact_downloaded: '下载备份产物',
-  backup_rotated: '备份轮转清理'
+  backup_rotated: '备份轮转清理',
+  // db-tools（api-db-tools.md 3.4 业务常量 D-16 审计动作码 6 个，值逐字对齐；detail 脱敏不含凭据/口令/令牌）
+  dbt_install_started: '发起工具安装',
+  dbt_upgrade_started: '发起工具升级',
+  dbt_uninstall_started: '发起工具卸载',
+  dbt_task_finished: '工具部署任务终态',
+  dbt_tool_accessed: '打开数据库工具',
+  dbt_credential_rotated: '轮换工具访问凭据'
 }
 
 export const AUDIT_ACTION_CODES: readonly string[] = Object.keys(AUDIT_ACTION_TEXT)
@@ -588,8 +595,8 @@ export const DNS_PROVIDER: Record<DnsProvider, DictItem> = {
   dnspod: { label: '腾讯云 DNSPod', tag: 'info' }
 }
 
-/** env_type（env-mgmt v1.1 ⚠️A1）：七环境目录（W1 修复轮 +mongodb；与池/DDL CHECK/api 四方 S8 同值） */
-export type EnvType = 'nginx' | 'apache' | 'docker' | 'mysql' | 'redis' | 'php_fpm' | 'mongodb'
+/** env_type（env-mgmt v1.3 ⚠️A1/A16）：八环境目录（v1.1 +mongodb；v1.3 +node〔Node.js LTS，db-tools 轮 W2 同步〕；与池/DDL CHECK/api 四方 S8 同值） */
+export type EnvType = 'nginx' | 'apache' | 'docker' | 'mysql' | 'redis' | 'php_fpm' | 'mongodb' | 'node'
 export const ENV_TYPE: Record<EnvType, DictItem> = {
   nginx: { label: 'nginx', tag: 'default' },
   apache: { label: 'Apache', tag: 'default' },
@@ -597,7 +604,8 @@ export const ENV_TYPE: Record<EnvType, DictItem> = {
   mysql: { label: 'MySQL', tag: 'default' },
   redis: { label: 'Redis', tag: 'default' },
   php_fpm: { label: 'PHP-FPM', tag: 'default' },
-  mongodb: { label: 'MongoDB', tag: 'default' }
+  mongodb: { label: 'MongoDB', tag: 'default' },
+  node: { label: 'Node.js', tag: 'default' }
 }
 
 /** env_task_action（⚠️A3/A5）：install=首装、upgrade=已装再装（升级幂等）、uninstall */
@@ -623,6 +631,32 @@ export const PACKAGE_MANAGER_FAMILY: Record<PackageManagerFamily, DictItem> = {
   apt: { label: 'apt', tag: 'success' },
   dnf: { label: 'dnf', tag: 'success' },
   yum: { label: 'yum', tag: 'success' }
+}
+
+/** ---- db-tools 字典（api-db-tools.md 3.4；取值 = 04-business-enum.md 定稿，PageSpec db-tools 第 3 节颜色方案） ---- */
+
+/** db_tool_type：phpmyadmin / mongo_express（D2 定稿，与池/api 三方 S8 同值；工具卡片标识与任务筛选） */
+export type DbToolType = 'phpmyadmin' | 'mongo_express'
+export const DB_TOOL_TYPE: Record<DbToolType, DictItem> = {
+  phpmyadmin: { label: 'phpMyAdmin', tag: 'default' },
+  mongo_express: { label: 'mongo-express', tag: 'default' }
+}
+
+/** db_tool_task_action：install / upgrade / uninstall（任务动作 Tag，Drawer） */
+export type DbToolTaskAction = 'install' | 'upgrade' | 'uninstall'
+export const DB_TOOL_TASK_ACTION: Record<DbToolTaskAction, DictItem> = {
+  install: { label: '安装', tag: 'info' },
+  upgrade: { label: '升级', tag: 'info' },
+  uninstall: { label: '卸载', tag: 'warning' }
+}
+
+/** db_tool_task_status：pending / running / succeeded / failed（四态机 D-04；pending gray/running blue/succeeded green/failed red） */
+export type DbToolTaskStatus = 'pending' | 'running' | 'succeeded' | 'failed'
+export const DB_TOOL_TASK_STATUS: Record<DbToolTaskStatus, DictItem> = {
+  pending: { label: '等待中', tag: 'default' },
+  running: { label: '执行中', tag: 'info' },
+  succeeded: { label: '成功', tag: 'success' },
+  failed: { label: '失败', tag: 'error' }
 }
 
 /** bootstrap_status（v1.2 安装后配置就绪，⚠️A14 独立结果维度）：succeeded green/

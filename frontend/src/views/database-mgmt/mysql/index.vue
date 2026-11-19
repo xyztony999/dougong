@@ -38,6 +38,7 @@ import { formatBytes, formatDateTime } from '@/utils/format'
 import type { VNode } from 'vue'
 import InstanceCredentialsModal from '../components/InstanceCredentialsModal.vue'
 import PasswordSetModal from '../components/PasswordSetModal.vue'
+import AdvancedManageEntry from '../components/AdvancedManageEntry.vue'
 import { ConnStateTag, CredentialsTag, EngineTag, identityText } from '../render'
 import CreateDatabaseModal from './components/CreateDatabaseModal.vue'
 import CreateUserModal from './components/CreateUserModal.vue'
@@ -211,12 +212,15 @@ const dbColumns = computed<DataTableColumns<DbDatabaseItem>>(() => {
     cols.push({
       title: '操作',
       key: 'actions',
-      width: 260,
+      width: 320,
       fixed: 'right',
       render: (row) => {
         const busy = exportingDb.value !== null
         return [
           browseBtn(row),
+          // v1.5 高级管理入口（PageSpec 6.1/6.8，admin only）：phpMyAdmin 打开分发
+          // （库名不参与 signon 绑定——进入工具后自选库，工具内全库可达 admin 专属）
+          h(AdvancedManageEntry, { instanceId: instanceId.value, engine: instance.value?.engine ?? 'mysql' }),
           h(
             NButton,
             {
@@ -500,7 +504,7 @@ onMounted(() => {
             :columns="dbColumns"
             :data="databases"
             :loading="databasesLoading"
-            :scroll-x="authStore.isAdmin ? 700 : 540"
+            :scroll-x="authStore.isAdmin ? 760 : 540"
             :row-key="(row: DbDatabaseItem) => row.name"
           >
             <template #empty>
