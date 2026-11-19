@@ -61,6 +61,7 @@ type CatalogEntry struct {
 	UnitByFamily        map[string]string   // family → systemd 单元规范全名（⚠️A8/D-13：含 .service 后缀——EnableUnitFiles DBus 契约无后缀补全）
 	UnitPatternByFamily map[string]string   // family → 版本化单元解析正则（php-fpm apt 系 phpX.Y-fpm.service；空=无）
 	PkgByFamily         map[string][]string // family → 有序候选包名（D-02 v1.1：检测任一命中/安装取首选/卸载移除命中者）
+	ExtraPkgsByFamily   map[string][]string // family → 附加包（install/upgrade 随主包一并安装，best-effort；v0.1.15：PHP-FPM 必需扩展 mysqli/mbstring/zip/gd/curl，phpMyAdmin 依赖）
 	VendorRepo          map[string]bool     // family → 是否需第三方官方源代配（D-06）
 }
 
@@ -99,7 +100,15 @@ var Catalog = []CatalogEntry{
 		// Ubuntu/Debian 实际单元带主版本号（php8.1-fpm.service 等）——GetUnit 落空时按
 		// 前缀扫描 systemd ListUnits 全集解析（D-02 v1.1）。
 		UnitPatternByFamily: map[string]string{"apt": `^php[0-9][0-9.]*-fpm\.service$`},
-		PkgByFamily:         map[string][]string{"apt": {"php-fpm"}, "dnf": {"php-fpm"}, "yum": {"php-fpm"}}},
+		PkgByFamily:         map[string][]string{"apt": {"php-fpm"}, "dnf": {"php-fpm"}, "yum": {"php-fpm"}},
+		// phpMyAdmin 必需扩展（v0.1.15 实机修复：仅装 php-fpm 缺扩展致 DBT_001）。
+		// apt 用元包（拉默认版本扩展）；RHEL 系 mysqli 经 php-mysqlnd，zip/curl 多内置
+		// 于 php-common（best-effort 安装，缺失发行版包不阻断主包，worker 记日志）。
+		ExtraPkgsByFamily: map[string][]string{
+			"apt": {"php-mysqli", "php-mbstring", "php-zip", "php-gd", "php-curl"},
+			"dnf": {"php-mysqlnd", "php-mbstring", "php-gd"},
+			"yum": {"php-mysqlnd", "php-mbstring", "php-gd"},
+		}},
 	{Type: storeenv.EnvMongoDB, DisplayName: "MongoDB",
 		Description:  "MongoDB 文档数据库",
 		UnitByFamily: map[string]string{"apt": "mongod.service", "dnf": "mongod.service", "yum": "mongod.service"},
@@ -191,27 +200,53 @@ func (s *Service) EnvStatus(ctx context.Context, envType string) (installed bool
 // 返回映射全名（下发供呈现，操作时 systemd 如实报 ENV_006）。
 func (s *Service) unitFor(ctx context.Context, e *CatalogEntry, family string) (unit string, detail sysd.UnitDetail, ok bool) {
 	lit := e.UnitByFamily[family]
+	var litDetail sysd.UnitDetail
+	litErr := true
 	if lit != "" {
 		if d, err := s.sysd.GetUnit(ctx, lit); err == nil {
-			return lit, d, true
+			litDetail, litErr = d, false
 		}
 	}
-	if p := e.UnitPatternByFamily[family]; p != "" {
-		if units, err := s.sysd.ListUnits(ctx); err == nil {
-			if re, cerr := regexp.Compile(p); cerr == nil {
-				for _, un := range units {
-					if re.MatchString(un.Name) {
-						name := un.Name
-						if d, err := s.sysd.GetUnit(ctx, name); err == nil {
-							return name, d, true
-						}
-						return name, sysd.UnitDetail{}, false
-					}
+	pattern := e.UnitPatternByFamily[family]
+	var units []sysd.UnitSnapshot
+	if pattern != "" {
+		if u, err := s.sysd.ListUnits(ctx); err == nil {
+			units = u
+		}
+	}
+	name, found := resolveUnitName(lit, litDetail, litErr, pattern, units)
+	if !found {
+		return lit, sysd.UnitDetail{}, false
+	}
+	if name == lit && !litErr {
+		return lit, litDetail, true
+	}
+	if d, err := s.sysd.GetUnit(ctx, name); err == nil {
+		return name, d, true
+	}
+	return name, sysd.UnitDetail{}, false
+}
+
+// resolveUnitName 纯函数单元名解析（v0.1.15 实机修复可测缝）：字面映射名装载态
+// 有效（loaded，非 not-found/空）即用；否则按版本化正则在 ListUnits 全集扫描首个
+// 匹配名。**关键：LoadUnit 对不存在的单元也返回对象路径（LoadState="not-found"，
+// err==nil）——须排除 not-found/空，否则字面名「假命中」跳过版本化扫描**（apt
+// php-fpm.service 不存在〔真实单元 phpX.Y-fpm.service〕致 StartUnit unit not found）。
+// litErr=GetUnit(lit) 是否出错。返回解析名与是否命中（命中后调用方再 GetUnit 取详情）。
+func resolveUnitName(lit string, litDetail sysd.UnitDetail, litErr bool, pattern string, units []sysd.UnitSnapshot) (string, bool) {
+	if lit != "" && !litErr && litDetail.LoadState != "not-found" && litDetail.LoadState != "" {
+		return lit, true
+	}
+	if pattern != "" {
+		if re, cerr := regexp.Compile(pattern); cerr == nil {
+			for _, un := range units {
+				if re.MatchString(un.Name) {
+					return un.Name, true
 				}
 			}
 		}
 	}
-	return lit, sysd.UnitDetail{}, false
+	return lit, false
 }
 
 // unitServiceStates 由单元详情映射服务态指针（纯函数可测）。

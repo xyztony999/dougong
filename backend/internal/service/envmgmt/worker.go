@@ -129,6 +129,20 @@ func (s *Service) runTask(taskID int64) {
 		finish(storeenv.TaskFailed, &e, ring.String(), nil, nil)
 		return
 	}
+	// 附加包随主包安装（v0.1.15 实机修复：PHP-FPM 必需扩展 mysqli/mbstring/zip/gd/curl，
+	// phpMyAdmin 依赖）——best-effort：失败记日志+输出环注记，不阻断主包终态（发行版
+	// 差异：部分扩展内置或包名不同；phpMyAdmin 依赖检测仍如实报告缺失项引导补装）。
+	if task.Action != storeenv.ActionUninstall {
+		for _, extra := range entry.ExtraPkgsByFamily[ch.Family] {
+			eout, eerr := s.pack.Install(ctx, ch.Family, extra)
+			ring.append(eout)
+			if eerr != nil {
+				slog.WarnContext(ctx, "envmgmt: extra package install failed (best-effort)",
+					"env", entry.Type, "pkg", extra, "err", eerr)
+				ring.append("[warn] 附加包 " + extra + " 安装失败（不阻断主包）: " + eerr.Error())
+			}
+		}
+	}
 	// 安装后配置就绪引导（v1.2，D-15~D-19）：仅数据库类 install/upgrade 成功后
 	// 执行（runBootstrap 内部按 bootstrapEnvTypes 判定，非数据库返回 nil）；引导
 	// 失败不改包安装 succeeded（独立维度，⚠️A14），结果随终态同事务定格（I-09）。

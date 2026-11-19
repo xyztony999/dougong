@@ -2,6 +2,37 @@
 
 发布说明按版本倒序排列；每个版本的完整说明也会作为 GitHub Release 正文发布。
 
+## v0.1.15 - 2026-11-19
+
+修复 v0.1.14 数据库工具集成的三个实机问题（PHP-FPM 启动 / phpMyAdmin 扩展依赖 / mongo-express 服务重载）。
+
+### 变更内容
+
+**修复：PHP-FPM 服务启动报 `unit not found`（Ubuntu/Debian）**
+- 根因：单元解析把「字面名 `php-fpm.service`」当命中——systemd `LoadUnit` 对不存在的单元也返回对象路径（`LoadState=not-found`，调用无错误），旧逻辑只判错误为空便用了字面名，**版本化单元扫描分支永远走不到**（真实单元是 `php8.3-fpm.service` 等）
+- 修复：单元解析排除 `not-found`/空装载态，字面名不存在时落版本化正则扫描（`phpX.Y-fpm.service`）；RHEL 系 `php-fpm.service` 真实存在则直用不受影响
+
+**修复：phpMyAdmin 安装报 PHP 扩展缺失（mysqli/mbstring/zip/gd/curl）**
+- 根因：环境管理安装 PHP-FPM 只装 `php-fpm` 主包，不含 phpMyAdmin 必需扩展，且面板无补装扩展入口（引导成死路）
+- 修复：PHP-FPM 安装/升级时**随主包一并安装必需扩展**（apt：php-mysqli/php-mbstring/php-zip/php-gd/php-curl；RHEL 系：php-mysqlnd/php-mbstring/php-gd，zip/curl 多内置）；best-effort（发行版差异致个别扩展包缺失不阻断主包，phpMyAdmin 依赖检测仍如实报告）
+
+**修复：mongo-express 安装报 `daemon-reload … InvalidArgs`**
+- 根因：systemd `Manager.Reload()` 是**无参方法**，代码误传了一个布尔实参 → DBus `InvalidArgs`，单元写入后重载失败致安装中止
+- 修复：`DaemonReload` 去掉多余实参（Reload 零参数）
+
+**修复：安装脚本选 English 后 `$2: unbound variable` 中断**
+- 根因：`msg()` 在 `set -u` 下英文分支取 `$2`，而 4 处提示把中英文塞进单参数（中文走 `$1` 无恙、英文走 `$2` 崩溃）——故仅英文版中断
+- 修复：`msg()` 改 `${2:-${1:-}}`/`${1:-}` 防 unbound（英文缺省回退）；4 处单参数提示拆为规范双语两参数
+
+### 安装与升级
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/xyztony999/dougong/main/install.sh | sudo bash
+dougong version   # 应为 v0.1.15
+```
+
+升级后验证：①环境管理安装 PHP-FPM 后可正常启动（Ubuntu 自动解析版本化单元），且 mysqli/mbstring/zip/gd/curl 扩展随装；②数据库工具页安装 phpMyAdmin 不再报扩展缺失；③安装 mongo-express 不再报 daemon-reload InvalidArgs，服务正常拉起。
+
 ## v0.1.14 - 2026-11-19
 
 数据库**现成 Web 工具集成**（宝塔式）：面板一键部署 phpMyAdmin / mongo-express 作高级管理，复用环境管理已管理的 PHP/Node 运行时；访问经面板会话 gating，工具不直接公网暴露（新模块 db-tools，ADR-032）。

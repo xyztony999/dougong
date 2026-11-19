@@ -71,8 +71,10 @@ if [ -z "$LANG_SEL" ]; then
 fi
 
 # msg "中文" "English" —— 按所选语言输出一行。
+# set -u 防护（v0.1.15 实机修复）：用 ${n:-} 取值，单参数调用不再 unbound variable；
+# 英文缺第二参数时回退第一参数（旧混合中英串兼容），中文恒用第一参数。
 msg() {
-  if [ "$LANG_SEL" = "en" ]; then printf '%s\n' "$2"; else printf '%s\n' "$1"; fi
+  if [ "$LANG_SEL" = "en" ]; then printf '%s\n' "${2:-${1:-}}"; else printf '%s\n' "${1:-}"; fi
 }
 
 # ── 1) 前置检查 / Preflight ─────────────────────────────────────────────────
@@ -109,13 +111,13 @@ else
   }
   if [ -n "${DOUGONG_VERSION:-}" ]; then
     VER="$DOUGONG_VERSION"
-    msg ">> 使用指定版本 / Pinned version: $VER"
+    msg ">> 使用指定版本：$VER" ">> Pinned version: $VER"
   else
     msg ">> 查询最新版本（GitHub Releases API）…" ">> Querying the latest release (GitHub Releases API)..."
     VER="$(curl -fsSL $CURL_OPTS "$API_BASE/repos/$REPO/releases/latest" \
           | grep -oE '"tag_name": *"[^"]+"' | head -1 | cut -d'"' -f4)" || { net_fail_hint; exit 1; }
     [ -n "$VER" ] || { net_fail_hint; exit 1; }
-    msg ">> 最新版本 / Latest version: $VER"
+    msg ">> 最新版本：$VER" ">> Latest version: $VER"
   fi
   msg ">> 下载 dougong-linux-amd64.tar.gz 与 sha256sums.txt …" ">> Downloading dougong-linux-amd64.tar.gz and sha256sums.txt..."
   curl -fsSL $CURL_OPTS -o "$TMP/dougong-linux-amd64.tar.gz" "$GH_BASE/$REPO/releases/download/$VER/dougong-linux-amd64.tar.gz" || { net_fail_hint; exit 1; }
@@ -136,7 +138,7 @@ fi
 # Atomic binary replace via a .new staging file — no half-written state.
 install -m 0755 "$TMP/dougong" "$BIN.new"
 mv -f "$BIN.new" "$BIN"
-msg ">> 二进制已安装 / Binary installed: $BIN"
+msg ">> 二进制已安装：$BIN" ">> Binary installed: $BIN"
 
 # ── 4) 数据目录（dougong.json 配置 / SQLite / 密钥；升级永不触碰）────────────
 # Data dir (config / SQLite / keys) — never touched on upgrades.
@@ -166,7 +168,7 @@ RestartSec=3
 [Install]
 WantedBy=multi-user.target
 EOF
-  msg ">> 已写入 systemd unit / systemd unit written: $UNIT"
+  msg ">> 已写入 systemd unit：$UNIT" ">> systemd unit written: $UNIT"
 fi
 
 # ── 6) 启动 / 重启 ──────────────────────────────────────────────────────────

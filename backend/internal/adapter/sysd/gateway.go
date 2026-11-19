@@ -209,14 +209,16 @@ func (g *Gateway) DisableUnit(ctx context.Context, name string) error {
 
 // DaemonReload systemd Manager.Reload（db-tools D-07 新增扩展：单元文件
 // 写入/移除后重载管理器配置；参数化 dbus 方法调用 R-08，非 shell；既有
-// 方法零改动）。interactive=false（无人值守，不触发 polkit 交互）。
+// 方法零改动）。**Manager.Reload() 是无参方法**（v0.1.15 实机修复：曾误传
+// interactive=false 实参 → org.freedesktop.DBus.Error.InvalidArgs；Reload 不接受
+// 任何参数， flags 0 之后零实参）。
 func (g *Gateway) DaemonReload(ctx context.Context) error {
 	conn, err := g.ensureConn()
 	if err != nil {
 		return err
 	}
 	call := conn.Object(systemdDest, systemdPath).
-		CallWithContext(ctx, managerIface+".Reload", 0, false)
+		CallWithContext(ctx, managerIface+".Reload", 0)
 	if call.Err != nil {
 		return g.callErr("daemon-reload", call.Err)
 	}
