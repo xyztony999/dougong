@@ -254,14 +254,28 @@ func validateTableName(name string) error {
 	return nil
 }
 
-// validateCollectionName Mongo 集合名形态校验（引擎规则服务端承载：非空/
-// 禁 $ 前缀/禁空字符/禁 system. 保留前缀，§4.8.4 mcoll/create）。
-func validateCollectionName(name string) error {
+// validateCollectionNameForm Mongo 集合名通用形态校验（任何操作均禁：非空/
+// 禁 $ 前缀/禁空字符/长度上限）。不含 system. 保留前缀禁令——那是建集合专属
+// 约束（见 validateCollectionName），访问已存在集合（含系统集合 system.profile/
+// system.js 等）只走本形态校验（v0.1.13 实机修复：浏览系统集合被建集合规则误拦）。
+func validateCollectionNameForm(name string) error {
 	if name == "" || len(name) > maxCollectionNameLen ||
-		strings.HasPrefix(name, "$") || strings.ContainsRune(name, 0) ||
-		strings.HasPrefix(name, "system.") {
+		strings.HasPrefix(name, "$") || strings.ContainsRune(name, 0) {
 		return errcode.ErrValidation.WithFields(errcode.FieldError{
-			Field: "name", Message: "集合名须非空且不含 $ 前缀/空字符/system. 保留前缀"})
+			Field: "name", Message: "集合名须非空且不含 $ 前缀/空字符"})
+	}
+	return nil
+}
+
+// validateCollectionName Mongo 建集合名校验（引擎规则服务端承载：通用形态 +
+// 禁 system. 保留前缀——用户不可创建系统集合，§4.8.4 mcoll/create）。
+func validateCollectionName(name string) error {
+	if err := validateCollectionNameForm(name); err != nil {
+		return err
+	}
+	if strings.HasPrefix(name, "system.") {
+		return errcode.ErrValidation.WithFields(errcode.FieldError{
+			Field: "name", Message: "集合名不可以 system. 保留前缀开头（系统集合不可创建）"})
 	}
 	return nil
 }

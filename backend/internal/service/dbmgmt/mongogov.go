@@ -271,7 +271,9 @@ func (s *Service) mongoCollTarget(ctx context.Context, t dbconn.Target, c dbconn
 	if err := validateDatabaseName(database); err != nil {
 		return err
 	}
-	if err := validateCollectionName(collection); err != nil {
+	// 访问已存在集合（下方 ListCollections 存在性核验）只走通用形态校验，放行
+	// system. 系统集合的浏览/治理——system. 保留前缀禁令仅属建集合（v0.1.13）。
+	if err := validateCollectionNameForm(collection); err != nil {
 		return err
 	}
 	if err := s.mongoDatabaseExists(ctx, t, c, database); err != nil {

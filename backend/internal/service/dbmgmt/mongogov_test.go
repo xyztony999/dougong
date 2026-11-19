@@ -273,6 +273,34 @@ func TestMongoDropDatabaseProtection(t *testing.T) {
 	}
 }
 
+// TestMongoBrowseSystemCollection 回归锁（v0.1.13 实机修复）：集合清单不过滤
+// system.（system.profile/system.js 可见），浏览已存在系统集合须放行——建集合
+// 专属的 system. 保留前缀禁令不得误拦访问路径；通用形态校验（空/$/空字符）仍生效。
+func TestMongoBrowseSystemCollection(t *testing.T) {
+	e, inst := newMongoGovEnv(t)
+	ctx := context.Background()
+	e.mongo.colls["appdb"] = append(e.mongo.colls["appdb"], dbmongo.CollectionInfo{Name: "system.profile", DocCount: 1})
+	e.mongo.docs["appdb.system.profile"] = []map[string]any{
+		{"_id": map[string]any{"$oid": "665f000000000000000000ff"}, "op": "query"},
+	}
+	// 浏览系统集合放行。
+	data, err := e.svc.MongoListDocuments(ctx, itoa(inst.ID), "appdb", "system.profile", "", "")
+	if err != nil || data.Total != 1 || len(data.Documents) != 1 {
+		t.Fatalf("browse system.profile: %+v %v", data, err)
+	}
+	// 通用形态校验仍生效（空名/$ 前缀/空字符拒绝）。
+	for _, bad := range []string{"", "$bad", "a\x00b"} {
+		if _, err := e.svc.MongoListDocuments(ctx, itoa(inst.ID), "appdb", bad, "", ""); errCode(t, err) != "AUTH_012" {
+			t.Fatalf("browse name %q want AUTH_012, got %v", bad, err)
+		}
+	}
+	// 建集合仍禁 system. 保留前缀（创建约束不变）。
+	if _, err := e.svc.MongoCreateCollection(ctx, testActor(), MongoCollectionCreateRequest{
+		InstanceID: inst.ID, Database: "appdb", Name: "system.evil"}); errCode(t, err) != "AUTH_012" {
+		t.Fatalf("create system.evil want AUTH_012, got %v", err)
+	}
+}
+
 func TestMongoDocumentListAndCRUD(t *testing.T) {
 	e, inst := newMongoGovEnv(t)
 	ctx := context.Background()
