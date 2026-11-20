@@ -156,8 +156,12 @@ func runCLI(args []string, env cliEnv) int {
 		return cliEntryPath(ctx, env, rest)
 	case "service":
 		return cliService(ctx, env, rest)
+	case "rename-user":
+		return cliRenameUser(ctx, env, rest)
+	case "unbind-domain":
+		return cliUnbindDomain(ctx, env, rest)
 	default:
-		fmt.Fprintf(env.stdout, "AUTH_012: 参数错误 — 未知子命令 %q（可用：status / info / reset-password / set-port / entrypath / service）\n", args[0])
+		fmt.Fprintf(env.stdout, "AUTH_012: 参数错误 — 未知子命令 %q（可用：status / info / reset-password / rename-user / unbind-domain / set-port / entrypath / service）\n", args[0])
 		return cliExitUsage
 	}
 }
@@ -561,4 +565,93 @@ func printErrcode(w io.Writer, err error) (string, bool) {
 		}
 	}
 	return ec.Symbol(), ec.Symbol() == errcode.ErrValidation.Symbol()
+}
+
+// cliRenameUser `dougong rename-user -username <old> -new <new>`（写，紧急救援）：
+// 终端强制改面板用户名（遗忘用户名/被锁时救回访问）；复用 auth RenameUserViaCLI
+// （A10 校验/会话级联吊销/审计 username_changed security source=cli）。原用户不存在
+// =退出码 1；新名占用/校验失败按 errcode 语义（AUTH_012 退出码 2）。
+func cliRenameUser(ctx context.Context, env cliEnv, args []string) int {
+	fs := flag.NewFlagSet("rename-user", flag.ContinueOnError)
+	fs.SetOutput(env.stdout)
+	username := fs.String("username", "", "原用户名（必填）")
+	newName := fs.String("new", "", "新用户名（必填）")
+	if err := fs.Parse(args); err != nil {
+		return cliExitUsage
+	}
+	if strings.TrimSpace(*username) == "" || strings.TrimSpace(*newName) == "" {
+		fmt.Fprintln(env.stdout, "AUTH_012: 参数错误 — 用法：dougong rename-user -username <原用户名> -new <新用户名>")
+		return cliExitUsage
+	}
+	svc, err := openCLIServices(ctx, env)
+	if err != nil {
+		fmt.Fprintf(env.stdout, "打开面板数据失败: %v\n", err)
+		return cliExitFail
+	}
+	defer svc.close()
+
+	res, err := svc.authSvc.RenameUserViaCLI(ctx, env.operator, *username, *newName)
+	if err != nil {
+		if errors.Is(err, authsvc.ErrUserNotFound) {
+			fmt.Fprintf(env.stdout, "原用户 %q 不存在\n", *username)
+			return cliExitFail
+		}
+		if _, usage := printErrcode(env.stdout, err); usage {
+			return cliExitUsage
+		}
+		var ec *errcode.Error
+		if errors.As(err, &ec) {
+			return cliExitFail
+		}
+		fmt.Fprintf(env.stdout, "修改用户名失败: %v\n", err)
+		return cliExitFail
+	}
+	if !res.Changed {
+		fmt.Fprintf(env.stdout, "用户名已是 %s，无需变更\n", res.NewUsername)
+		return cliExitOK
+	}
+	fmt.Fprintf(env.stdout, "用户名已修改: %s → %s（其全部面板会话已吊销）\n", res.OldUsername, res.NewUsername)
+	fmt.Fprintln(env.stdout, restartHint)
+	return cliExitOK
+}
+
+// cliUnbindDomain `dougong unbind-domain`（写，紧急救援）：解除面板域名绑定
+// （bind_domain 置 NULL）——绑域名后 DNS 未生效/域名失联被锁在外时，恢复 IP 直连
+// 访问。复用 panel UnbindDomainViaCLI（即时生效 HostGuard 下一请求放行全部 Host，
+// 审计 panel_config_changed source=cli）。未绑定=零写入如实提示。
+func cliUnbindDomain(ctx context.Context, env cliEnv, args []string) int {
+	if len(args) != 0 {
+		fmt.Fprintln(env.stdout, "AUTH_012: 参数错误 — 用法：dougong unbind-domain")
+		return cliExitUsage
+	}
+	svc, err := openCLIServices(ctx, env)
+	if err != nil {
+		fmt.Fprintf(env.stdout, "打开面板数据失败: %v\n", err)
+		return cliExitFail
+	}
+	defer svc.close()
+
+	if _, err := svc.panelSvc.Bootstrap(ctx); err != nil { // 幂等单例自检（I-P01）
+		fmt.Fprintf(env.stdout, "读取面板配置失败: %v\n", err)
+		return cliExitFail
+	}
+	before, changed, err := svc.panelSvc.UnbindDomainViaCLI(ctx, env.operator)
+	if err != nil {
+		if _, usage := printErrcode(env.stdout, err); usage {
+			return cliExitUsage
+		}
+		var ec *errcode.Error
+		if errors.As(err, &ec) {
+			return cliExitFail
+		}
+		fmt.Fprintf(env.stdout, "解除域名绑定失败: %v\n", err)
+		return cliExitFail
+	}
+	if !changed {
+		fmt.Fprintln(env.stdout, "面板未绑定域名，无需解除")
+		return cliExitOK
+	}
+	fmt.Fprintf(env.stdout, "已解除域名绑定（原域名 %s）——现在可用 IP 直接访问面板\n", before)
+	fmt.Fprintln(env.stdout, restartHint)
+	return cliExitOK
 }

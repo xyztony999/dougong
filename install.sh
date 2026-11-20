@@ -161,7 +161,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/var/lib/dougong
-ExecStart=/usr/local/bin/dougong
+ExecStart=/usr/local/bin/dougong start
 Restart=on-failure
 RestartSec=3
 

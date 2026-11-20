@@ -2,8 +2,10 @@
 //
 // 用法：
 //
-//	dougong [-config dougong.json]            启动面板服务（生产默认静音 gin 调试输出；
-//	                                         DOUGONG_DEBUG=1 或 GIN_MODE 恢复）
+//	dougong                                   交互终端→管理菜单（宝塔 bt 风格，含紧急救援）；
+//	                                         非交互（systemd/管道）→启动面板服务
+//	dougong start|serve [-config dougong.json] 显式启动面板服务（systemd ExecStart 推荐；
+//	                                         生产默认静音 gin，DOUGONG_DEBUG=1/GIN_MODE 恢复）
 //	dougong init -username <u> [-password <p>] CLI 初始化首个 admin（§4.4.4；
 //	                                         密码推荐经 DOUGONG_INIT_PASSWORD 注入）
 //	dougong version                           打印版本/commit/构建时间
@@ -11,6 +13,8 @@
 //	                                         v2.1 4.1.4/ADR-030，详见 cmd/dougong/cli.go）
 //	dougong info                              版本/监听/安全入口/HTTPS/数据目录
 //	dougong reset-password -username <u>      重置密码（新密码仅经 DOUGONG_INIT_PASSWORD）
+//	dougong rename-user -username <old> -new <new> 强制改面板用户名（紧急救援）
+//	dougong unbind-domain                     解除域名绑定（紧急，恢复 IP 直连访问）
 //	dougong set-port <port>                   改监听端口（1024..65535，重启生效）
 //	dougong entrypath show|regen|off          安全入口查看/重生成/关闭
 //	dougong service start|stop|restart|status systemctl 治理 dougong.service
@@ -110,14 +114,24 @@ func main() {
 		fmt.Printf("dougong %s (commit %s, built %s)\n", v.Version, v.GitCommit, v.BuildTime)
 		return
 	}
-	// 面板管理 CLI 六命令族（v2.1 4.1.4「CLI 入口」，ADR-030/D-P17）：终端本地
-	// 通道，进程内复用 service 层（无 HTTP 绕行）；裸 dougong（无子命令）仍=
-	// 启动面板服务。退出码 0/2/1（systemctl 失败透传）。
+	// 面板管理 CLI 命令族（v2.1 4.1.4「CLI 入口」，ADR-030/D-P17 + 2026-11-20 救援扩展）：
+	// 终端本地通道，进程内复用 service 层（无 HTTP 绕行）。退出码 0/2/1（systemctl 失败透传）。
+	explicitStart := false
 	if len(args) > 0 {
 		switch args[0] {
-		case "status", "info", "reset-password", "set-port", "entrypath", "service":
+		case "status", "info", "reset-password", "rename-user", "unbind-domain", "set-port", "entrypath", "service":
 			os.Exit(runCLI(args, newCLIEnv()))
+		case "start", "serve":
+			// 显式启动别名（systemd ExecStart 推荐 dougong start）；剥离后走启动路径。
+			explicitStart = true
+			args = args[1:]
 		}
+	}
+	// 裸 dougong（无子命令）：交互终端→管理菜单（宝塔 bt 风格，含紧急救援）；
+	// 非交互（systemd ExecStart=/usr/local/bin/dougong、管道、CI——stdin 非 TTY）→
+	// 启动面板服务（保既有部署兼容，无需迁移 systemd unit）。
+	if len(args) == 0 && !explicitStart && isInteractive() {
+		os.Exit(cliMenu(newCLIEnv(), os.Stdin))
 	}
 	// 生产二进制默认静音 gin 调试横幅；DOUGONG_DEBUG=1 保留调试输出。
 	if os.Getenv("GIN_MODE") == "" && os.Getenv("DOUGONG_DEBUG") == "" {

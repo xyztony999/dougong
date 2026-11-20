@@ -123,3 +123,34 @@ func (s *Service) EntryPathOffViaCLI(ctx context.Context, operator string) (chan
 	}
 	return true, nil
 }
+
+// UnbindDomainViaCLI `dougong unbind-domain`（写，紧急救援，SQL #3 通道）：
+// bind_domain 置 NULL（ConfigChanges.BindDomain 空串=解绑，D-P12）——解除「仅绑定
+// 域名可访问」强校验（HostGuard 下一请求即放行全部 Host，IP 直连恢复）。用于绑域名
+// 后 DNS 未生效/域名失联被锁在外时救回访问。未绑定时零写入零审计（changed=false）；
+// 即时生效（HostGuard 每请求读 bind_domain）；restart 提示由 cmd 层统一输出。
+// 返回解绑前的域名（公开访问名明文，A-P10/D-P12 不脱敏）与是否发生写入。
+func (s *Service) UnbindDomainViaCLI(ctx context.Context, operator string) (before string, changed bool, err error) {
+	now := s.now()
+	cur, err := s.st.Config().Get(ctx)
+	if err != nil {
+		return "", false, fmt.Errorf("panel: cli unbind-domain get config: %w", err)
+	}
+	if cur.BindDomain == nil || *cur.BindDomain == "" {
+		return "", false, nil
+	}
+	before = *cur.BindDomain
+	deltas := []fieldDelta{{Field: "bindDomain", Before: before, After: ""}}
+	empty := ""
+	err = s.withTx(ctx, func(tx *storepanel.TxStore) error {
+		if err := tx.Config().Update(ctx, storepanel.ConfigChanges{BindDomain: &empty}, now); err != nil {
+			return fmt.Errorf("panel: cli unbind-domain update: %w", err)
+		}
+		return tx.Audit().Append(ctx, cliAuditEntry(operator,
+			ActionPanelConfigChanged, ObjectTypePanelConfig, deltas), now)
+	})
+	if err != nil {
+		return "", false, err
+	}
+	return before, true, nil
+}

@@ -492,6 +492,7 @@ export const AUDIT_ACTION_TEXT: Readonly<Record<string, string>> = {
   user_deleted: '删除用户',
   password_reset: '重置密码',
   password_changed: '修改密码',
+  username_changed: '修改用户名',
   totp_enabled: '启用 TOTP',
   totp_disabled: '解绑 TOTP',
   init_completed: '初始化完成',

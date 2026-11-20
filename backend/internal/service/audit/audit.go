@@ -45,6 +45,7 @@ const (
 	ActionUserDeleted     = "user_deleted"
 	ActionPasswordReset   = "password_reset"
 	ActionPasswordChanged = "password_changed"
+	ActionUsernameChanged = "username_changed"
 	ActionTotpEnabled     = "totp_enabled"
 	ActionTotpDisabled    = "totp_disabled"
 	ActionInitCompleted   = "init_completed"

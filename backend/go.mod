@@ -9,6 +9,7 @@ require (
 	github.com/go-acme/lego/v4 v4.22.2
 	github.com/godbus/dbus/v5 v5.2.4
 	github.com/gorilla/websocket v1.5.3
+	github.com/mattn/go-isatty v0.0.20
 	github.com/shirou/gopsutil/v4 v4.25.2
 	go.mongodb.org/mongo-driver/v2 v2.10.0
 	golang.org/x/crypto v0.57.0
@@ -52,7 +53,6 @@ require (
 	github.com/klauspost/cpuid/v2 v2.2.7 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
-	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/miekg/dns v1.1.62 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
 	github.com/moby/term v0.5.2 // indirect
