@@ -4,9 +4,17 @@
 
 ## v0.1.17 - 2026-11-20
 
-界面文案全面「说人话」：把内部术语和机器味提示改写成普通用户能直接看懂的话（纯前端，无功能/接口变更）。
+CLI 交互式救援菜单（宝塔 `bt` 风格）+ 界面文案全面「说人话」。
 
 ### 变更内容
+
+**新增：`dougong` 交互式管理菜单与紧急救援命令**
+- 在终端输入 `dougong` 不再直接启动服务（避免与已运行的 systemd 服务撞端口），而是弹出编号菜单：查状态/版本、重置密码、改用户名、解除域名绑定、关安全入口、改端口、启停服务
+- 新增救援命令（被锁在面板外时救回访问）：
+  - `dougong rename-user -username <旧> -new <新>`：强制修改面板用户名（会话级联吊销 + 审计）
+  - `dougong unbind-domain`：解除域名绑定，绑域名后 DNS 未生效/域名失联时一键恢复 IP 直连（即时生效）
+- 新增 `dougong start|serve` 显式启动别名；**兼容既有部署**：非交互场景（systemd/管道）裸 `dougong` 仍启动服务，新装 install.sh 改用 `dougong start`
+- 新增审计动作 `username_changed`（修改用户名，security）
 
 **改进：全局面文案净化（无功能变更）**
 - 数据库工具：安装/卸载/打开提示去掉「nginx 落点」「独立访问块」「signon 令牌」「经面板会话安全访问」等内部说法，改为直白描述；「轮换凭据」→「重置密码」，「目录版本」→「最新版本」
@@ -22,7 +30,7 @@ curl -fsSL https://raw.githubusercontent.com/xyztony999/dougong/main/install.sh 
 dougong version   # 应为 v0.1.17
 ```
 
-升级后验证：各界面提示均为通俗表述，功能与操作不变（纯文案调整，无接口/数据变更）。
+升级后验证：①终端输入 `dougong` 弹出管理菜单（选 2 看版本、0 退出）；②`dougong unbind-domain` 可解除域名绑定恢复 IP 访问、`dougong rename-user` 可改用户名；③systemd 服务正常运行（`systemctl status dougong`）；④各界面提示均为通俗表述。
 
 ## v0.1.16 - 2026-11-20
 
