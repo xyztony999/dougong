@@ -272,6 +272,16 @@ const router = createRouter({
           name: 'env-mgmt',
           component: () => import('@/views/env-mgmt/index.vue'),
           meta: { title: '环境管理' }
+        },
+        // ---- app-mgmt（PageSpec app-mgmt v1.0 第 7 节：admin+readonly 同路由，
+        // 组件内按角色渲染子集——readonly 操作列/参数/日志整区不渲染（13 负空间，
+        // 含 ⚠️A8 日志 admin 专属），任务 Drawer 只读可看，ADR-018；菜单「应用管理」
+        // 由后端 ModuleMenuRegistry 按角色下发（两角色可见）----
+        {
+          path: 'app',
+          name: 'app-mgmt',
+          component: () => import('@/views/app-mgmt/index.vue'),
+          meta: { title: '应用管理' }
         }
       ]
     },

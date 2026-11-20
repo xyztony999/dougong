@@ -210,6 +210,35 @@ func (g *Gateway) BinaryVersion(ctx context.Context, bin string) (string, error)
 	return strings.TrimSpace(out), nil
 }
 
+// ProbeVenvSupport 探测 venv 支撑能力位（v1.4 ⚠️A18，FR-09②：python3 -m
+// venv --help 退出 0=有 venv 模块；Debian 系需 python3-venv 单独包——缺失时
+// 命令失败如实返回 false）。python3 缺席=错误（调用方分层呈现 missing）。
+func (g *Gateway) ProbeVenvSupport(ctx context.Context) (bool, error) {
+	if _, err := g.lookPath("python3"); err != nil {
+		return false, fmt.Errorf("envpack: python3 not found: %w", err)
+	}
+	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	if _, err := g.runCmd(cctx, nil, "python3", []string{"-m", "venv", "--help"}); err != nil {
+		return false, nil // python3 在而 venv 模块不可用=能力位 false（非通道错误）
+	}
+	return true, nil
+}
+
+// ProbePipAvailable 探测 pip 能力位（v1.4 ⚠️A18：python3 -m pip --version
+// 退出 0=可用；不依赖 pip3 独立可执行名）。
+func (g *Gateway) ProbePipAvailable(ctx context.Context) (bool, error) {
+	if _, err := g.lookPath("python3"); err != nil {
+		return false, fmt.Errorf("envpack: python3 not found: %w", err)
+	}
+	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	if _, err := g.runCmd(cctx, nil, "python3", []string{"-m", "pip", "--version"}); err != nil {
+		return false, nil // pip 不可用=能力位 false（非通道错误）
+	}
+	return true, nil
+}
+
 // RefreshIndex 刷新包索引（D-05：apt-get update / dnf makecache / yum makecache；
 // 脚本场景用 apt-get——apt 自警无稳定 CLI 接口）。
 func (g *Gateway) RefreshIndex(ctx context.Context, family string) (string, error) {

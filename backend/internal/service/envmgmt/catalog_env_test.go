@@ -21,16 +21,16 @@ import (
 )
 
 func TestCatalogUnitNamesFullyQualified(t *testing.T) {
-	if len(Catalog) != 8 {
-		t.Fatalf("catalog entries = %d, want 8（v1.3 +Node）", len(Catalog))
+	if len(Catalog) != 9 {
+		t.Fatalf("catalog entries = %d, want 9（v1.4 +Python）", len(Catalog))
 	}
 	families := []string{"apt", "dnf", "yum"}
 	for _, e := range Catalog {
 		for _, f := range families {
-			if e.Type == storeenv.EnvNode {
-				// ⚠️A17 运行时型无服务单元：单元映射空为设计预期（FR-08②）。
+			if e.Type == storeenv.EnvNode || e.Type == storeenv.EnvPython {
+				// ⚠️A17/A18 运行时型无服务单元：单元映射空为设计预期（FR-08②/FR-09②）。
 				if u := e.UnitByFamily[f]; u != "" {
-					t.Fatalf("node/%s unit = %q, want empty（运行时型无服务单元）", f, u)
+					t.Fatalf("%s/%s unit = %q, want empty（运行时型无服务单元）", e.Type, f, u)
 				}
 			} else {
 				u := e.UnitByFamily[f]
@@ -105,8 +105,8 @@ func TestEnvListThreeStates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(data.Items) != 8 {
-		t.Fatalf("items = %d, want 8（v1.3 +Node）", len(data.Items))
+	if len(data.Items) != 9 {
+		t.Fatalf("items = %d, want 9（v1.4 +Python）", len(data.Items))
 	}
 	if !data.Channel.Available || data.Channel.Family != "apt" {
 		t.Fatalf("channel = %+v", data.Channel)

@@ -99,6 +99,9 @@ const MENU_ICONS: Readonly<Record<string, Component>> = {
   backup: CloudUploadOutline,
   // env-mgmt 菜单项（main.go 登记 icon=env；两角色下发——ADR-018 全可看）
   env: CloudDownloadOutline,
+  // app-mgmt 菜单项（main.go 登记 icon=apps；两角色下发——ADR-018 全可看，
+  // 日志 admin 专属 ⚠️A8：readonly 操作面不渲染+日志接口越界 AUTH_008 兜底）
+  apps: AppsOutline,
   // db-tools 菜单项（main.go 登记 icon=dbtool；两角色下发——ADR-018 目录/任务可看，
   // 工具访问整体 admin 专属 ⚠️A10：readonly 操作面不渲染+工具路径 gating 不可达）
   dbtool: ConstructOutline

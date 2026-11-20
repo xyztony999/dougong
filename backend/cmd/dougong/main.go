@@ -38,6 +38,7 @@ import (
 	"time"
 
 	acmegw "github.com/dougong/dougong/internal/adapter/acme"
+	"github.com/dougong/dougong/internal/adapter/appx"
 	"github.com/dougong/dougong/internal/adapter/backupx"
 	"github.com/dougong/dougong/internal/adapter/cronx"
 	"github.com/dougong/dougong/internal/adapter/dbmongo"
@@ -55,6 +56,7 @@ import (
 	"github.com/dougong/dougong/internal/adapter/sysuser"
 	"github.com/dougong/dougong/internal/adapter/toolx"
 	"github.com/dougong/dougong/internal/api"
+	appapi "github.com/dougong/dougong/internal/api/appmgmt"
 	authapi "github.com/dougong/dougong/internal/api/auth"
 	cronapi "github.com/dougong/dougong/internal/api/cronback"
 	dbapi "github.com/dougong/dougong/internal/api/dbmgmt"
@@ -71,6 +73,7 @@ import (
 	terminalapi "github.com/dougong/dougong/internal/api/terminal"
 	"github.com/dougong/dougong/internal/config"
 	"github.com/dougong/dougong/internal/errcode"
+	appsvc "github.com/dougong/dougong/internal/service/appmgmt"
 	auditsvc "github.com/dougong/dougong/internal/service/audit"
 	authsvc "github.com/dougong/dougong/internal/service/auth"
 	cronbacksvc "github.com/dougong/dougong/internal/service/cronback"
@@ -86,6 +89,7 @@ import (
 	sitesvc "github.com/dougong/dougong/internal/service/sitemgmt"
 	terminalsvc "github.com/dougong/dougong/internal/service/terminal"
 	"github.com/dougong/dougong/internal/store"
+	storeapp "github.com/dougong/dougong/internal/store/appmgmt"
 	storeauth "github.com/dougong/dougong/internal/store/auth"
 	storecronback "github.com/dougong/dougong/internal/store/cronback"
 	storedbmgmt "github.com/dougong/dougong/internal/store/dbmgmt"
@@ -444,6 +448,25 @@ func run(args []string) error {
 			Icon: "env", Order: 850, Visibility: []string{storeauth.RoleAdmin, storeauth.RoleReadonly}},
 	)
 
+	// app-mgmt：应用管理（D0 四拍板 2026-11-20，api-app-mgmt v1.0）——app/app_task
+	// 双聚合（迁移 015）+ appx 适配器（venv/pip 参数数组 R-08/单元安全写入
+	// 备份→原子写→verify→失败回滚 D-06/journalctl 日志）+ 删除保守保全
+	// （purgeDir 显式，绝不静默删代码 ⚠️A5）+ 跨模块 OHS 消费（env-mgmt
+	// PythonReadiness 就绪度读契约 v1.4 / site-mgmt 建站 D-12——提供方登记
+	// 归 site-mgmt 联动轮；service-mgmt SysdGateway 共享适配层双入口 ⚠️A12）。
+	// 启动恢复 I-08；任务 worker 为创建即触发的有限时 goroutine（G-06）。
+	// 菜单 /app 两角色可见（查看类全可看 ADR-018；日志 admin 专属 ⚠️A8）。
+	appStore := storeapp.New(db)
+	appSvc := appsvc.New(appx.New(), sysdGateway, appStore, appsvc.Options{
+		EnvReady: envSvc,                          // PythonReadiness 读契约 OHS（D-08）
+		SiteLink: appsvc.AdaptSiteLinker(siteSvc), // 建站 OHS 消费（D-12）
+	})
+	appSvc.RecoverInFlight(ctx)
+	panelSvc.Menus().Register(
+		panelsvc.MenuItem{Key: "app", Title: "应用管理", Path: "/app",
+			Icon: "apps", Order: 860, Visibility: []string{storeauth.RoleAdmin, storeauth.RoleReadonly}},
+	)
+
 	// db-tools：数据库工具集成（D0 Q1~Q3 拍板 2026-11-19，api-db-tools v1.2）——
 	// db_tool/tool_deploy_task 双聚合（迁移 013）+ toolx 部署网关（下载 sha256
 	// 强制/npm 参数数组/stdlib 解压 zip-slip 防线）+ 凭据保险库 dbtool-cred.key
@@ -494,6 +517,7 @@ func run(args []string) error {
 		dockerapi.NewModule(authSvc, dockerSvc),
 		cronapi.NewModule(authSvc, cronSvc),
 		envapi.NewModule(authSvc, envSvc),
+		appapi.NewModule(authSvc, appSvc),
 		dbtoolapi.NewModule(authSvc, dbtoolsSvc, cfg.CookieSecure),
 	)
 

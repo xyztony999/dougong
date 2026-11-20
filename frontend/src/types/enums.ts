@@ -597,7 +597,17 @@ export const DNS_PROVIDER: Record<DnsProvider, DictItem> = {
 }
 
 /** env_type（env-mgmt v1.3 ⚠️A1/A16）：八环境目录（v1.1 +mongodb；v1.3 +node〔Node.js LTS，db-tools 轮 W2 同步〕；与池/DDL CHECK/api 四方 S8 同值） */
-export type EnvType = 'nginx' | 'apache' | 'docker' | 'mysql' | 'redis' | 'php_fpm' | 'mongodb' | 'node'
+/** env_type（env-mgmt v1.3 ⚠️A1/A16/A18）：九环境目录（v1.1 +mongodb；v1.3 +node〔Node.js LTS，db-tools 轮 W2 同步〕；v1.5 +python〔发行版仓库包，app-mgmt 轮同步〕；与池/DDL CHECK/api 五方 S8 同值） */
+export type EnvType =
+  | 'nginx'
+  | 'apache'
+  | 'docker'
+  | 'mysql'
+  | 'redis'
+  | 'php_fpm'
+  | 'mongodb'
+  | 'node'
+  | 'python'
 export const ENV_TYPE: Record<EnvType, DictItem> = {
   nginx: { label: 'nginx', tag: 'default' },
   apache: { label: 'Apache', tag: 'default' },
@@ -606,7 +616,8 @@ export const ENV_TYPE: Record<EnvType, DictItem> = {
   redis: { label: 'Redis', tag: 'default' },
   php_fpm: { label: 'PHP-FPM', tag: 'default' },
   mongodb: { label: 'MongoDB', tag: 'default' },
-  node: { label: 'Node.js', tag: 'default' }
+  node: { label: 'Node.js', tag: 'default' },
+  python: { label: 'Python', tag: 'default' }
 }
 
 /** env_task_action（⚠️A3/A5）：install=首装、upgrade=已装再装（升级幂等）、uninstall */
@@ -668,4 +679,28 @@ export const BOOTSTRAP_STATUS: Record<BootstrapStatus, DictItem> = {
   succeeded: { label: '已就绪', tag: 'success' },
   failed: { label: '引导失败', tag: 'warning' },
   skipped: { label: '跳过', tag: 'default' }
+}
+
+/** app_task_action（app-mgmt D2 定稿 ⚠️A3）：创建/依赖安装/删除；服务操作为瞬时命令不占任务通道 */
+export type AppTaskAction = 'create' | 'deps_install' | 'delete'
+export const APP_TASK_ACTION: Record<AppTaskAction, DictItem> = {
+  create: { label: '创建应用', tag: 'info' },
+  deps_install: { label: '安装依赖', tag: 'info' },
+  delete: { label: '删除应用', tag: 'warning' }
+}
+
+/** app_task_status（app-mgmt D2 定稿 ⚠️A3 四态机，与 env_task_status 同构）：pending gray/running blue/succeeded green/failed red */
+export type AppTaskStatus = 'pending' | 'running' | 'succeeded' | 'failed'
+export const APP_TASK_STATUS: Record<AppTaskStatus, DictItem> = {
+  pending: { label: '等待中', tag: 'default' },
+  running: { label: '执行中', tag: 'info' },
+  succeeded: { label: '成功', tag: 'success' },
+  failed: { label: '失败', tag: 'error' }
+}
+
+/** app_start_mode（app-mgmt D2 定稿 ⚠️A4）：FastAPI 预设（venv 内 uvicorn 模板）/自定义命令（venv 内相对路径白名单） */
+export type AppStartMode = 'preset_fastapi' | 'custom'
+export const APP_START_MODE: Record<AppStartMode, DictItem> = {
+  preset_fastapi: { label: 'FastAPI 预设', tag: 'info' },
+  custom: { label: '自定义命令', tag: 'default' }
 }

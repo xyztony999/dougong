@@ -26,6 +26,7 @@ const (
 	EnvPHPFPM  = "php_fpm"
 	EnvMongoDB = "mongodb" // v1.1 W1 修复轮：七环境目录（⚠️A1/迁移 010）
 	EnvNode    = "node"    // v1.3 Node 增量（prd FR-08/⚠️A16：八环境目录，迁移 014；运行时型无服务单元 ⚠️A17）
+	EnvPython  = "python"  // v1.4 Python 增量（prd FR-09/⚠️A18：九环境目录，迁移 016；运行时型 ⚠️A17 同构；venv/pip 能力位入就绪度读契约）
 
 	ActionInstall   = "install"
 	ActionUpgrade   = "upgrade"

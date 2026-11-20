@@ -124,6 +124,16 @@ var Catalog = []CatalogEntry{
 		PkgByFamily: map[string][]string{"apt": {"nodejs"}, "dnf": {"nodejs"}, "yum": {"nodejs"}},
 		// NodeSource 官方源三系代配（⚠️A16，沿 ⚠️A10 同构机制；LTS 轨道编译期钉死）。
 		VendorRepo: map[string]bool{"apt": true, "dnf": true, "yum": true}},
+	// v1.4 Python 环境条目（prd FR-09/⚠️A18：八→九环境；发行版仓库包无第三方
+	// 源代配——apt python3/python3-venv/python3-pip 三包候选〔Debian 系 venv
+	// 支撑需 python3-venv〕、rpm 系 python3 自含；运行时型 ⚠️A17 同构；venv/pip
+	// 能力位经 PythonReadiness OHS 供 app-mgmt 消费）。候选包名矩阵 D3 终稿。
+	{Type: storeenv.EnvPython, DisplayName: "Python",
+		Description:  "Python 运行时（发行版仓库包，含 venv/pip 支撑）",
+		UnitByFamily: map[string]string{},
+		PkgByFamily: map[string][]string{
+			"apt": {"python3", "python3-venv", "python3-pip"},
+			"dnf": {"python3"}, "yum": {"python3"}}},
 }
 
 // CatalogByType 目录索引。
