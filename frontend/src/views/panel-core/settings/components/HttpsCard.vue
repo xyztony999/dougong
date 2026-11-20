@@ -192,7 +192,7 @@ async function onImport(): Promise<void> {
       <div class="actions">
         <n-button type="primary" :loading="importing" @click="onImport">导入证书</n-button>
       </div>
-      <p class="hint">导入后证书摘要下方可见；私钥不会回显，成功后输入框自动清空。</p>
+      <p class="hint">导入后证书摘要下方可见；私钥不会再次显示，成功后输入框自动清空。</p>
     </n-form>
 
     <!-- 当前证书摘要（来源/颁发者/有效期；无「查看私钥」入口，api 3.3 脱敏） -->

@@ -8,7 +8,7 @@
  * mongo-express boundInstanceId 绑定校验（不一致明示绑定实例+仍要打开/重新部署二选）。
  * 引擎映射：mysql/mariadb→phpmyadmin、mongodb→mongo_express、redis 无入口（OUT，
  * 父级不渲染本组件）；readonly 负空间——父级不渲染 + 本组件角色兜底不渲染。
- * 错误分流：DBT_004→未装引导；DBT_006→配置凭据引导；AUTH_008 拦截器双保险。
+ * 错误分流：DBT_004→未装引导；DBT_006→配置账号密码引导；AUTH_008 拦截器双保险。
  */
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
@@ -91,7 +91,7 @@ function handleDbtError(e: unknown, tool: DbToolItem): void {
     return
   }
   if (e.is('DBT_006')) {
-    message.error('实例未就绪——请到数据库管理配置凭据（实例清单「配置凭据」）')
+    message.error('实例不可用——请到数据库管理配置账号密码（实例清单「配置账号密码」）')
     return
   }
   const text = dbtErrorText(e.code, e.data)
@@ -164,10 +164,10 @@ function gotoTools(): void {
   >
     <template v-if="guide?.kind === 'not-installed'">
       <n-alert type="info" :show-icon="true" style="margin-bottom: 10px">
-        {{ guide.tool.displayName }} 未安装——安装后可经面板安全访问进行高级数据库管理。
+        {{ guide.tool.displayName }} 未安装——安装后即可在面板里安全地管理数据库。
       </n-alert>
       <template v-if="!guide.tool.depsReady">
-        <n-alert type="warning" title="依赖缺失" style="margin-bottom: 10px">
+        <n-alert type="warning" title="缺少依赖" style="margin-bottom: 10px">
           {{ depsMissingSummary(guide.tool.depsMissing) }}
           <router-link to="/env" class="guide-link">到环境管理安装</router-link>
         </n-alert>
@@ -175,13 +175,13 @@ function gotoTools(): void {
     </template>
     <template v-else-if="guide?.kind === 'not-running'">
       <n-alert type="warning" :show-icon="true">
-        {{ guide.tool.displayName }} 服务未运行（运行态：{{ guide.tool.running === null ? '未知' : '已停止' }}）——请到数据库工具页查看安装/升级任务，或重试打开（服务端校验兜底）。
+        {{ guide.tool.displayName }} 服务未运行（状态：{{ guide.tool.running === null ? '未知' : '已停止' }}）——请到数据库工具页查看安装/升级任务，或重新打开试试。
       </n-alert>
     </template>
     <template v-else-if="guide?.kind === 'bound-mismatch'">
       <n-alert type="warning" :show-icon="true">
-        mongo-express 部署时绑定实例 {{ guide.boundIdentity }}，打开将进入该实例（非当前治理实例）。
-        如需切换绑定，请到数据库工具页卸载后重装选择新实例。
+        mongo-express 安装时绑定的是实例 {{ guide.boundIdentity }}，打开会进入该实例（不是当前这个）。
+        如需更换，请到数据库工具页卸载后重装并选择新实例。
       </n-alert>
     </template>
     <template #footer>

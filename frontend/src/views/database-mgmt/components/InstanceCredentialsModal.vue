@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 配置凭据弹窗（PageSpec 5.1；instanceCredentials，D-03 先验证后落库）。
+ * 配置账号密码弹窗（PageSpec 5.1；instanceCredentials，D-03 先验证后落库）。
  * 连接方式下拉（I-07 互斥显隐：socket 模式显 socket 路径、tcp 模式显主机+端口）；
  * 密码 type=password 不回显（⚠️A18/I-02——无任何读出口）。
  * DBM_005/006/021 内联错误（均不落库语义，弹窗保持打开；DBM_021 客户端通道
@@ -133,7 +133,7 @@ async function onSubmit(): Promise<void> {
       username: form.value.username,
       password: form.value.password
     })
-    message.success('凭据已验证并保存')
+    message.success('账号密码已验证并保存')
     emit('saved', result)
     show.value = false
   } catch (e) {
@@ -171,7 +171,7 @@ async function onSubmit(): Promise<void> {
   <n-modal
     v-model:show="show"
     preset="card"
-    title="配置实例凭据"
+    title="配置实例账号密码"
     style="width: 480px"
     :mask-closable="false"
   >
@@ -209,7 +209,7 @@ async function onSubmit(): Promise<void> {
           v-model:value="form.password"
           type="password"
           show-password-on="click"
-          placeholder="密码不回显（仅验证后密文保存）"
+          placeholder="密码验证后加密保存，不再显示"
         />
       </n-form-item>
       <!-- DBM_005/006/020/021 内联错误（不落库语义，弹窗保持打开）；

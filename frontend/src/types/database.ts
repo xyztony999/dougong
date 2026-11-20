@@ -287,8 +287,8 @@ export interface BackupImportResult {
 export const DBM_ERROR_TEXT: Readonly<Record<string, string>> = {
   DBM_001: 'instanceId 非法',
   DBM_002: '实例档案不存在（可能已移除）',
-  DBM_003: '实例不可达——治理操作无法执行（实例启停请前往服务管理）',
-  DBM_004: '实例未配置凭据，暂不可治理（请先配置凭据）',
+  DBM_003: '实例不可达——管理操作无法执行（实例启停请前往服务管理）',
+  DBM_004: '实例未配置账号密码，暂不可管理（请先配置账号密码）',
   DBM_005: '认证被拒：账户、host 或密码未通过服务器验证',
   DBM_006: '连接失败：网络或 socket 不可达',
   DBM_007: '目标库不存在',
@@ -303,7 +303,7 @@ export const DBM_ERROR_TEXT: Readonly<Record<string, string>> = {
   DBM_016: '实例有导出/导入任务在途，请稍后重试',
   DBM_017: 'key 匹配模式非法（不支持全量语义）',
   DBM_018: '接口与实例引擎不符',
-  DBM_019: '实例密码已修改成功，但面板凭据同步失败——请立即重新配置凭据',
+  DBM_019: '实例密码已修改成功，但面板保存的账号密码同步失败——请立即重新配置账号密码',
   DBM_020: '该连接目标已存在其他实例档案',
   DBM_021: '引擎客户端通道不可用（宿主机未安装 mysql/redis-cli）',
   DBM_022: '目标表不存在',
@@ -313,7 +313,7 @@ export const DBM_ERROR_TEXT: Readonly<Record<string, string>> = {
   DBM_026: '文档 JSON 非法',
   DBM_027: '文档已不存在',
   DBM_028: '系统库（admin/config/local）不可删除',
-  DBM_029: '引擎操作被拒：当前凭据账户权限不足'
+  DBM_029: '数据库拒绝操作：当前账号权限不足'
 }
 
 /** ApiError.data（unknown）→ data.reason 收窄（DBM_003/012/013 失败原因如实展示，api 3.4） */
@@ -741,7 +741,7 @@ export function validateCollectionName(name: string): string | null {
 
 /** F2 语义 tooltip 文案（PageSpec 4.1：connState/credentialsSet NTooltip 包裹，治理页摘要条复用） */
 export const CONN_STATE_TOOLTIP =
-  '绿色=可达（面板能连上该实例）；橙色=不可达。仅反映连通性，不代表凭据正确。'
+  '绿色=可达（面板能连上该实例）；橙色=不可达。仅反映连通性，不代表账号密码正确。'
 export const CREDENTIALS_TOOLTIP =
   '是否已在面板配置该实例登录凭据（加密存储、不回显）。未配置时治理与观测不可用。'
 
@@ -749,7 +749,7 @@ export const CREDENTIALS_TOOLTIP =
 export const TCP_FIRST_LEGEND =
   '面板优先经 TCP 纳管；仅当实例关闭 TCP（skip-networking）时经本机 Socket 兜底发现。'
 export const REDUNDANT_SOCKET_TOOLTIP =
-  '该实例已可经 TCP 纳管；此 Socket 档案因已配置凭据而保留。建议改配 TCP 行凭据后手动移除本行。'
+  '该实例已可经 TCP 纳管；此 Socket 档案因已配置账号密码而保留。建议改配 TCP 行凭据后手动移除本行。'
 
 /** I-10 行写禁用态 tooltip（singlePk=false 同源判定，DBM_023 服务端兜底） */
 export const NO_SINGLE_PK_TOOLTIP =

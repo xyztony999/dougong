@@ -232,7 +232,7 @@ export const SITE_ENABLED: Record<SiteEnabled, DictItem> = {
 export type CertSource = 'acme' | 'imported'
 export const CERT_SOURCE: Record<CertSource, DictItem> = {
   acme: { label: 'ACME 签发', tag: 'info' },
-  imported: { label: '存量导入', tag: 'default' }
+  imported: { label: '手动导入', tag: 'default' }
 }
 
 /** acme_challenge：http_01 / tls_alpn（ACME 挑战方式；无语义色） */
@@ -503,7 +503,7 @@ export const AUDIT_ACTION_TEXT: Readonly<Record<string, string>> = {
   // site-mgmt（api-site-mgmt.md 3.4 业务常量 13 个，值逐字对齐）
   site_created: '创建站点',
   site_updated: '编辑站点',
-  proxy_updated: '编辑反代参数',
+  proxy_updated: '编辑反向代理参数',
   site_source_saved: '保存站点源码',
   site_enabled: '启用站点',
   site_disabled: '停用站点',
@@ -516,8 +516,8 @@ export const AUDIT_ACTION_TEXT: Readonly<Record<string, string>> = {
   cert_renewed: '证书自动续期',
   // database-mgmt（api-database-mgmt.md 3.4 业务常量 D-13 审计动作码 13 个，值逐字对齐）
   instance_rescanned: '手动重新探测实例',
-  instance_credentials_set: '配置实例凭据',
-  instance_removed: '移除实例纳管',
+  instance_credentials_set: '配置实例账号密码',
+  instance_removed: '移除实例',
   database_created: '创建数据库',
   database_dropped: '删除数据库',
   dbuser_created: '创建数据库用户',
@@ -563,9 +563,9 @@ export const AUDIT_ACTION_TEXT: Readonly<Record<string, string>> = {
   dbt_install_started: '发起工具安装',
   dbt_upgrade_started: '发起工具升级',
   dbt_uninstall_started: '发起工具卸载',
-  dbt_task_finished: '工具部署任务终态',
+  dbt_task_finished: '工具部署任务结束',
   dbt_tool_accessed: '打开数据库工具',
-  dbt_credential_rotated: '轮换工具访问凭据'
+  dbt_credential_rotated: '重置工具访问密码'
 }
 
 export const AUDIT_ACTION_CODES: readonly string[] = Object.keys(AUDIT_ACTION_TEXT)

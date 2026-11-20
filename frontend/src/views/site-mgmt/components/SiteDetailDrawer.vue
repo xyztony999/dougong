@@ -241,7 +241,7 @@ async function submitProxyEdit(): Promise<void> {
       websocket: f.websocket
     })
     // M3 验收主场景反馈（PageSpec 第 8 节 #11：目标站点已生效、其余站点无变化 R-16）
-    message.success('反代配置已保存：目标站点已生效，其余站点无变化')
+    message.success('反向代理配置已保存：目标站点已生效，其他站点不受影响')
     editingProxy.value = false
     emit('list-changed')
     await loadDetail()
@@ -482,7 +482,7 @@ watch([show, () => props.siteId], ([open]) => {
                 <span v-if="detail.certRef !== null" class="mono">{{ detail.certRef }}</span>
                 <span v-else class="muted">无引用</span>
               </n-descriptions-item>
-              <n-descriptions-item label="纳管证书">
+              <n-descriptions-item label="托管证书">
                 <template v-if="detail.certId !== undefined && detail.certStatus !== undefined">
                   #{{ detail.certId }} ·
                   <n-tag
@@ -493,7 +493,7 @@ watch([show, () => props.siteId], ([open]) => {
                     {{ dictItem(CERT_STATUS, detail.certStatus).label }}
                   </n-tag>
                 </template>
-                <span v-else-if="detail.certRef !== null" class="muted">未纳管</span>
+                <span v-else-if="detail.certRef !== null" class="muted">未托管</span>
                 <span v-else class="muted">—</span>
               </n-descriptions-item>
             </n-descriptions>

@@ -89,7 +89,7 @@ async function onSubmit(): Promise<void> {
       }
       // DBM_029 引擎操作被拒（A-DB13：旧 DBM_022 判定已随编号裁定改判，DBM_022=表不存在）
       if (e.is('DBM_029')) {
-        inlineError.value = '引擎操作被拒：当前凭据账户权限不足（需用户管理权限，如 userAdminAnyDatabase）'
+        inlineError.value = '数据库拒绝操作：当前账号权限不足（需用户管理权限，如 userAdminAnyDatabase）'
         return
       }
     }
@@ -123,7 +123,7 @@ async function onSubmit(): Promise<void> {
           v-model:value="form.password"
           type="password"
           show-password-on="click"
-          placeholder="密码不回显（仅写入引擎）"
+          placeholder="密码仅写入数据库，保存后不再显示"
         />
       </n-form-item>
       <n-form-item label="目标库" path="db">

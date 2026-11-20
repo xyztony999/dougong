@@ -3,7 +3,7 @@
  * 实例选择弹窗（PageSpec db-tools 4.1 mongo-express 安装 / 4.4 phpmyadmin 打开共用）：
  * 数据源=跨模块 instanceList（api/database.ts）按 engines 筛选；选项呈现
  * identityText + 引擎 + credentialsSet 状态；credentialsSet=false 选项禁用 +
- * tooltip「请先到数据库管理配置凭据」+ 链接 /databases（DBT_006 前置）。
+ * tooltip「请先到数据库管理配置账号密码」+ 链接 /databases（DBT_006 前置）。
  * 单实例时自动选中（4.4 免弹窗口径由父级承载——本弹窗内单选项亦预选）。
  */
 import { computed, h, ref, watch } from 'vue'
@@ -72,7 +72,7 @@ const options = computed<SelectOption[]>(() =>
   }))
 )
 
-/** 禁用选项 tooltip（credentialsSet=false → 引导配置凭据，DBT_006 前置） */
+/** 禁用选项 tooltip（credentialsSet=false → 引导配置账号密码，DBT_006 前置） */
 function renderLabel(option: SelectOption): ReturnType<typeof h> {
   const label = String(option.label ?? '')
   if (option.disabled === true) {
@@ -80,8 +80,8 @@ function renderLabel(option: SelectOption): ReturnType<typeof h> {
       NTooltip,
       null,
       {
-        trigger: () => h('span', { style: 'opacity: 0.55' }, `${label} · 凭据未配置`),
-        default: () => '请先到数据库管理配置凭据'
+        trigger: () => h('span', { style: 'opacity: 0.55' }, `${label} · 未配置账号密码`),
+        default: () => '请先到数据库管理配置账号密码'
       }
     )
   }
@@ -90,7 +90,7 @@ function renderLabel(option: SelectOption): ReturnType<typeof h> {
     h(
       NTag,
       { type: 'success', size: 'small', bordered: false, style: 'margin-left: 8px' },
-      { default: () => '凭据已配置' }
+      { default: () => '已配置账号密码' }
     )
   ])
 }
@@ -118,8 +118,8 @@ function onConfirm(): void {
         :disabled="loadError"
       />
       <div v-if="anyUnready" class="hint">
-        凭据未配置的实例不可选——
-        <router-link to="/databases">到数据库管理配置凭据</router-link>
+        未配置账号密码的实例不可选——
+        <router-link to="/databases">到数据库管理配置账号密码</router-link>
       </div>
       <n-alert v-if="loadError" type="error" style="margin-top: 10px" title="实例清单加载失败">
         <n-button size="tiny" @click="load">重试</n-button>

@@ -525,7 +525,7 @@ onUnmounted(() => {
         <!-- Tab 2 监听端口对照（4.4：无筛选参数全量视图；风险敞口橙底高亮） -->
         <n-tab-pane name="ports" tab="监听端口对照">
           <div class="controls-row">
-            <span class="meta">橙底行=对外监听且无放行规则</span>
+            <span class="meta">橙色行=对外监听但没有放行规则</span>
             <n-button :loading="store.portLoading" @click="store.loadPorts()">刷新</n-button>
           </div>
           <div class="meta">数据生成于 {{ portGeneratedAtText }} · 共 {{ store.portTotal }} 个监听端口</div>

@@ -101,7 +101,7 @@ describe('依赖缺失呈现（DBT_001 数据源，⚠️A2）', () => {
     expect(depMissingText({ kind: 'env', name: 'unknown_env' })).toBe('unknown_env 环境未安装')
   })
   it('kind=extension → PHP 扩展名原样（开放集合非枚举）', () => {
-    expect(depMissingText({ kind: 'extension', name: 'mysqli' })).toBe('PHP 扩展 mysqli 缺失')
+    expect(depMissingText({ kind: 'extension', name: 'mysqli' })).toBe('PHP 扩展 mysqli 未安装')
   })
   it('depsMissingSummary 顿号连接', () => {
     expect(
@@ -109,7 +109,7 @@ describe('依赖缺失呈现（DBT_001 数据源，⚠️A2）', () => {
         { kind: 'env', name: 'php_fpm' },
         { kind: 'extension', name: 'zip' }
       ])
-    ).toBe('PHP-FPM 环境未安装、PHP 扩展 zip 缺失')
+    ).toBe('PHP-FPM 环境未安装、PHP 扩展 zip 未安装')
     expect(depsMissingSummary([])).toBe('')
   })
 })
@@ -122,11 +122,11 @@ describe('三态呈现助手（D-02 实况不虚构）', () => {
   it('runningStateTag 三态：true green / false gray / null orange（探测失败不虚构）', () => {
     expect(runningStateTag(true)).toEqual({ label: '运行中', tag: 'success' })
     expect(runningStateTag(false)).toEqual({ label: '已停止', tag: 'default' })
-    expect(runningStateTag(null)).toEqual({ label: '运行态未知', tag: 'warning' })
+    expect(runningStateTag(null)).toEqual({ label: '运行状态未知', tag: 'warning' })
   })
   it('depsReadyTag：就绪 green / 缺失 orange', () => {
-    expect(depsReadyTag(true)).toEqual({ label: '依赖就绪', tag: 'success' })
-    expect(depsReadyTag(false)).toEqual({ label: '依赖缺失', tag: 'warning' })
+    expect(depsReadyTag(true)).toEqual({ label: '环境就绪', tag: 'success' })
+    expect(depsReadyTag(false)).toEqual({ label: '缺少依赖', tag: 'warning' })
   })
   it('isDbToolTaskInFlight：pending/running 在途，终态不在途', () => {
     expect(isDbToolTaskInFlight('pending')).toBe(true)
@@ -144,7 +144,7 @@ describe('打开分发文案（PageSpec 4.4，凭据零回显 I-02）', () => {
         url: '/dbtool/phpmyadmin/?dg_signon=x',
         tokenExpiresAt: '2026-11-19T00:01:00Z'
       })
-    ).toBe('已打开（令牌 60 秒内有效）')
+    ).toBe('已打开（登录凭证 60 秒内有效）')
   })
   it('mongo_express tokenExpiresAt=null → 普通提示（basic auth 服务端注入无感知）', () => {
     expect(
@@ -179,23 +179,23 @@ describe('DBT 错误码分流（api 3.4；dbmErrorText 同构先例）', () => {
     expect(Object.keys(DBT_ERROR_TEXT)).toHaveLength(12)
   })
   it('dbtErrorText 基础文案', () => {
-    expect(dbtErrorText('DBT_003', null)).toBe('该工具有任务进行中')
-    expect(dbtErrorText('DBT_011', null)).toBe('当前已为目录版本，无需升级')
+    expect(dbtErrorText('DBT_003', null)).toBe('该工具有任务正在进行')
+    expect(dbtErrorText('DBT_011', null)).toBe('已是最新版本，无需升级')
   })
   it('DBT_012 追加 data.reason（失败原因如实呈现）', () => {
     expect(dbtErrorText('DBT_012', { reason: '自动落地块写入失败: nginx -t 不通过' })).toBe(
-      '工具部署/轮换操作失败：自动落地块写入失败: nginx -t 不通过'
+      '安装或重置密码失败：自动落地块写入失败: nginx -t 不通过'
     )
-    expect(dbtErrorText('DBT_012', null)).toBe('工具部署/轮换操作失败')
+    expect(dbtErrorText('DBT_012', null)).toBe('安装或重置密码失败')
   })
   it('DBT_012 reason 细分引导（v1.2，PageSpec 第 1 节）：多候选附站点管理引导', () => {
     expect(dbtErrorText('DBT_012', { reason: '落点冲突：多候选 server 块' })).toBe(
-      '工具部署/轮换操作失败：落点冲突：多候选 server 块——请到站点管理明确落点后重试'
+      '安装或重置密码失败：落点冲突：多候选 server 块——请到站点管理调整域名配置后重试'
     )
   })
   it('DBT_012 端口占用 reason 全文即引导（后端文案已含释放指引，不重复叠加）', () => {
     expect(dbtErrorText('DBT_012', { reason: '工具端口 18090 被占用，请释放后重试' })).toBe(
-      '工具部署/轮换操作失败：工具端口 18090 被占用，请释放后重试'
+      '安装或重置密码失败：工具端口 18090 被占用，请释放后重试'
     )
   })
   it('未知码返回 null（AUTH 族/网络错误归拦截器，不双提示）', () => {
@@ -244,9 +244,9 @@ describe('v1.2 常量锚点（api v1.3 D-13/D-19 同值）', () => {
   })
   it('页头说明条含自动端口 18090 每请求会话校验+绑域名仅域名语义（PageSpec 4.1 v1.2）', () => {
     expect(DBTOOL_PAGE_INTRO).toContain('18090')
-    expect(DBTOOL_PAGE_INTRO).toContain('每请求会话校验')
-    expect(DBTOOL_PAGE_INTRO).toContain('绑定域名后工具仅认域名访问')
-    expect(DBTOOL_PAGE_INTRO).toContain('轻量入口')
+    expect(DBTOOL_PAGE_INTRO).toContain('登录面板后才能访问')
+    expect(DBTOOL_PAGE_INTRO).toContain('绑定域名后则只能用域名访问')
+    expect(DBTOOL_PAGE_INTRO).toContain('表/文档浏览仍然可用')
   })
 })
 
@@ -256,7 +256,7 @@ describe('访问形态区块（v1.2，landingPort/autoCreated 投影，PageSpec 
   })
   it('landingTag：已装+landingPort=0 → default「面板域路径访问」（既有面板域块形态）', () => {
     expect(landingTag(toolItem({ landingPort: 0, autoCreated: false }))).toEqual({
-      label: '面板域路径访问',
+      label: '经面板域名访问',
       tag: 'default'
     })
   })
@@ -292,7 +292,7 @@ describe('访问形态区块（v1.2，landingPort/autoCreated 投影，PageSpec 
   })
   it('landingHint：放行 TCP 端口+绑域名仅域名访问语义（readonly 同等呈现纯观测）', () => {
     expect(landingHint(toolItem())).toBe(
-      '请放行 TCP 18090 端口（防火墙/云安全组）；绑定域名后仅域名可访问（其他 Host 404）'
+      '请在防火墙/云安全组开放 18090 端口；绑定域名后只能用域名访问'
     )
     expect(landingHint(toolItem({ landingPort: 0 }))).toBeNull()
     expect(landingHint(toolItem({ landingPort: null }))).toBeNull()
@@ -304,7 +304,7 @@ describe('安装成功放行提示（v1.2，PageSpec 4.1/4.3，api D-19⑦/D-23�
 
   it('install succeeded + autoCreated=true + 非零端口 → 放行提示含端口/地址/绑域名注记', () => {
     expect(installReadyAlertText(task, toolItem(), '192.168.1.10')).toBe(
-      '工具已就绪：请放行工具端口 18090（防火墙/云安全组），访问地址 http://192.168.1.10:18090/dbtool/phpmyadmin/（绑定域名后为 http://域名:18090/...）'
+      '工具已安装好：请在防火墙/云安全组开放端口 18090，然后访问 http://192.168.1.10:18090/dbtool/phpmyadmin/（绑定域名后用 http://域名:18090/...）'
     )
   })
   it('mongo_express 路径前缀同口径', () => {

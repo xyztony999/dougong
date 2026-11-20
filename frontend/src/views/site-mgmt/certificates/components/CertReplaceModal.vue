@@ -86,7 +86,7 @@ async function onSubmit(): Promise<void> {
   <n-modal
     :show="show"
     preset="card"
-    title="替换证书文件（存量导入证书）"
+    title="替换证书文件（手动导入的证书）"
     style="width: 620px"
     :mask-closable="false"
     @update:show="onClose"

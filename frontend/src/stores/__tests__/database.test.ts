@@ -159,7 +159,7 @@ describe('dbStore applyCredentials / governableIds', () => {
     mockList.mockResolvedValue(structuredClone(freshList()))
     await store.loadList()
 
-    // 行 3：未配置凭据 + 无 version → 直更后可达且已配置；空串 version 不写入（I1 防御）。
+    // 行 3：未配置账号密码 + 无 version → 直更后可达且已配置；空串 version 不写入（I1 防御）。
     const emptyVersion: CredentialsResult = { instanceId: 3, connState: 'reachable', version: '' }
     store.applyCredentials(emptyVersion)
     const row3 = store.findById(3)
@@ -181,7 +181,7 @@ describe('dbStore applyCredentials / governableIds', () => {
     const store = useDbStore()
     mockList.mockResolvedValue(structuredClone(freshList()))
     await store.loadList()
-    expect([...store.governableIds]).toEqual([1]) // 行 2 unreachable、行 3 未配置凭据
+    expect([...store.governableIds]).toEqual([1]) // 行 2 unreachable、行 3 未配置账号密码
     // 凭据配置成功后行 3 转可治理。
     store.applyCredentials({ instanceId: 3, connState: 'reachable', version: '' })
     expect(store.governableIds.has(3)).toBe(true)

@@ -165,7 +165,7 @@ function grantRowKey(g: DbGrantItem): string {
           v-model:value="form.database"
           :options="dbOptions"
           filterable
-          placeholder="选择库（实例实况）"
+          placeholder="选择库（来自实例）"
           class="grant-db"
         />
         <n-select v-model:value="form.level" :options="levelOptions" class="grant-level" />

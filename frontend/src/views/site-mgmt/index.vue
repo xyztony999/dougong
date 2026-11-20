@@ -152,7 +152,7 @@ function certCell(row: SiteListItem): VNode {
         : h(
             NTag,
             { type: 'warning', size: 'small', bordered: false },
-            { default: () => '未纳管' }
+            { default: () => '未托管' }
           )
   if (certRef !== null) {
     return h(NTooltip, null, {
@@ -222,7 +222,7 @@ const columns = computed<DataTableColumns<SiteListItem>>(() => {
     },
     { title: '证书', key: 'cert', width: 120, render: (row) => certCell(row) },
     {
-      title: '反代上游',
+      title: '反向代理上游',
       key: 'upstream',
       width: 180,
       ellipsis: { tooltip: true },

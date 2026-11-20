@@ -262,9 +262,9 @@ onUnmounted(() => {
         type="error"
         closable
         style="margin-top: 8px"
-        title="环境实况加载失败"
+        title="环境状态加载失败"
       >
-        加载失败（{{ store.listError ? '列表请求未成功' : '' }}）。
+        环境列表加载失败，请重试。
         <n-button size="tiny" @click="store.loadList()">重试</n-button>
       </n-alert>
     </n-card>
@@ -296,7 +296,7 @@ onUnmounted(() => {
               自启{{ item.serviceEnabled ? '开' : '关' }}
             </n-tag>
           </template>
-          <span v-else class="env-unit-none">服务态未探测</span>
+          <span v-else class="env-unit-none">服务状态未知</span>
         </div>
         <template v-if="item.runningTaskId !== null" #action>
           <n-button size="tiny" text type="primary" @click="viewRunningTask(item.runningTaskId ?? 0)">
@@ -310,7 +310,7 @@ onUnmounted(() => {
                 <template #trigger>
                   <n-button size="small" :loading="installing === item.envType">升级</n-button>
                 </template>
-                将通过 {{ dictItem(PACKAGE_MANAGER_FAMILY, store.channel.family ?? 'apt').label }} 升级到仓库最新版（先刷新包索引，可能需要数分钟；需第三方官方源的环境——MongoDB、RHEL 系 Docker CE、Node.js〔NodeSource LTS 22.x〕——将自动写入源配置并留痕）。
+                将通过 {{ dictItem(PACKAGE_MANAGER_FAMILY, store.channel.family ?? 'apt').label }} 升级到最新版本（可能需要几分钟）。MongoDB、Docker CE（RHEL 系）、Node.js 需要官方软件源，面板会自动配置好。
               </n-popconfirm>
               <n-button size="small" type="error" ghost @click="openUninstall(item)">卸载</n-button>
               <!-- 服务操作组仅对有服务单元的环境渲染（unitName 非空）；运行时型
@@ -341,7 +341,7 @@ onUnmounted(() => {
                 <template #trigger>
                   <n-button size="small" type="primary" :loading="installing === item.envType">安装</n-button>
                 </template>
-                将通过包管理器安装 {{ item.displayName }} 到仓库最新版（先刷新包索引，可能需要数分钟；需第三方官方源的环境——MongoDB、RHEL 系 Docker CE、Node.js〔NodeSource LTS 22.x〕——将自动写入源配置并留痕）。
+                将安装 {{ item.displayName }} 最新版本（可能需要几分钟）。MongoDB、Docker CE（RHEL 系）、Node.js 需要官方软件源，面板会自动配置好。
               </n-popconfirm>
             </template>
           </div>
@@ -376,8 +376,8 @@ onUnmounted(() => {
         {{ uninstallTarget.displayName }} 服务当前正在运行，卸载将使其立即不可用。
       </n-alert>
       <n-alert type="error" title="关联模块影响" style="margin-bottom: 10px">
-        卸载后对应功能将失去运行环境——Docker：容器管理；MySQL/MongoDB：数据库管理；nginx/PHP-FPM：网站管理；Node.js：数据库工具（mongo-express）。
-        请先到对应模块确认数据已处置（面板不做跨模块数据检查）。
+        卸载后依赖它的功能将无法使用：Docker→容器管理；MySQL/MongoDB→数据库管理；nginx/PHP-FPM→网站管理；Node.js→数据库工具（mongo-express）。
+        请先确认相关数据已妥善处理（面板不会替你检查其他模块的数据）。
       </n-alert>
       <n-form label-placement="left" label-width="110">
         <n-form-item label="确认输入">
@@ -388,7 +388,7 @@ onUnmounted(() => {
         </n-form-item>
       </n-form>
       <n-alert type="info" :show-icon="true">
-        将执行包卸载（保留系统配置与数据目录；已配第三方官方源文件保留不回收——重装即用）；任务异步执行，输出可在任务记录中查看。
+        卸载会保留系统配置和数据目录，已配置的官方软件源也会保留（重装即可直接用）。任务在后台执行，进度可在「任务记录」中查看。
       </n-alert>
       <template #footer>
         <div class="footer">

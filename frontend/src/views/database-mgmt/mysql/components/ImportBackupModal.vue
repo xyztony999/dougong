@@ -70,7 +70,7 @@ function confirmDialog(file: File): void {
     title: '确认导入备份？',
     content:
       `目标库 ${props.database ?? ''} 将执行 SQL 导入（${formatBytes(file.size)}）。` +
-      '导入为数据变更且非幂等——重复导入将叠加数据，失败不自动回滚。',
+      '导入会修改数据，重复导入会叠加；失败不会自动回滚。',
     positiveText: '确认导入',
     negativeText: '取消',
     onPositiveClick: () => void doImport(file)

@@ -68,15 +68,15 @@ describe('dbmErrorText（v1.4 DBM_022~028 七码，api v2.3 §3.4）', () => {
 
 describe('dbmErrorText（DBM_029 A-DB13 闭环，Gate 2 E1 修复）', () => {
   it('DBM_029 引擎操作被拒：基础文案（不再返回 null 静默吞错）', () => {
-    expect(dbmErrorText('DBM_029', null)).toBe('引擎操作被拒：当前凭据账户权限不足')
+    expect(dbmErrorText('DBM_029', null)).toBe('数据库拒绝操作：当前账号权限不足')
   })
 
   it('DBM_029 data.reason 附加（引擎原文如实，如 Unauthorized code 13）', () => {
     const reason = 'dbmongo: Unauthorized (code 13): not authorized on admin to execute createUser'
     expect(dbmErrorText('DBM_029', { reason })).toBe(
-      `引擎操作被拒：当前凭据账户权限不足：${reason}`
+      `数据库拒绝操作：当前账号权限不足：${reason}`
     )
-    expect(dbmErrorText('DBM_029', {})).toBe('引擎操作被拒：当前凭据账户权限不足')
+    expect(dbmErrorText('DBM_029', {})).toBe('数据库拒绝操作：当前账号权限不足')
   })
 
   it('DBM_022 语义锚点：仍为 TABLE_NOT_FOUND（旧引擎权限语义已迁 DBM_029，不复用）', () => {

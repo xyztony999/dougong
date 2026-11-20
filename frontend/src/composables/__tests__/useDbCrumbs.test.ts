@@ -1,6 +1,6 @@
 /**
  * buildDbCrumbs 纯函数测试（database-mgmt PageSpec v1.4 7.2，F5 crumb 链规格）：
- * 数据库 → {引擎} 治理·{identity} → {database} → {table|collection}；
+ * 数据库 → {引擎} 管理·{identity} → {database} → {table|collection}；
  * 末级当前页不可点（path=null）、其余各级可点；动态段 identity 取档案（缺失兜底 instanceId
  * 原值不虚构，I-05）；非数据库域路由返回空数组（MainLayout 单标题兜底）。
  */
@@ -30,11 +30,11 @@ describe('buildDbCrumbs crumb 链（7.2 规格）', () => {
     expect(crumbs).toEqual([{ label: '数据库', path: null }])
   })
 
-  it('治理页：数据库（可点）/ MySQL 治理·localhost:3306（末级不可点）', () => {
+  it('治理页：数据库（可点）/ MySQL 管理·localhost:3306（末级不可点）', () => {
     const crumbs = buildDbCrumbs(input())
     expect(crumbs).toEqual([
       { label: '数据库', path: '/databases' },
-      { label: 'MySQL 治理·localhost:3306', path: null }
+      { label: 'MySQL 管理·localhost:3306', path: null }
     ])
   })
 
@@ -42,7 +42,7 @@ describe('buildDbCrumbs crumb 链（7.2 规格）', () => {
     const crumbs = buildDbCrumbs(
       input({ instance: { ...mysqlInstance, engine: 'mariadb' } })
     )
-    expect(crumbs[1].label).toBe('MariaDB 治理·localhost:3306')
+    expect(crumbs[1].label).toBe('MariaDB 管理·localhost:3306')
   })
 
   it('redis/mongo 治理页同构', () => {
@@ -52,14 +52,14 @@ describe('buildDbCrumbs crumb 链（7.2 规格）', () => {
         instance: { engine: 'redis', connMode: 'tcp', host: '127.0.0.1', port: 6379 }
       })
     )
-    expect(redis[1]).toEqual({ label: 'Redis 治理·127.0.0.1:6379', path: null })
+    expect(redis[1]).toEqual({ label: 'Redis 管理·127.0.0.1:6379', path: null })
     const mongo = buildDbCrumbs(
       input({
         routeName: 'db-mongo-manage',
         instance: { engine: 'mongodb', connMode: 'tcp', host: 'localhost', port: 27017 }
       })
     )
-    expect(mongo[1].label).toBe('MongoDB 治理·localhost:27017')
+    expect(mongo[1].label).toBe('MongoDB 管理·localhost:27017')
   })
 
   it('socket 档案 identity 呈现 socket 路径（D-01）', () => {
@@ -72,12 +72,12 @@ describe('buildDbCrumbs crumb 链（7.2 规格）', () => {
         }
       })
     )
-    expect(crumbs[1].label).toBe('MySQL 治理·/var/run/mysqld/mysqld.sock')
+    expect(crumbs[1].label).toBe('MySQL 管理·/var/run/mysqld/mysqld.sock')
   })
 
   it('档案缺失兜底 instanceId 原值（I-05 不虚构）；引擎名按路由段兜底', () => {
     const crumbs = buildDbCrumbs(input({ instance: null }))
-    expect(crumbs[1].label).toBe('MySQL 治理·7')
+    expect(crumbs[1].label).toBe('MySQL 管理·7')
   })
 
   it('表清单页（browse-database）：治理级可点回治理页，库名末级不可点', () => {
@@ -90,7 +90,7 @@ describe('buildDbCrumbs crumb 链（7.2 规格）', () => {
     )
     expect(crumbs).toEqual([
       { label: '数据库', path: '/databases' },
-      { label: 'MySQL 治理·localhost:3306', path: '/databases/mysql/7' },
+      { label: 'MySQL 管理·localhost:3306', path: '/databases/mysql/7' },
       { label: 'app_prod', path: null }
     ])
   })

@@ -59,7 +59,7 @@ function onFilterStatus(v: string | null): void {
           clearable
           :value="store.taskFilter.toolType"
           :options="toolTypeOptions"
-          placeholder="工具（空=全部）"
+          placeholder="全部工具"
           @update:value="onFilterToolType"
         />
         <n-select
@@ -67,7 +67,7 @@ function onFilterStatus(v: string | null): void {
           clearable
           :value="store.taskFilter.status"
           :options="statusOptions"
-          placeholder="状态（空=全部）"
+          placeholder="全部状态"
           @update:value="onFilterStatus"
         />
         <n-button size="small" :loading="store.tasksLoading" @click="store.loadTasks(1)">刷新</n-button>
@@ -150,11 +150,11 @@ function onFilterStatus(v: string | null): void {
             请释放端口后重试。
           </div>
           <div v-if="failureGuide === 'site-landing'" class="error-guide">
-            请到站点管理明确落点后重试——
-            <router-link to="/sites">到站点管理明确落点</router-link>
+            请到站点管理调整域名配置后重试——
+            <router-link to="/sites">前往站点管理</router-link>
           </div>
         </n-alert>
-        <div class="tail-head">命令输出尾部（排障；≤200 行，终态定格）</div>
+        <div class="tail-head">运行日志（最近 200 行，用于排查问题）</div>
         <pre class="tail">{{ store.currentTask.outputTail || '（暂无输出）' }}</pre>
         <div class="detail-actions">
           <n-button

@@ -117,7 +117,7 @@ async function onSubmit(): Promise<void> {
           v-model:value="form.charset"
           :options="charsetOptions"
           :loading="charsetsLoading"
-          placeholder="实例实况字符集"
+          placeholder="实例当前字符集"
         />
       </n-form-item>
     </n-form>

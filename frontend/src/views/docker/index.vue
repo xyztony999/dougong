@@ -229,10 +229,10 @@ function handleComposeActionError(e: unknown): void {
     // data={workingDir, configFile, missing}——呈现 label 记录路径 + 容器级兜底（第 1 节）
     if (isComposeLocateFailedInfo(e.data)) {
       message.warning(
-        `${DK_ERROR_TEXT['DK_015']}（工作目录：${e.data.workingDir ?? '未知'}，配置文件：${e.data.configFile ?? '未知'}）——可经容器页逐个操作兜底`
+        `${DK_ERROR_TEXT['DK_015']}（工作目录：${e.data.workingDir ?? '未知'}，配置文件：${e.data.configFile ?? '未知'}）——可在容器页逐个操作`
       )
     } else {
-      message.warning(`${DK_ERROR_TEXT['DK_015']}——可经容器页逐个操作兜底`)
+      message.warning(`${DK_ERROR_TEXT['DK_015']}——可在容器页逐个操作`)
     }
     return
   }

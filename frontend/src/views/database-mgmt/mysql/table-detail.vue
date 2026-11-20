@@ -360,11 +360,11 @@ onMounted(() => {
       </div>
     </n-card>
 
-    <n-alert v-if="instance !== null && !governable" type="warning" title="实例不可治理">
+    <n-alert v-if="instance !== null && !governable" type="warning" title="实例无法管理">
       {{
         instance.connState !== 'reachable'
-          ? '实例连接不可达——治理与观测操作将无法执行（实例启停请前往服务管理）。'
-          : '实例未配置凭据——请先在实例清单配置凭据后治理。'
+          ? '实例连接不可达——管理和查看操作将无法执行（实例启停请前往服务管理）。'
+          : '实例未配置账号密码——请先在实例清单配置账号密码后再管理。'
       }}
     </n-alert>
 

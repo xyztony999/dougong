@@ -31,7 +31,7 @@ const dbStore = useDbStore()
 const instanceId = computed(() => Number(route.params.instanceId))
 const instance = computed(() => dbStore.findById(instanceId.value))
 
-/** 治理/观测前置（I-05 前置链呈现层）：不可达或未配置凭据 → 横幅 + Tab 数据不自动拉取 */
+/** 治理/观测前置（I-05 前置链呈现层）：不可达或未配置账号密码 → 横幅 + Tab 数据不自动拉取 */
 const governable = computed(
   () => instance.value !== null && instance.value.connState === 'reachable' && instance.value.credentialsSet
 )
@@ -48,10 +48,10 @@ const credentialsShow = ref(false)
 
 function handlePasswordSyncError(): void {
   dialog.error({
-    title: '密码已修改，但面板凭据同步失败',
+    title: '密码已修改，但面板保存的账号密码同步失败',
     content:
-      'Redis 密码已修改成功，但面板凭据同步失败（引擎侧不回滚）——请立即重新配置凭据，否则后续治理将不可用。',
-    positiveText: '重新配置凭据',
+      'Redis 密码已修改成功，但面板保存的账号密码同步失败（数据库不会回滚）——请立即重新配置账号密码，否则后续管理将不可用。',
+    positiveText: '重新配置账号密码',
     negativeText: '稍后处理',
     onPositiveClick: () => {
       credentialsShow.value = true
@@ -68,7 +68,7 @@ async function onSetPassword(newPassword: string): Promise<void> {
   passwordSubmitting.value = true
   try {
     await redisPassword({ instanceId: instanceId.value, newPassword })
-    message.success('Redis 密码已设置，面板凭据已同步')
+    message.success('Redis 密码已设置，面板账号密码已同步')
     passwordShow.value = false
   } catch (e) {
     if (e instanceof ApiError && e.is('DBM_019')) {
@@ -231,16 +231,16 @@ onMounted(() => {
     <n-alert
       v-if="instance !== null && instance.connState === 'unreachable'"
       type="warning"
-      title="实例不可达——治理操作将无法执行（实例启停请前往服务管理）"
+      title="实例不可达——管理操作将无法执行（实例启停请前往服务管理）"
     />
     <n-alert
       v-else-if="instance !== null && !instance.credentialsSet"
       type="info"
-      :title="authStore.isAdmin ? '实例未配置凭据——治理与观测暂不可用' : '待管理员配置凭据（配置后治理与观测可用）'"
+      :title="authStore.isAdmin ? '实例未配置账号密码——管理和查看暂不可用' : '待管理员配置账号密码（配置后可管理和查看）'"
     >
       <template v-if="authStore.isAdmin" #default>
         <n-button size="small" type="primary" @click="credentialsShow = true">
-          配置凭据
+          配置账号密码
         </n-button>
       </template>
     </n-alert>

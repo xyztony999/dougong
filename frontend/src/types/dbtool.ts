@@ -106,20 +106,20 @@ export interface DbToolRotateResult {
 /** ---- 错误码文案（api 3.4 DBT_001~012；页面级分流，拦截器不含 DBT 码集） ---- */
 
 export const DBT_ERROR_TEXT: Readonly<Record<string, string>> = {
-  DBT_001: '依赖缺失（环境或 PHP 扩展未就绪）',
+  DBT_001: '缺少运行环境或 PHP 扩展',
   DBT_002: '工具类型参数错误',
-  DBT_003: '该工具有任务进行中',
+  DBT_003: '该工具有任务正在进行',
   DBT_004: '工具未安装',
-  DBT_005: '任务不存在，请刷新任务清单',
-  DBT_006: '实例未就绪（未纳管/凭据未配置/引擎不匹配）',
-  // 007/008/010 为 signon 内部端点错误码——前端不直接消费（浏览器经工具侧呈现拒绝，
-  // 面板侧打开失败引导重新打开，PageSpec 第 1 节）；文案登记仅供锚点测试与兜底。
-  DBT_007: 'signon 令牌校验失败',
-  DBT_008: 'signon 令牌已过期',
-  DBT_009: '轮换凭据仅 mongo-express 支持',
-  DBT_010: 'signon 令牌已被使用',
-  DBT_011: '当前已为目录版本，无需升级',
-  DBT_012: '工具部署/轮换操作失败'
+  DBT_005: '任务不存在，请刷新任务列表',
+  DBT_006: '数据库实例不可用（未添加、未配置账号密码或类型不符）',
+  // 007/008/010 为内部登录凭证错误码——前端不直接消费（浏览器经工具侧呈现拒绝，
+  // 面板侧打开失败引导重新打开）；文案登记仅供锚点测试与兜底。
+  DBT_007: '登录凭证校验失败',
+  DBT_008: '登录凭证已过期',
+  DBT_009: '只有 mongo-express 支持重置密码',
+  DBT_010: '登录凭证已使用，请重新打开',
+  DBT_011: '已是最新版本，无需升级',
+  DBT_012: '安装或重置密码失败'
 }
 
 /** ApiError.data（unknown）→ data.reason 收窄（DBT_012 失败原因如实展示，api 3.4；
@@ -168,7 +168,7 @@ export function dbtErrorText(code: string, data: unknown): string | null {
     const reason = dbtReasonOf(data)
     if (reason !== null) {
       if (dbtFailureGuide(reason) === 'site-landing') {
-        return `${base}：${reason}——请到站点管理明确落点后重试`
+        return `${base}：${reason}——请到站点管理调整域名配置后重试`
       }
       return `${base}：${reason}`
     }
@@ -201,7 +201,7 @@ export function toolForEngine(engine: DbEngine): DbToolType | null {
  * 未知值原样呈现不硬编码七/八值，D-18〕；kind=extension → PHP 扩展名原样） */
 export function depMissingText(dep: DbToolDepMissing): string {
   if (dep.kind === 'env') return `${dictItem(ENV_TYPE, dep.name).label} 环境未安装`
-  return `PHP 扩展 ${dep.name} 缺失`
+  return `PHP 扩展 ${dep.name} 未安装`
 }
 
 /** 依赖缺失清单汇总（安装按钮禁用 tooltip / 未装引导弹窗共用） */
@@ -218,13 +218,13 @@ export function installedStateTag(installed: boolean, version: string | null): D
 /** 运行态三态 Tag（true=green 运行中 / false=gray 已停止 / null=orange 运行态未知——
  * 探测失败不虚构，D-02/I-11） */
 export function runningStateTag(running: boolean | null): DictItem {
-  if (running === null) return { label: '运行态未知', tag: 'warning' }
+  if (running === null) return { label: '运行状态未知', tag: 'warning' }
   return running ? { label: '运行中', tag: 'success' } : { label: '已停止', tag: 'default' }
 }
 
 /** 依赖就绪度 Tag（true=green 依赖就绪 / false=orange 依赖缺失） */
 export function depsReadyTag(depsReady: boolean): DictItem {
-  return depsReady ? { label: '依赖就绪', tag: 'success' } : { label: '依赖缺失', tag: 'warning' }
+  return depsReady ? { label: '环境就绪', tag: 'success' } : { label: '缺少依赖', tag: 'warning' }
 }
 
 /** 任务在途判定（pending/running=在途；succeeded/failed=终态，env-mgmt isInFlight 同构） */
@@ -235,7 +235,7 @@ export function isDbToolTaskInFlight(status: DbToolTaskStatus): boolean {
 /** 打开成功 toast（PageSpec 4.4：phpmyadmin 令牌 60s 时效呈现；mongo_express 无令牌） */
 export function openToastText(result: DbToolOpenResult): string {
   if (result.toolType === 'phpmyadmin' && result.tokenExpiresAt !== null) {
-    return '已打开（令牌 60 秒内有效）'
+    return '已打开（登录凭证 60 秒内有效）'
   }
   return '已打开'
 }
@@ -255,7 +255,7 @@ export function instanceIdentityText(item: {
 
 /** 工具安全访问 tooltip 文案（database-mgmt PageSpec 6.8 安全口径呈现，⚠️A6~A10 用户面） */
 export const DBTOOL_ACCESS_TOOLTIP =
-  '经面板会话安全访问（仅管理员）；工具仅监听本机，凭据加密存储不回显'
+  '仅管理员可用，需先登录面板；工具只在本机运行，密码加密保存、不会显示'
 
 /** ---- v1.2 自动 nginx 落地呈现助手（PageSpec admin/readonly 4.1/4.3，api D-19/D-22/D-23） ---- */
 
@@ -266,7 +266,7 @@ export const DBTOOL_LANDING_PORT = 18090
 /** 页头说明条文案（PageSpec 4.1 v1.2：gating 安全口径 + 自动落地端口 18090 每请求会话校验
  * + 绑域名仅域名访问语义〔api D-19/D-20〕+ 轻量入口并存 Q3） */
 export const DBTOOL_PAGE_INTRO =
-  `集成工具经面板会话安全访问（仅管理员）；工具本体仅监听本机，不暴露公网端口。IP 直连面板形态自动创建独立访问端口 ${DBTOOL_LANDING_PORT}（每请求会话校验，需放行防火墙/云安全组）；绑定域名后工具仅认域名访问。面板内表/文档浏览（轻量入口）保留并存。`
+  `在这里安装 phpMyAdmin、mongo-express 等工具来管理数据库（仅管理员可打开）。工具只在本机运行，登录面板后才能访问，不会直接暴露到公网。用 IP 直连面板时会自动开放工具端口 ${DBTOOL_LANDING_PORT}（需在防火墙/云安全组放行）；绑定域名后则只能用域名访问。数据库页里的表/文档浏览仍然可用。`
 
 /** 工具路径前缀（api D-13 TOOL_PATH_PREFIX_* 同值；访问地址展示引导用——
  * 实际打开 URL 以 dbtoolOpen 响应权威下发〔含端口/域名/signon 令牌片段〕，前端不拼接不修改，D-23） */
@@ -281,7 +281,7 @@ export const DBTOOL_PATH_PREFIX: Readonly<Record<DbToolType, string>> = {
  * 未装/landingPort=null → null（整块不渲染，不虚构端口；JSON null≠undefined 显式判空） */
 export function landingTag(item: DbToolItem): DictItem | null {
   if (!item.installed || item.landingPort === null) return null
-  if (item.landingPort === 0) return { label: '面板域路径访问', tag: 'default' }
+  if (item.landingPort === 0) return { label: '经面板域名访问', tag: 'default' }
   return { label: `独立访问端口 ${item.landingPort}`, tag: 'info' }
 }
 
@@ -297,7 +297,7 @@ export function landingAddress(item: DbToolItem, hostname: string): string | nul
  * PageSpec readonly 4.1 v1.2）；port=0/null → null */
 export function landingHint(item: DbToolItem): string | null {
   if (!item.installed || item.landingPort === null || item.landingPort === 0) return null
-  return `请放行 TCP ${item.landingPort} 端口（防火墙/云安全组）；绑定域名后仅域名可访问（其他 Host 404）`
+  return `请在防火墙/云安全组开放 ${item.landingPort} 端口；绑定域名后只能用域名访问`
 }
 
 /** 安装成功放行提示（PageSpec 4.1/4.3 v1.2）：install 任务终态 succeeded 且工具档案
@@ -313,5 +313,5 @@ export function installReadyAlertText(
   if (tool === null || tool.autoCreated !== true) return null
   if (tool.landingPort === null || tool.landingPort === 0) return null
   const port = tool.landingPort
-  return `工具已就绪：请放行工具端口 ${port}（防火墙/云安全组），访问地址 http://${hostname}:${port}${DBTOOL_PATH_PREFIX[task.toolType]}（绑定域名后为 http://域名:${port}/...）`
+  return `工具已安装好：请在防火墙/云安全组开放端口 ${port}，然后访问 http://${hostname}:${port}${DBTOOL_PATH_PREFIX[task.toolType]}（绑定域名后用 http://域名:${port}/...）`
 }

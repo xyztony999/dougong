@@ -103,8 +103,8 @@ function handleDbtError(e: unknown): void {
     const missing = dbtMissingOf(e.data)
     message.error(
       missing.length > 0
-        ? `依赖缺失：${depsMissingSummary(missing)}——请到环境管理安装`
-        : '依赖缺失——请到环境管理安装'
+        ? `缺少依赖：${depsMissingSummary(missing)}——请到环境管理安装`
+        : '缺少依赖——请到环境管理安装'
     )
     void store.loadList()
     return
@@ -121,11 +121,11 @@ function handleDbtError(e: unknown): void {
     return
   }
   if (e.is('DBT_006')) {
-    message.error('实例未就绪——请到数据库管理配置凭据')
+    message.error('数据库实例不可用——请到数据库管理配置账号密码')
     return
   }
   if (e.is('DBT_011')) {
-    message.info('当前已为目录版本，无需升级')
+    message.info('已是最新版本，无需升级')
     return
   }
   const text = dbtErrorText(e.code, e.data)
@@ -164,11 +164,11 @@ function onInstallClick(item: DbToolItem): void {
 /** 安装确认文案（PageSpec 4.1 v1.2：+自动建块说明——无面板域 nginx 落点时自动创建
  * 独立访问块〔端口 18090〕，安装成功后需放行该端口，api D-19） */
 function installIntroPhpmyadmin(catalogVersion: string): string {
-  return `将下载 phpMyAdmin ${catalogVersion} 官方包（sha256 校验，可能需要数分钟）并部署到面板管理目录，经面板会话安全访问；需 PHP-FPM 环境与扩展就绪（缺失将拒绝并引导补装）。若面板尚无域名 nginx 落点（IP 直连形态），将自动创建独立访问块（端口 ${DBTOOL_LANDING_PORT}），安装成功后需放行该端口。`
+  return `将下载并安装 phpMyAdmin ${catalogVersion}（官方包，已做完整性校验，可能需要几分钟）。需要先装好 PHP-FPM 及扩展，缺少时会提示你去补装。如果你是用 IP 直连面板（没绑域名），会自动开放工具端口 ${DBTOOL_LANDING_PORT}，安装完成后记得在防火墙放行。`
 }
 
 function installIntroMongo(catalogVersion: string): string {
-  return `将 npm 安装 mongo-express ${catalogVersion} 并创建本机服务（仅监听 127.0.0.1:8081），注入所选实例凭据（加密存储不回显）与面板访问凭据；需 Node 环境就绪。若无面板域 nginx 落点将自动创建独立访问块（端口 ${DBTOOL_LANDING_PORT}），成功后需放行该端口。`
+  return `将安装 mongo-express ${catalogVersion} 并在本机创建服务（只监听本机，不对外）。会自动填入所选数据库的账号密码（加密保存、不显示）。需要先装好 Node.js。用 IP 直连面板时会自动开放工具端口 ${DBTOOL_LANDING_PORT}，安装完成后记得放行。`
 }
 
 const phpmyadminCatalogVersion = computed(
@@ -197,7 +197,7 @@ async function onUpgrade(item: DbToolItem): Promise<void> {
 }
 
 function upgradeIntro(item: DbToolItem): string {
-  return `将升级 ${item.displayName} 到目录版本 ${item.catalogVersion}（phpMyAdmin 保留配置与密钥；mongo-express 重装并重启服务，凭据与访问路径不变）。`
+  return `将把 ${item.displayName} 升级到最新版本 ${item.catalogVersion}（phpMyAdmin 保留原有配置；mongo-express 重装并重启，账号密码和访问地址不变）。`
 }
 
 /** ---- 卸载强确认（NModal 两段警示 + 输入工具显示名锁定，⚠️A5/D-15） ---- */
@@ -242,7 +242,7 @@ async function onRotate(item: DbToolItem): Promise<void> {
   rotating.value = true
   try {
     const res = await dbtoolRotate(item.toolType)
-    message.success(`凭据已轮换（${formatDateTime(res.rotatedAt)}）`)
+    message.success(`密码已重置（${formatDateTime(res.rotatedAt)}）`)
     void store.loadList()
   } catch (e) {
     handleDbtError(e)
@@ -424,7 +424,7 @@ onUnmounted(() => {
         type="error"
         closable
         style="margin-top: 8px"
-        title="工具实况加载失败"
+        title="工具状态加载失败"
       >
         <n-button size="tiny" @click="store.loadList()">重试</n-button>
       </n-alert>
@@ -460,7 +460,7 @@ onUnmounted(() => {
         </template>
 
         <div class="tool-desc">{{ item.description }}</div>
-        <div class="tool-catalog">目录版本 {{ item.catalogVersion }}</div>
+        <div class="tool-catalog">最新版本 {{ item.catalogVersion }}</div>
 
         <!-- 运行态（已装才呈现——未装无运行态语义，env-mgmt v0.1.4 先例；三态不虚构 D-02） -->
         <div v-if="item.installed" class="tool-row">
@@ -490,7 +490,7 @@ onUnmounted(() => {
             </template>
             <template v-else>
               <span>{{ depMissingText(dep) }}</span>
-              <span class="deps-hint">（经环境管理 PHP-FPM 补装扩展后刷新）</span>
+              <span class="deps-hint">（到环境管理重装 PHP-FPM 即可补装，完成后刷新）</span>
             </template>
           </li>
         </ul>
@@ -605,10 +605,10 @@ onUnmounted(() => {
               >
                 <template #trigger>
                   <n-button size="small" :loading="rotating" :disabled="changeDisabled(item)">
-                    轮换凭据
+                    重置密码
                   </n-button>
                 </template>
-                将重新生成 mongo-express 访问口令（旧口令即时失效）；浏览器无感知（服务端注入），无需重新登录。
+                将重新生成 mongo-express 的访问密码（旧密码立即失效），无需重新登录。
               </n-popconfirm>
             </template>
           </div>
@@ -639,7 +639,7 @@ onUnmounted(() => {
       v-model:show="openModalShow"
       :engines="['mysql', 'mariadb']"
       title="打开 phpMyAdmin"
-      intro="选择目标 MySQL/MariaDB 实例——signon 令牌绑定所选实例（60 秒时效，一次性），经面板会话安全访问进入工具后自选库。"
+      intro="选择要管理的 MySQL/MariaDB 实例。打开后进入 phpMyAdmin，登录凭证 60 秒内有效、仅用一次，进去后再选具体的库。"
       ok-text="打开"
       @select="(id: number) => doOpen('phpmyadmin', id)"
     />
@@ -654,10 +654,10 @@ onUnmounted(() => {
       @update:show="(v: boolean) => { if (!v) uninstallTarget = null }"
     >
       <n-alert type="warning" title="功能影响" style="margin-bottom: 10px">
-        卸载后 {{ uninstallTarget?.displayName ?? '' }} 高级管理入口将不可用；面板内表/文档浏览（轻量入口）不受影响。两工具均卸载后自动移除独立访问块（端口 {{ DBTOOL_LANDING_PORT }} 失效）；既有面板域访问块不受影响。
+        卸载后 {{ uninstallTarget?.displayName ?? '' }} 将无法打开；数据库页里的表/文档浏览不受影响。两个工具都卸载后，会自动关闭工具端口 {{ DBTOOL_LANDING_PORT }}。
       </n-alert>
       <n-alert type="info" title="数据保全" style="margin-bottom: 10px">
-        卸载仅解除工具部署（程序/服务/站点配置/访问凭据），绝不删除数据库数据（沿实例移除哲学）。
+        卸载只移除工具本身（程序、服务、相关配置），不会删除数据库里的数据。
       </n-alert>
       <n-form label-placement="left" label-width="110">
         <n-form-item label="确认输入">

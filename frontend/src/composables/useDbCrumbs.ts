@@ -76,7 +76,7 @@ export function buildDbCrumbs(input: DbCrumbInput): DbCrumb[] {
     instance !== null ? DB_ENGINE[instance.engine].label : SEGMENT_ENGINE_LABEL[segment]
   const managePath = `/databases/${segment}/${instanceId}`
   const manageCrumb: DbCrumb = {
-    label: `${engineLabel} 治理·${identityOf(instance, instanceId)}`,
+    label: `${engineLabel} 管理·${identityOf(instance, instanceId)}`,
     path: null
   }
 

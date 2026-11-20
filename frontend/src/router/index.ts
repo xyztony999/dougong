@@ -167,19 +167,19 @@ const router = createRouter({
           path: 'databases/mysql/:instanceId',
           name: 'db-mysql-manage',
           component: () => import('@/views/database-mgmt/mysql/index.vue'),
-          meta: { title: 'MySQL 治理', engineGuard: 'mysql' }
+          meta: { title: 'MySQL 管理', engineGuard: 'mysql' }
         },
         {
           path: 'databases/redis/:instanceId',
           name: 'db-redis-manage',
           component: () => import('@/views/database-mgmt/redis/index.vue'),
-          meta: { title: 'Redis 治理', engineGuard: 'redis' }
+          meta: { title: 'Redis 管理', engineGuard: 'redis' }
         },
         {
           path: 'databases/mongo/:instanceId',
           name: 'db-mongo-manage',
           component: () => import('@/views/database-mgmt/mongo/index.vue'),
-          meta: { title: 'MongoDB 治理', engineGuard: 'mongodb' }
+          meta: { title: 'MongoDB 管理', engineGuard: 'mongodb' }
         },
         // v1.4 浏览页三/四级路由（不占菜单位，返回导航经面包屑 7.2；engineGuard 同链）
         {

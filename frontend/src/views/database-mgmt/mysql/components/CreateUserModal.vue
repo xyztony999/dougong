@@ -109,7 +109,7 @@ async function onSubmit(): Promise<void> {
           v-model:value="form.password"
           type="password"
           show-password-on="click"
-          placeholder="密码不回显"
+          placeholder="密码保存后不再显示"
         />
       </n-form-item>
     </n-form>

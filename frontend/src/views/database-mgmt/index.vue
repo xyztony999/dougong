@@ -97,7 +97,7 @@ async function onRemove(row: DbInstanceItem): Promise<void> {
   removingId.value = row.id
   try {
     await instanceRemove(row.id)
-    message.success('已解除纳管（实例与数据不受影响）')
+    message.success('已移除（实例和数据不受影响）')
     void store.loadList()
   } catch (e) {
     toastDbm(e) // DBM_016 在途 → 提示稍后重试（第 1 节）
@@ -162,7 +162,7 @@ const columns = computed<DataTableColumns<DbInstanceItem>>(() => {
     },
     { title: '连接状态', key: 'connState', width: 110, render: (row) => connStateTag(row.connState) },
     {
-      title: '凭据',
+      title: '账号密码',
       key: 'credentialsSet',
       width: 100,
       render: (row) => credentialsTag(row.credentialsSet)
@@ -192,7 +192,7 @@ const columns = computed<DataTableColumns<DbInstanceItem>>(() => {
               disabled: removing,
               onClick: stopAnd(() => openCredentials(row))
             },
-            { default: () => '配置凭据' }
+            { default: () => '配置账号密码' }
           ),
           h(
             NPopconfirm,
@@ -212,7 +212,7 @@ const columns = computed<DataTableColumns<DbInstanceItem>>(() => {
                   { default: () => '移除' }
                 ),
               default: () =>
-                '确认移除纳管？仅解除面板管理，不卸载实例、不删除数据。'
+                '确认移除？仅取消面板管理，不会卸载数据库或删除数据。'
             }
           ),
           h(
@@ -298,7 +298,7 @@ onMounted(() => {
         <span class="legend-state">
           <n-tag type="success" size="small" :bordered="false">可达</n-tag>
           <n-tag type="warning" size="small" :bordered="false">不可达</n-tag>
-          仅反映连通性，不代表凭据正确
+          仅反映连通性，不代表账号密码正确
         </span>
       </div>
       <n-data-table
@@ -322,7 +322,7 @@ onMounted(() => {
       </n-data-table>
     </n-card>
 
-    <!-- 配置凭据弹窗（5.1） -->
+    <!-- 配置账号密码弹窗（5.1） -->
     <instance-credentials-modal
       v-model:show="credentialsShow"
       :instance="credentialsTarget"

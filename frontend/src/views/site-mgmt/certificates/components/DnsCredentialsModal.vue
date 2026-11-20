@@ -68,14 +68,14 @@ async function onCreate(): Promise<void> {
       provider: form.value.provider,
       credential: form.value.payload
     })
-    message.success('DNS 凭证已创建（加密存储，不再显示凭据）')
+    message.success('DNS 凭证已创建（加密存储，不再显示）')
     resetForm()
     await load()
     emit('changed')
   } catch (e) {
     if (e instanceof ApiError) {
       const field = (e.data as Record<string, unknown> | null)?.field
-      message.error(typeof field === 'string' ? field : '创建失败：凭据形态校验未通过')
+      message.error(typeof field === 'string' ? field : '创建失败：凭证格式校验未通过')
       return
     }
     throw e
@@ -149,8 +149,8 @@ const columns = computed<DataTableColumns<DnsCredentialItem>>(() => [
             h(NButton, { size: 'small', type: 'error', ghost: true }, { default: () => '删除' }),
           default: () =>
             row.referencedCertCount > 0
-              ? `该凭证被 ${row.referencedCertCount} 张 DNS-01 证书引用，删除后其自动续期将失败；凭据材料不可恢复。确认删除？`
-              : '凭据材料不可恢复。确认删除？'
+              ? `该凭证被 ${row.referencedCertCount} 张 DNS-01 证书引用，删除后其自动续期将失败；凭证内容不可恢复。确认删除？`
+              : '凭证内容不可恢复。确认删除？'
         }
       )
   }
@@ -167,7 +167,7 @@ const columns = computed<DataTableColumns<DnsCredentialItem>>(() => [
     @update:show="(v: boolean) => (show = v)"
   >
     <n-alert type="info" :show-icon="true" style="margin-bottom: 12px">
-      凭据将以加密形式存储且不再显示；有效性在申请证书时由服务商验证。服务商初始清单：Cloudflare / 阿里云 DNS / 腾讯云 DNSPod。
+      凭证将以加密形式存储且不再显示；有效性在申请证书时由服务商验证。服务商初始清单：Cloudflare / 阿里云 DNS / 腾讯云 DNSPod。
     </n-alert>
 
     <n-card size="small" title="已有凭证" style="margin-bottom: 12px">

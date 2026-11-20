@@ -112,7 +112,7 @@ async function onSubmit(): Promise<void> {
       />
     </div>
     <div v-if="feedback !== null" class="feedback">{{ feedback }}</div>
-    <div class="note">仅作用目标自身，不递归；候选为系统实况实时读取。</div>
+    <div class="note">只作用于目标本身，不递归；候选项实时读取自系统。</div>
     <template #footer>
       <div class="footer">
         <n-button @click="show = false">取消</n-button>

@@ -117,30 +117,30 @@ function onFilterStatus(v: string | null): void {
         <n-alert
           v-if="store.currentTask.bootstrapStatus === 'succeeded'"
           type="success"
-          title="配置就绪"
+          title="自动配置完成"
           style="margin-top: 10px"
         >
-          {{ store.currentTask.bootstrapNote || '已创建管理账户并注册到数据库管理，可直接治理。' }}
+          {{ store.currentTask.bootstrapNote || '已创建管理账号并添加到数据库管理，可以直接管理了。' }}
           <router-link to="/databases" class="boot-link">前往数据库管理</router-link>
         </n-alert>
         <n-alert
           v-else-if="store.currentTask.bootstrapStatus === 'failed'"
           type="warning"
-          title="已安装 · 引导失败"
+          title="已安装 · 自动配置失败"
           style="margin-top: 10px"
         >
-          {{ store.currentTask.bootstrapNote || '安装后配置就绪引导失败。' }}
-          <div class="boot-hint">环境已安装，但面板尚无法直接治理；可重新安装/升级以重试引导（幂等）。</div>
+          {{ store.currentTask.bootstrapNote || '安装后的自动配置失败。' }}
+          <div class="boot-hint">环境已装好，但面板还无法直接管理；可重新安装或升级再试一次（不会重复配置）。</div>
         </n-alert>
         <n-alert
           v-else-if="store.currentTask.bootstrapStatus === 'skipped'"
           type="info"
-          title="保守跳过"
+          title="已跳过自动配置"
           style="margin-top: 10px"
         >
-          {{ store.currentTask.bootstrapNote || '检测到已有配置，保守跳过引导（不覆盖）。' }}
+          {{ store.currentTask.bootstrapNote || '检测到已有配置，已跳过自动配置（不会覆盖你的设置）。' }}
         </n-alert>
-        <div class="tail-head">命令输出尾部（排障；≤200 行，含 [bootstrap] 引导步骤行）</div>
+        <div class="tail-head">运行日志（最近 200 行，含自动配置步骤）</div>
         <pre class="tail">{{ store.currentTask.outputTail || '（暂无输出）' }}</pre>
         <div class="detail-actions">
           <n-button
