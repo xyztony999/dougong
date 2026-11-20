@@ -664,3 +664,13 @@ W1/W2 维持报告原判（WARN 非本轮 FAIL 修复项）：views/monitoring �
   undefined（并行后端 v1.3 自动落地工作流 mid-edit，inject.go/consts.go 工作区已改未落齐，非本轮前端改动——
   本轮仅触 frontend/src 与 backend/web/dist 资产）；编译门控归脚本统一跑（后端落齐后复跑）
 - 偏差登记：无（PageSpec v1.2/api v1.3 逐条落码；安装成功提示地址用实际工具路径前缀替代文档「dbtool/...」占位，同口径更精确）
+
+## app-mgmt 前端增量（2026-11-20，PageSpec admin/readonly v1.0 + api-app-mgmt v1.0）
+
+- [x] F01 · types/app.ts（DTO 逐形状可空显式|null：AppItem 实况六字段/PythonReadiness 能力位/任务 retryable）+ APP_ERROR_TEXT 12 码文案（人话化）
+- [x] F02 · api/app.ts 16 Action 与 api §4.3 一一对应（S7 无虚构）
+- [x] F03 · enums.ts：APP_TASK_ACTION/APP_TASK_STATUS/APP_START_MODE 三字典入册（S8 池同值）+ EnvType 八→九值 +python（v1.5 五方同值同步，env.test 断言更新）
+- [x] F04 · stores/app.ts（全景成败流/任务筛选透传/详情 5s 轮询终态即停+终态跃迁重拉——env 先例）+ views/app-mgmt/index.vue hybrid（页头就绪度状态条+应用表格操作列 admin only+创建向导 Modal 两分组条件显隐+删除强确认 NModal 两段警示/purgeDir 默认关/输入锁定+运维 Drawer 三 Tab〔概要/参数/日志——参数与日志 admin 专属 ⚠️A8〕+任务 Drawer 双区 retry 按钮态）+ 路由 /app + MENU_ICONS apps
+- [x] F05 · 测试：stores/__tests__/app.test.ts 4 用例（成败流/保留上一投影/终态跃迁重拉/筛选透传）+ env.test ENV_TYPE 九值更新
+- [x] 自验：vue-tsc+vite build exit 0；vitest 22 文件 292 用例全过；dist 同步 backend/web/dist 后 go build=0
+- [x] 偏差登记：A-F1 AppItem 表格列（非卡片网格——应用为动态清单非固定条目，沿 PageSpec §4.1 表格形态）；A-F2 readonly「站点」列保留已建站链接（站点管理只读视图可达）

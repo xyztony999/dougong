@@ -2,9 +2,9 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v1.3 |
+| 版本 | v1.4 |
 | 状态 | 稳定 |
-| 最后更新 | 2026-11-19（v1.3 Node 环境增量轮，db-tools 集成联动） |
+| 最后更新 | 2026-11-20（v1.4 Python 环境增量轮，app-mgmt 集成联动） |
 | 输入 | D0 增量澄清拍板（随 business-arch-env-mgmt.md ⚠️A1~A17 承载；v1.2 轮 d0-clarification-2026-11-17-bootstrap.md 拍板 Q1~Q4；v1.3 轮 d0-clarification-db-tools-integration-2026-11-19.md 拍板 Q1）、D1 三文档（business-arch/application-arch/function-list-env-mgmt.md v1.2）、domain-model.md v1.24、idea.md §3/§4.1/§7（R-02/R-03/R-08/R-14/ADR-018）、install.sh 支持矩阵（Debian 11+/Ubuntu 20.04+/RHEL 9 系） |
 | 下游 | D3 API 设计（02-detailed/api/api-env-mgmt.md）、D4 交互设计（02-detailed/interaction/{admin,readonly}/env-mgmt/） |
 
@@ -32,6 +32,7 @@
 | 6 | 环境服务启停与自启：对已装环境执行服务 start/stop/restart 与自启 enable/disable（经 systemd 通道，操作对象限定目录环境单元 ⚠️A7）；结果如实反馈 | D1 AA S-54-01 |
 | 7 | 安装后配置就绪（v1.2，C-14-04 机制型）：数据库类环境（MySQL/Redis/MongoDB）安装/升级成功后自动引导——确保 DB 服务就绪（幂等 start，⚠️A15）→ 经 database-mgmt OHS 建管理账户/设随机强密码 + 注册实例与凭据（装完即可管，⚠️A11/A12）→ 引导结果独立维度入任务台账（bootstrap_status/note，⚠️A14）；幂等保守不覆盖用户已有配置（⚠️A13）；引导审计、密码密文零回显 | D1 AA C-14-04 + D0 拍板 Q1~Q4（2026-11-17） |
 | 8 | Node 环境供给（v1.3，⚠️A16/A17 横切口径）：Node.js 目录条目（包名 nodejs 三系同）经 NodeSource 官方源三系代配安装（LTS 大版本轨道钉死，版本号 D3 定稿；npm 随 nodejs 包供给不单独安装）；版本查询 node --version（R-08 参数数组）；运行时型无服务单元——服务态 null/启停自启入口禁用/装完即用无引导；环境实况被 db-tools 依赖就绪度消费（进程内读契约） | D1 BA/AA/FL v1.2 ⚠️A16/A17 + db-tools D0 拍板 Q1（2026-11-19） |
+| 9 | Python 环境供给（v1.4，⚠️A18 横切口径）：Python 目录条目（发行版仓库包，**无第三方源代配**——apt python3/python3-venv/python3-pip 三包候选〔Debian 系 venv 支撑需 python3-venv 单独包〕、rpm 系 python3〔venv/pip 自含〕，候选包名矩阵 D3 定稿）；版本查询 python3 --version 且 venv/pip 能力位一并探测（R-08 参数数组）；运行时型无服务单元（⚠️A17 同构）——服务态 null/启停自启入口禁用/装完即用无引导；就绪度（含 venv/pip 能力位）被 app-mgmt 依赖就绪度消费（进程内读契约） | D1 BA/AA/FL v1.3 ⚠️A18 + app-mgmt D0 拍板 Q2（2026-11-20） |
 
 **OUT（不做什么）**：
 
@@ -49,7 +50,7 @@
 | 9 | 卸载前跨模块动态数据计数（容器数/纳管实例数/站点数） | 不做（无跨模块硬调用，AA 附录B 软引导口径；风险提示=静态警示文案+本域 systemd 服务实况，见 4.2 FR-04 落地口径） |
 | 10 | Windows/无 systemd 环境支持 | 不做（install.sh 支持矩阵外，如实报错） |
 | 11 | 环境页面外壳与导航挂载 | panel-core（应用骨架与导航） |
-| 12 | Python 环境（v1.3 登记） | 不做（db-tools D0 范围边界明示归未来；目录扩展走面板版本迭代 ⚠️A1） |
+| 12 | Python 多版本共存（pyenv/自选版本；**v1.4 修订：Python 环境本体已由 v1.3 OUT 转为 IN-9 供给**） | 不做（系统 python3 单版本，沿 PHP 多版本二期先例；目录扩展走面板版本迭代 ⚠️A1） |
 | 13 | 数据库集成工具部署（phpMyAdmin/mongo-express 本体） | db-tools（工具集成层，ADR-032；本模块仅 Node/PHP-FPM 环境供给与实况被消费，不代装工具） |
 
 ## 第三部分：角色定义（G3）
@@ -81,6 +82,7 @@
 | FR-05 | 环境变更任务跟踪（C-14-03） | 异步任务的观测与结果确认：任务状态 pending → running → succeeded / failed（⚠️A3）；呈现目标环境、动作（install/upgrade/uninstall）、发起者、发起时间、命令输出尾部（排障，行数上限编译期常量）、失败原因、**引导结果（bootstrap_status succeeded/failed/skipped，NULL=无引导步骤 + bootstrap_note 摘要，v1.2 ⚠️A14）**；同环境在途任务互斥（pending/running 存在时新变更请求如实拒绝）；任务台账持久化（跨重启留存）；面板重启时在途 running 任务标 failed（error=面板重启中断，如实呈现）；任务取消不做（OUT-4）；两角色可看（ADR-018） | 任务终态结果一并留痕（succeeded/failed 均记） |
 | FR-07 | 安装后配置就绪（C-14-04，v1.2 机制型） | 数据库类环境（MySQL/Redis/MongoDB）安装/升级成功后的自动配置引导（独立后置步骤，⚠️A11）：①服务就绪——确保 DB 服务 active（幂等 start，等待引擎就绪有界重试，⚠️A15；enable 不强制）；②建账户/设密码——经 database-mgmt 进程内 OHS（BootstrapAfterInstall）由引导通道执行（⚠️A12）：**MySQL** 经 unix socket 以 root auth_socket 免密建连（引导通道，区别于 TCP+密码验证通道）建 dougong@localhost（ALL PRIVILEGES ON *.* WITH GRANT OPTION，随机强密码，**不动 root 的 auth_socket**）；**Redis** CONFIG GET requirepass 判未设置→CONFIG SET requirepass 随机密码 + CONFIG REWRITE 持久化 + bind 本机校验（仅未设置时写）；**MongoDB** localhost exception 免认证连 localhost 建 admin 库 dougong root 角色用户随机密码；③注册——经治理通道（TCP）Ping 验证新凭据可连→AES-256-GCM 加密 UPSERT db_instance（本机默认 identity）+ conn_state=reachable + version 刷新（装完即可管）；④幂等保守（⚠️A13）——目标实例已配置凭据 / MySQL 账户已存在 / Redis requirepass 已设 / MongoDB 已有用户 → 跳过不覆盖（bootstrap_status=skipped）；⑤结果——bootstrap_status(succeeded/failed/skipped)+note 入任务台账与输出尾部 [bootstrap] 行（⚠️A14）；安装成功但引导失败 → 任务 status=succeeded + bootstrap_status=failed，呈现「已安装·引导失败」+原因+「重新安装/升级以重试引导」恢复指引（幂等重跑）；密码 crypto/rand 随机强密码、密文落库、**永不回显**（审计 detail/输出/响应均不含密码）；PHP/nginx/Apache/Docker/Node 装完即用无引导（Node 为 v1.3 运行时型，⚠️A17），卸载无引导 | env_bootstrap（引导动作，object_type=env，detail 含 envType/status，**不含密码**）+ database-mgmt instance_bootstrapped（实例注册，脱敏） |
 | FR-08 | Node 环境供给（v1.3，⚠️A16/A17 横切口径） | Node.js 目录条目供给（七→八环境，⚠️A1）：①安装——NodeSource 官方源三系代配（apt keyring HTTPS 下载 / yum repo 文件，⚠️A10 同构机制：os-release 判定发行版与代际、写入审计 env_repo_configured、次序前移至索引刷新之前；不支持组合任务 failed 如实）→刷新索引→安装 nodejs（三系包名同，LTS 大版本轨道钉死——NodeSource 仓库轨道为面板编译期选定，具体 LTS 版本号 D3 定稿；⚠️A4 升级语义不变=轨道内仓库最新版）；**npm 随 nodejs 包供给不单独安装**；②观测——已装判定经包管理器候选查询（nodejs），版本查询经 node --version（R-08 参数数组；二进制不存在=未装如实）；**运行时型无服务单元：单元映射空，服务态/自启态字段不适用 null 如实呈现，不发起单元查询（⚠️A17）**；③服务运维——启停/自启入口对 Node 条目禁用（呈现「运行时环境无常驻服务」说明），服务操作请求对 node 如实拒绝（不在操作对象集）；④无引导——装完即用（非数据库类，⚠️A11 无引导集 +Node）；⑤被消费——环境实况（Node 已装态/版本）经进程内读契约供 db-tools 依赖就绪度（FR-02），依赖缺失时 db-tools 安装拒绝软引导回本模块安装页 | env_install_started/任务终态审计（复用 FR-03 通道）+ env_repo_configured（NodeSource 代配写入） |
+| FR-09 | Python 环境供给（v1.4，⚠️A18 横切口径） | Python 目录条目供给（八→九环境，⚠️A1）：①安装——**发行版仓库包，无第三方源代配**（区别于 Node/MongoDB；⚠️A7 有序候选数组：apt 系 python3/python3-venv/python3-pip 三包候选〔Debian 系 venv 支撑需 python3-venv 单独包〕、rpm 系 python3〔venv/pip 自含〕；候选包名矩阵 D3 定稿）→刷新索引→按候选安装；②观测——已装判定经包管理器候选查询，版本查询经 python3 --version（R-08 参数数组）且 **venv/pip 能力位一并探测**（python3 -m venv 支撑判定/pip 可执行判定，能力位呈现于就绪度分层）；**运行时型无服务单元：单元映射空，服务态/自启态字段不适用 null 如实呈现，不发起单元查询（⚠️A17 同构）**；③服务运维——启停/自启入口对 Python 条目禁用（同 Node 呈现说明），服务操作请求对 python 如实拒绝；④无引导——装完即用（⚠️A11 无引导集 +Python）；⑤被消费——环境实况（Python 已装态/版本/venv·pip 能力位）经进程内读契约供 app-mgmt 依赖就绪度（应用创建前置 FR-11/实况探测），Python 环境缺失时 app-mgmt 创建拒绝软引导回本模块安装页 | env_install_started/任务终态审计（复用 FR-03 通道；无代配步骤无 env_repo_configured） |
 
 ### 4.3 环境服务运维（S-54）
 
@@ -162,6 +164,7 @@
 |-----------|--------|------|
 | 环境未装实况（软引导） | docker-mgmt / database-mgmt / site-mgmt / db-tools（v1.3）引导态 | 关联模块 PageSpec 呈现「到环境管理安装」指引链接（无跨模块 API 硬依赖，AA 附录B）；db-tools 依赖缺失（PHP-FPM/Node/nginx）安装拒绝引导 |
 | 环境实况读契约（v1.3） | db-tools 依赖就绪度（S-58-02/C-15-01） | 进程内读契约（PHP-FPM/Node/nginx 已装态与版本，单向）；Node 环境供给为 db-tools mongo-express 集成运行前置（FR-08） |
+| 环境实况读契约（v1.4） | app-mgmt 依赖就绪度（S-60-02/C-16-01） | 进程内读契约（Python 已装态/版本/venv·pip 能力位，单向）；Python 环境供给为 app-mgmt 应用创建运行前置（FR-09）；缺失时 app-mgmt 创建拒绝软引导回本模块安装页 |
 | 消费方视角 | account-auth | 消费其审计写入（R-03）、会话鉴权与只读边界（R-02/ADR-018）契约 |
 | 消费方视角 | service-mgmt | 共享 SysdGateway systemd 适配层资产（进程内适配器共享，非模块调用） |
 | 消费方视角（v1.2） | database-mgmt | 消费其进程内 OHS BootstrapAfterInstall（建账户/设密码/注册实例与凭据，⚠️A12）——安装后配置就绪引导（单向依赖，与 cron-backup 消费 DumpStream 同构）；引导结果回传任务台账 |
@@ -210,6 +213,7 @@
 | OHS（消费，v1.2） | database-mgmt BootstrapAfterInstall | 安装后配置就绪引导：建账户/设密码/注册实例与凭据归 db-mgmt 实例层（进程内 OHS，单向依赖 env-mgmt→db-mgmt，⚠️A12）；引导结果（status+摘要，不含密码）回传任务台账；契约见 api-database-mgmt.md §5.1 |
 | 共享适配层（非业务域集成） | service-mgmt SysdGateway | systemd 查询与操作复用同一适配器实现（进程内共享）；本模块服务操作限定目录环境单元，service-mgmt 保持全部单元治理；引导前确保 DB 服务 active 亦经此通道（⚠️A15） |
 | OHS（提供，v1.3） | db-tools 环境实况读契约 | 依赖就绪度数据源：PHP-FPM/Node/nginx 已装态与版本（进程内读，单向被消费）；Node 环境供给（FR-08）为 db-tools mongo-express 集成运行前置；依赖缺失时 db-tools 安装拒绝软引导回本模块安装页（无跨模块 API 硬依赖） |
+| OHS（提供，v1.4） | app-mgmt 环境实况读契约 | 依赖就绪度数据源：Python 已装态/版本/venv·pip 能力位（进程内读，单向被消费；能力位扩展字段口径归 D3——prd-app-mgmt.md 待对齐-3）；Python 环境供给（FR-09）为 app-mgmt 应用创建运行前置；缺失时软引导回本模块安装页（无跨模块 API 硬依赖） |
 | 本机资源（非业务域） | apt/dnf/yum、systemd | 经 envpack 适配器（R-08 参数数组）执行包操作；本机系统组件访问非外部业务系统对接（与 monitoring/service-mgmt 本机口径一致） |
 
 **过程数据分类**（前置过滤，均不入领域对象清单）：
@@ -281,6 +285,7 @@
 检查项：G 5/5 通过；T 适用项 6/6 通过（T1/T1a/T2/T4/T9 + 幂等并入 N3，T3/T5/T6 N/A 有据）；N 4/4
 v1.2 增量复核：FR-07 安装后配置就绪（机制型，无新状态机——引导结果为独立维度并入 T2 辨析）；G2 IN 7/OUT 12；T1a +db-mgmt OHS 消费；N2 +5 引导异常分支；领域对象 env_install_task +引导结果字段（domain-model v1.22）；枚举 +bootstrap_status 入池
 v1.3 增量复核：FR-08 Node 环境供给（⚠️A16/A17 横切口径，无新状态机——Node 服务态 null 并入 T2 辨析）；G2 IN 8/OUT 14；T1a +db-tools 环境实况读契约被消费；N2 +2 Node 异常分支；领域对象零新增（环境条目 env_type 八值同步 +node，domain-model v1.24）；枚举 env_type 扩 node 八值（D1 已登记入池，本轮 D2 确认）；待对齐-5 移交 D3/D4
+v1.4 增量复核：FR-09 Python 环境供给（⚠️A18 横切口径，无新状态机——Python 服务态 null 并入 T2 辨析沿 Node 同判）；G2 IN 9/OUT 13（OUT-12 修订为多版本 OUT）；T1a +app-mgmt 环境实况读契约被消费；领域对象零新增（环境条目 env_type 九值同步 +python，domain-model v1.27）；枚举 env_type 扩 python 九值（D1 已登记入池，本轮 D2 确认）；能力位扩展字段/候选包名矩阵移交 D3（prd-app-mgmt.md 待对齐-3）
 
 可进入 API 设计阶段（D3，本技能 d3-api.md）
 ```
@@ -289,6 +294,7 @@ v1.3 增量复核：FR-08 Node 环境供给（⚠️A16/A17 横切口径，无�
 
 | 版本 | 日期 | 更新说明 |
 |------|------|---------|
+| v1.4 | 2026-11-20 | Python 环境增量轮（app-mgmt 集成联动，d0-clarification-app-mgmt-2026-11-20.md Q2 拍板，D1 BA/AA/FL v1.3 级联）：①G2 IN +1（IN-9 Python 环境供给）/ OUT-12 修订（Python 本体转 IN-9 供给；Python 多版本共存登记 OUT）；②FR-09 Python 环境供给（发行版仓库包无第三方源代配→按候选安装〔apt python3/python3-venv/python3-pip 三包候选·rpm python3〕→python3 --version+venv/pip 能力位探测→服务态 null/入口禁用→无引导→app-mgmt 读契约被消费）；③T1a/第九部分集成 +app-mgmt 环境实况读契约被消费两处；④完备性增量复核通过（G 5/5、T 适用 6/6、N 4/4）；domain-model v1.27（环境条目九值+python/发行版映射 +python，零新对象）；枚举 env_type 扩 python 九值（D1 登记本轮确认，DDL CHECK 迁移归 D3）；能力位扩展字段/候选包名矩阵移交 D3 |
 | v1.3 | 2026-11-19 | Node 环境增量轮（db-tools 集成联动，d0-clarification-db-tools-integration-2026-11-19.md Q1 拍板，D1 BA/AA/FL v1.2 级联）：①G1 +v1.3 增量段（NodeSource 三系代配+LTS 轨道钉死+npm 随包 ⚠️A16；运行时型无服务单元 ⚠️A17）+db-tools 分界声明；②G2 IN +1（IN-8 Node 环境供给）/ OUT +2（Python 归未来 / db-tools 工具边界），IN-1/IN-3 八环境与代配清单同步；③FR-08 Node 环境供给（代配→安装 nodejs→node --version 观测→服务态 null/入口禁用→无引导→db-tools 读契约被消费）+FR-01/02/03/06/07 Node 语义同步；④第五部分 +⚠️A16/A17、⚠️A1/A7/A11 八环境与 node 映射同步、R-14 八值校验（订正「六值」滞后）；⑤T2 辨析 +Node 服务态 null（非新状态机，仍 1 个 env_task_status）；⑥T4 八条目/T1a +db-tools 读契约被消费；⑦N1 八条目+Node LTS 未锁定项/N2 +2 Node 异常分支（18 个）/N3 +A16/A17；⑧第九部分集成 +OHS 提供 db-tools 读契约/过程数据八环境/待对齐-5；⑨完备性增量复核通过（G 5/5、T 适用 6/6、N 4/4）+订正第四部分「6 子模块/admin 7 菜单」滞后计数（7 子模块/admin 6 菜单，FL v1.2 同口径）；domain-model v1.24（环境条目八值+node 运行时型/发行版映射 +node，零新对象）；枚举 env_type 扩 node 八值（D1 登记本轮确认，DDL CHECK 迁移归 D3） |
 | v1.2 | 2026-11-17 | 安装后配置就绪增量轮（d0-clarification-2026-11-17-bootstrap.md，D0 拍板 Q1~Q4）：①G1 +产品定调「装完即配置就绪」与 DBM_005 实证痛点、引导边界（触发/呈现归 env-mgmt，建账户/注册归 db-mgmt OHS）；②G2 IN +1（IN-7 安装后配置就绪 C-14-04 机制型）/ OUT +2 二期方向登记（PHP 多版本 sury 源 / MySQL 升级 mysql-apt-config，本轮 OUT）+OUT-8 引导例外注；③FR-07 安装后配置就绪（服务就绪→建账户/设密码〔MySQL dougong@localhost ALL WITH GRANT OPTION socket root auth_socket 引导通道 / Redis CONFIG SET+REWRITE / MongoDB localhost exception admin root〕→TCP 验证注册→幂等保守→独立结果维度）+FR-03 衔接/FR-05 引导结果字段；④第五部分 +⚠️A11~A15 + 引导凭据安全/幂等推导规则；⑤T2 辨析 +bootstrap_status 结果维度（非新状态机）；⑥T4 任务详情+引导字段/T1a +db-mgmt OHS 消费；⑦N1 引导全注入化（CI 第 7 起预防）/N2 +5 引导异常分支/N3 引导结果与终态同事务；⑧第九部分集成 +OHS 消费 db-mgmt/过程数据 +引导密码明文 P7 敏感/待对齐-4；⑨完备性增量复核通过（G 5/5、T 适用 6/6、N 4/4）；domain-model v1.22（env_install_task +bootstrap_status/note）；枚举 +bootstrap_status 入池 |
 | v1.1 | 2026-11-17 | W1 实机冒烟缺陷修复轮（补录 changelog，此前正文已升 v1.1 而行缺失）：env_type 六→七（+MongoDB，用户点名）；⚠️A8 单元名规范全名/⚠️A9 探测三态+多候选+dpkg Status 字段/⚠️A10 代配补真（os-release/apt keyring/yum repo/次序前移）；FR-01~06 同步七环境与三态/多候选口径；MongoDB 8.0 轨道 ⚠️ |

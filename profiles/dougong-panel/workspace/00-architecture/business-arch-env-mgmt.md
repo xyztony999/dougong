@@ -2,9 +2,9 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v1.2 |
+| 版本 | v1.3 |
 | 状态 | 稳定 |
-| 最后更新 | 2026-11-19（Node 环境增量轮，db-tools 集成联动） |
+| 最后更新 | 2026-11-20（Python 环境增量轮，app-mgmt 集成联动，d0-clarification-app-mgmt-2026-11-20.md） |
 
 ## 第一部分：文档概述
 
@@ -38,6 +38,7 @@
 > - ⚠️A15 引导服务联动细化（v1.1 本轮新增，⚠️A5 细化）：引导路径可为配置而启动数据库服务（幂等 start，等待引擎就绪有界重试），enable 仍不强制；非引导环境维持 ⚠️A5 不强制 start/enable。
 > - ⚠️A16 Node 环境供给口径（v1.2 本轮新增，db-tools D0 拍板 Q1）：Node.js 经 NodeSource 官方源安装——三系均需代配（apt keyring HTTPS 下载 / yum repo 文件，⚠️A10 同构，写入审计 env_repo_configured）；LTS 大版本轨道钉死（NodeSource 仓库轨道为面板编译期选定，具体 LTS 版本号归 D3 定稿；⚠️A4 升级语义不变=轨道内仓库最新版）；包名 nodejs（三系同），npm 随 Node 包供给不单独安装；版本查询经 node --version（R-08 参数数组）；Python 环境本轮不做（OUT，归未来）。
 > - ⚠️A17 运行时型环境无服务口径（v1.2 本轮新增）：Node.js 为运行时型环境（无常驻 systemd 服务单元）——目录条目单元映射为空，服务运行/自启状态字段不适用（null 如实呈现，不虚构），服务启停/自启入口对 Node 条目禁用（呈现「运行时环境无常驻服务」说明）；⚠️A5/A11 服务联动与安装后引导对 Node 不适用（Node 装完即用，无引导，同 PHP/nginx/Apache/Docker 判）。
+> - ⚠️A18 Python 环境供给口径（v1.3 本轮新增，app-mgmt D0 拍板 Q2）：Python 经发行版仓库安装（无第三方源代配需求——发行版源自带，区别于 Node/MongoDB；⚠️A7 有序候选数组：apt 系 python3/python3-venv/python3-pip 三包候选〔Debian 系 venv 支撑需 python3-venv 单独包〕、rpm 系 python3〔venv/pip 自含〕）；版本查询经 python3 --version（R-08 参数数组）；Python 为运行时型环境（⚠️A17 同构：单元映射空/服务态 null/服务操作入口禁用/装完即用无引导）；venv 与 pip 能力位纳入依赖就绪度读契约（app-mgmt 创建前置消费，⚠️A2）；具体候选包名矩阵归 D3 定稿。
 
 ### 1.2 文档定位
 
@@ -62,7 +63,7 @@
 | 业务域 | 环境管理（env-mgmt）：环境目录与实况、环境安装与变更（含安装后配置就绪）、环境服务运维 |
 | 业务阶段 | 环境观测阶段、环境供给阶段、环境运行阶段 |
 
-边界声明（OUT，沿 D0 增量澄清结论）：源码编译安装不做（仅发行版仓库包，含个别官方仓库源配置）；**Python 环境不做（v1.2 登记，归未来——db-tools D0 范围边界明示）**；**PHP 多版本并存（sury.org/ondrej PPA 5.6~8.6 coinstallable，各版本独立 phpX.Y-fpm）二期另起轮**（v1.1 登记）；**MySQL 版本升级路径（mysql-apt-config 单版本原地升级，不支持降级/禁跳系列/须备份）二期另起轮**（v1.1 登记）；「应用市场/插件商店」形态不做（目录内置八环境，按本项目轻量定位裁剪宝塔软件商店面）；任务取消不做（⚠️A3）；purge 卸载与数据目录清理二期（⚠️A6）；可升级版本检测二期（⚠️A4）；Windows/无 systemd 环境不支持（install.sh 支持矩阵外，如实报错）；运行环境内部配置管理不做（nginx 站点配置归 site-mgmt、MySQL 实例管理归 database-mgmt、容器归 docker-mgmt——本模块止步软件包层；**安装后配置就绪的「建账户/设密码/注册实例与凭据」归 database-mgmt 实例层，本模块经 OHS 触发并呈现引导结果**，⚠️A11/A12）。
+边界声明（OUT，沿 D0 增量澄清结论）：源码编译安装不做（仅发行版仓库包，含个别官方仓库源配置）；**Python 多版本共存（pyenv/自选版本）不做（系统 python3 单版本，v1.3 Python 兑现登记：Python 环境本体已由 v1.2 OUT 转为本轮供给，⚠️A18；沿 PHP 多版本二期先例）**；**PHP 多版本并存（sury.org/ondrej PPA 5.6~8.6 coinstallable，各版本独立 phpX.Y-fpm）二期另起轮**（v1.1 登记）；**MySQL 版本升级路径（mysql-apt-config 单版本原地升级，不支持降级/禁跳系列/须备份）二期另起轮**（v1.1 登记）；「应用市场/插件商店」形态不做（目录内置九环境，按本项目轻量定位裁剪宝塔软件商店面）；任务取消不做（⚠️A3）；purge 卸载与数据目录清理二期（⚠️A6）；可升级版本检测二期（⚠️A4）；Windows/无 systemd 环境不支持（install.sh 支持矩阵外，如实报错）；运行环境内部配置管理不做（nginx 站点配置归 site-mgmt、MySQL 实例管理归 database-mgmt、容器归 docker-mgmt——本模块止步软件包层；**安装后配置就绪的「建账户/设密码/注册实例与凭据」归 database-mgmt 实例层，本模块经 OHS 触发并呈现引导结果**，⚠️A11/A12）。
 
 ## 第二部分：业务架构
 
@@ -72,7 +73,7 @@
 
 环境管理遵循「看得见实况 → 装得上环境 → 管得住服务」的业务主线，按环境供给生命周期划分三个业务阶段：
 
-- **环境观测阶段**：环境目录呈现（内置八环境条目，v1.2 +Node.js）与环境实况探测（包管理器查询已装版本、systemd 查询服务状态、通道可用性探测；运行时型环境 Node 服务态不适用，⚠️A17）——是供给与运行两阶段的共同数据底座；
+- **环境观测阶段**：环境目录呈现（内置九环境条目，v1.2 +Node.js，v1.3 +Python）与环境实况探测（包管理器查询已装版本、systemd 查询服务状态、通道可用性探测；运行时型环境 Node/Python 服务态不适用，⚠️A17/A18）——是供给与运行两阶段的共同数据底座；
 - **环境供给阶段**：经包管理器安装/升级/卸载环境本体，异步任务化执行与跟踪，安全纪律（强确认、审计、幂等）贯穿；**数据库类环境安装成功后自动执行安装后配置就绪引导（建管理账户/设密码 + 注册实例与凭据到 database-mgmt，装完即可管，⚠️A11~A15）**；
 - **环境运行阶段**：已装环境的服务启停与自启管理（复用 systemd 通道），衔接 service-mgmt 的通用单元治理。
 
@@ -80,7 +81,7 @@
 
 ### 2.1 环境观测阶段
 
-**业务说明**：环境目录与实况的数据底座：面板内置八环境静态目录（⚠️A1，v1.2 +Node.js），叠加运行时实况探测（已装/版本/服务状态/通道可用性）形成环境全景；观测结果同时是供给动作的前置依据（未装才可安装、已装才可卸载/启停）与关联模块的引导数据源（Docker 未装 → docker-mgmt 引导态提示可安装；PHP-FPM/Node 未装 → db-tools 依赖缺失引导，v1.2）。
+**业务说明**：环境目录与实况的数据底座：面板内置九环境静态目录（⚠️A1，v1.2 +Node.js，v1.3 +Python），叠加运行时实况探测（已装/版本/服务状态/通道可用性）形成环境全景；观测结果同时是供给动作的前置依据（未装才可安装、已装才可卸载/启停）与关联模块的引导数据源（Docker 未装 → docker-mgmt 引导态提示可安装；PHP-FPM/Node 未装 → db-tools 依赖缺失引导，v1.2；Python 未装 → app-mgmt 创建拒绝引导，v1.3）。
 
 ##### 2.1.1 环境目录与实况
 
@@ -88,11 +89,11 @@
 
 ###### 2.1.1.1 环境目录呈现
 
-**业务说明**：呈现内置八环境条目（v1.2 +Node.js）：显示名、描述、关联模块提示（Docker → docker-mgmt、MySQL → database-mgmt、nginx/PHP-FPM → site-mgmt、PHP-FPM/Node → db-tools 等，安装后即打通对应模块）；目录随面板版本迭代扩展。所属 L3：环境目录与实况。
+**业务说明**：呈现内置九环境条目（v1.2 +Node.js，v1.3 +Python）：显示名、描述、关联模块提示（Docker → docker-mgmt、MySQL → database-mgmt、nginx/PHP-FPM → site-mgmt、PHP-FPM/Node → db-tools、Python → app-mgmt 等，安装后即打通对应模块）；目录随面板版本迭代扩展。所属 L3：环境目录与实况。
 
 ###### 2.1.1.2 环境实况探测
 
-**业务说明**：逐环境探测实况：已装状态与版本（经包管理器查询，⚠️A7 映射；Node 版本经 node --version 查询，⚠️A16）、服务运行状态与自启状态（经 systemd 单元查询；运行时型环境 Node 无服务单元，服务态字段不适用 null 如实呈现，⚠️A17）、包管理器通道可用性（apt/dnf·yum 探测择一，⚠️A2——通道不可用时变更能力如实标注不可用）；探测为纯读操作。所属 L3：环境目录与实况。
+**业务说明**：逐环境探测实况：已装状态与版本（经包管理器查询，⚠️A7 映射；Node 版本经 node --version 查询，⚠️A16；Python 版本经 python3 --version 查询且 venv/pip 能力位一并探测，⚠️A18）、服务运行状态与自启状态（经 systemd 单元查询；运行时型环境 Node/Python 无服务单元，服务态字段不适用 null 如实呈现，⚠️A17/A18）、包管理器通道可用性（apt/dnf·yum 探测择一，⚠️A2——通道不可用时变更能力如实标注不可用）；探测为纯读操作。所属 L3：环境目录与实况。
 
 ### 2.2 环境供给阶段
 
@@ -165,6 +166,8 @@
 | 环境目录与实况 | → | docker-mgmt（他域）/ database-mgmt（他域）/ site-mgmt（他域） | 环境未装实况为关联模块引导态提供数据（软引导，无跨模块硬调用） |
 | 环境目录与实况 | → | db-tools（他域，v1.2 新增被消费） | 工具依赖就绪度数据源：PHP-FPM/Node/nginx 已装态与版本（进程内读契约，单向）；PHP-FPM/Node 未装实况为 db-tools 安装拒绝引导提供数据 |
 | 环境安装与变更 | → | db-tools（他域，v1.2 新增供给） | Node 环境供给（NodeSource 三系代配 + LTS 轨道钉死，⚠️A16）为 db-tools mongo-express 集成的运行前置；db-tools 不代装环境，依赖缺失经软引导回本模块 |
+| 环境目录与实况 | → | app-mgmt（他域，v1.3 新增被消费） | 应用依赖就绪度数据源：Python 运行环境就绪度（python3/venv/pip 已装态与能力位，进程内读契约，单向）；Python 未装实况为 app-mgmt 创建拒绝引导提供数据 |
+| 环境安装与变更 | → | app-mgmt（他域，v1.3 新增供给） | Python 环境供给（发行版仓库包，⚠️A18）为 app-mgmt 应用创建的运行前置；app-mgmt 不代装环境，依赖缺失经软引导回本模块 |
 | 环境安装与变更 | → | database-mgmt（他域） | **安装后配置就绪（v1.1，⚠️A11/A12）**：数据库类环境安装成功后经进程内 OHS（BootstrapAfterInstall）触发实例与凭据注册——建账户/设密码/注册归 database-mgmt 实例层，本模块消费其 OHS（单向依赖，与 cron-backup 消费 DumpStream 同构）；引导结果回传任务台账呈现 |
 
 ### 附录B：业务术语表
@@ -173,8 +176,8 @@
 
 | 术语 | 定义 | 备注 |
 |------|------|------|
-| 环境（environment） | 面板可供给的运行环境软件包条目：nginx/Apache/Docker/MySQL/Redis/PHP-FPM/MongoDB/Node.js 八类 | ⚠️A1 目录范围（v1.2 八值） |
-| 运行时型环境（runtime environment） | 无常驻 systemd 服务单元的环境条目（Node.js）：服务态字段不适用（null），服务启停自启入口禁用，装完即用无引导 | ⚠️A17（v1.2 新增） |
+| 环境（environment） | 面板可供给的运行环境软件包条目：nginx/Apache/Docker/MySQL/Redis/PHP-FPM/MongoDB/Node.js/Python 九类 | ⚠️A1 目录范围（v1.3 九值） |
+| 运行时型环境（runtime environment） | 无常驻 systemd 服务单元的环境条目（Node.js/Python）：服务态字段不适用（null），服务启停自启入口禁用，装完即用无引导 | ⚠️A17/A18（v1.2 新增，v1.3 +Python） |
 | NodeSource 源 | Node.js 官方第三方仓库（apt keyring / yum repo，三系均需代配）；LTS 大版本轨道钉死，npm 随 nodejs 包供给 | ⚠️A16（v1.2 新增）；⚠️A10 代配同构 |
 | 安装后配置就绪（post-install bootstrap） | 数据库类环境安装成功后自动建管理账户/设随机强密码并注册实例与凭据到 database-mgmt，使面板装完即可治理 | ⚠️A11~A15；独立后置步骤 |
 | 引导通道（bootstrap channel） | 区别于 TCP+密码验证通道的初始建连通道：MySQL unix socket root auth_socket 免密 / Redis 无 requirepass 免认证 / MongoDB localhost exception 免认证 | ⚠️A12；仅用于建账户/设密码 |
@@ -192,6 +195,7 @@
 
 | 版本 | 日期 | 更新说明 |
 |------|------|---------|
+| v1.3 | 2026-11-20 | Python 环境增量轮（app-mgmt 集成联动，d0-clarification-app-mgmt-2026-11-20.md Q2 拍板）：①目录范围八→九环境（+Python，⚠️A1）——L2/L3/L4 集合零变化（Python 为目录条目非新业务活动，沿 Node 先例），3 阶段 / 3 关键业务 / 7 业务活动不变；②新增 ⚠️A18 Python 供给口径（发行版仓库包无第三方源代配〔apt python3/python3-venv/python3-pip 三包候选·rpm python3〕+ python3 --version 查询 + venv/pip 能力位探测 + 运行时型 ⚠️A17 同构；候选包名矩阵归 D3）；③2.1 概览/2.1.1/2.1.1.1/2.1.1.2 同步九环境与 Python 语义；④OUT 修订：Python 本体由 OUT 转为本轮供给，Python 多版本共存（pyenv/自选版本）登记 OUT；⑤附录A +app-mgmt 被消费两行（环境实况读契约/Python 供给）；附录B 术语环境九值、运行时型环境 +Python；⑥业务架构树零变化（L4 集合未变，核验一致） |
 | v1.2 | 2026-11-19 | Node 环境增量轮（db-tools 集成联动，d0-clarification-db-tools-integration-2026-11-19.md Q1 拍板）：①目录范围七→八环境（+Node.js，⚠️A1）——L2/L3/L4 集合零变化（Node 为目录条目非新业务活动），3 阶段 / 3 关键业务 / 7 业务活动不变；②新增 ⚠️A16 Node 供给口径（NodeSource 三系代配 ⚠️A10 同构 + LTS 大版本轨道钉死〔版本号归 D3〕+ 包名 nodejs 三系同 + npm 随包 + node --version 查询）与 ⚠️A17 运行时型环境无服务口径（单元映射空/服务态 null/启停自启入口禁用/装完即用无引导）；③2.1/2.1.1.1/2.1.1.2/2.3.1/2.3.1.1/2.2.1.4 同步八环境与 Node 语义（含订正 v1.1 遗留「六环境」滞后两处）；④OUT +Python 环境（归未来）；⑤附录A +db-tools 被消费两行（环境实况读契约/Node 供给）；附录B 术语环境八值 +运行时型环境/NodeSource 源两术语、官方仓库源例补 NodeSource；⑥业务架构树零变化（L4 集合未变，核验一致） |
 | v1.1 | 2026-11-17 | 安装后配置就绪增量轮（d0-clarification-2026-11-17-bootstrap.md，D0 拍板 Q1~Q4）：①新增 L4 2.2.1.4 安装后配置就绪（3 阶段 / 3 关键业务 / 6→7 业务活动）——数据库类环境安装成功后自动建管理账户/设随机强密码 + 注册实例与凭据到 database-mgmt（装完即可管）；②新增 ⚠️A11~A15 五项口径（引导范围/引导通道与账户〔dougong@localhost ALL WITH GRANT OPTION、Redis CONFIG SET+REWRITE、MongoDB localhost exception〕/幂等保守/引导失败独立维度/引导服务联动细化）；③补录 ⚠️A8~A10（W1 修复轮单元全名/探测三态/代配补真，此前 BA 滞后于 api/prd v1.1，本轮同步）；④目录范围六→七环境同步（+MongoDB，⚠️A1）；⑤OUT 登记二期方向（PHP 多版本 sury 源 / MySQL 版本升级 mysql-apt-config）；⑥附录A 新增 env-mgmt→database-mgmt 进程内 OHS 硬依赖（BootstrapAfterInstall，单向）；附录B 术语表 +4（安装后配置就绪/引导通道/管理账户/引导结果）；业务架构树同步 |
 | v1.0 | 2026-11-16 | 初始生成：依据 v0.1.2 用户反馈第 4 项与 D0 增量澄清拍板（六环境 + apt/dnf·yum 双系）建立环境管理 L1-L4 业务架构（3 阶段 / 3 关键业务 / 6 业务活动）；落定 A1~A7 七项口径（目录范围/双包管理器/异步任务/升级/服务联动/卸载/包名映射）；边界与 database-mgmt（实例层）/docker-mgmt（容器层）/service-mgmt（通用单元层）/site-mgmt（站点层）分界登记 |

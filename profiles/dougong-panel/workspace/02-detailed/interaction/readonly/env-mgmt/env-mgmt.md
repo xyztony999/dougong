@@ -2,11 +2,11 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v1.4 |
+| 版本 | v1.5 |
 | 状态 | 稳定 |
-| 最后更新 | 2026-11-19（v1.4 Node 环境增量——db-tools Gate 2 W2 同步） |
+| 最后更新 | 2026-11-20（v1.5 Python 环境增量——app-mgmt D0 Q2 同步） |
 | 用户类型 | readonly |
-| 唯一数据源 | 02-detailed/api/api-env-mgmt.md v1.3（本文件为 admin 视角 v1.4 的只读负空间标注文档） |
+| 唯一数据源 | 02-detailed/api/api-env-mgmt.md v1.4（本文件为 admin 视角 v1.5 的只读负空间标注文档） |
 
 ## 第 1 节 模块元信息
 
@@ -31,7 +31,7 @@
 ### 4.1 环境管理（env-list，只读视图）— 路由 /env
 
 - 页头通道状态条与刷新同等可用（观测能力）；generatedAt 呈现。
-- 环境卡片（v1.1 七条目 +MongoDB；v1.4 八条目 +Node.js）：实况字段（installed/version/服务状态/自启/在途标记）全部只读呈现，三态语义同 admin（null=条目级探测失败角标/false=未安装/true=已装版本，⚠️A9）；**Node 特化同 admin v1.4（⚠️A17）**：版本经 node --version（缺席 null 不虚构）；serviceRunning/serviceEnabled=null 为运行时型无服务单元——服务状态/自启区块不渲染（非探测失败语义）；**操作区整区不渲染**（安装/升级/卸载/服务操作/自启开关，ADR-018 负空间——Node 的安装/升级/卸载入口对 readonly 同样不渲染，服务操作入口对两角色均不渲染〔Node 无服务单元〕）；未装条目无安装入口（纯「未安装」状态呈现）。
+- 环境卡片（v1.1 七条目 +MongoDB；v1.4 八条目 +Node.js；v1.5 九条目 +Python）：实况字段（installed/version/服务状态/自启/在途标记）全部只读呈现，三态语义同 admin（null=条目级探测失败角标/false=未安装/true=已装版本，⚠️A9）；**Node 特化同 admin v1.4（⚠️A17）**：版本经 node --version（缺席 null 不虚构）；serviceRunning/serviceEnabled=null 为运行时型无服务单元——服务状态/自启区块不渲染（非探测失败语义）；**Python 特化同 admin v1.5（⚠️A18，⚠️A17 同构）**：版本经 python3 --version（缺席 null 不虚构）；服务状态/自启区块不渲染；venv/pip 能力位只读呈现（绿字「venv ✓ pip ✓」/orange「缺 venv」/「缺 pip」，与 admin 同数据同配色）；**操作区整区不渲染**（安装/升级/卸载/服务操作/自启开关，ADR-018 负空间——Node/Python 的安装/升级/卸载入口对 readonly 同样不渲染，服务操作入口对两角色均不渲染〔Node/Python 无服务单元〕）；未装条目无安装入口（纯「未安装」状态呈现）。
 
 ### 4.2 任务列表与详情（只读视图）
 
@@ -61,7 +61,7 @@
 |---|------|------|
 | 1 | Action ↔ api 接口：3 只读 Action 全映射 + 7 负空间逐项对应（10 接口全集） | ✅ 第 2 节 |
 | 2 | 负空间 7 个 Action 与 ADR-018 边界矩阵逐项对应 | ✅ 第 2 节 |
-| 3 | 字典 Key 与池定稿同值（6 项，v1.3 +bootstrap_status；v1.4 env_type 八值 +node 四方同值） | ✅ 第 3 节 |
+| 3 | 字典 Key 与池定稿同值（6 项，v1.3 +bootstrap_status；v1.4 env_type 八值 +node；v1.5 env_type 九值 +python 五方同值） | ✅ 第 3 节 |
 | 4 | 实况与任务观测能力与 admin 同等（ADR-018 全可看，含引导结果只读呈现） | ✅ 4.1/4.2 |
 
 ## 第 9 节 文档版本与变更记录
@@ -73,3 +73,4 @@
 | v1.2 | 2026-11-17 | content_changed | v0.1.4 反馈第 1 项同步：任务详情终态跃迁触发环境全景与任务清单重拉（readonly 观测语义同 admin v1.2 4.3，无新增 Action/路由） |
 | v1.3 | 2026-11-17 | dict_changed + content_changed | 安装后配置就绪增量同步（数据源升 api v1.2，admin v1.3）：字典 +bootstrap_status（6 Key，第 3 节引用 admin 自动同步）；任务列表「引导」列与详情引导结果横幅只读呈现（ADR-018 全可看）；「前往数据库管理」链接可达（清单两角色可看）；「重新安装/升级」恢复按钮负空间不渲染（变更类）；3 只读 Action + 7 负空间不变（引导无新 HTTP Action） |
 | v1.4 | 2026-11-19 | dict_changed + content_changed | Node 环境增量同步（数据源升 api v1.3，admin v1.4；db-tools Gate 2 W2 闭环）：字典 env_type 七值→八值（+node，第 3 节引用 admin 自动同步，四方同值）；卡片八条目（+Node.js）；Node 服务状态/自启 null 不渲染（运行时型 ⚠️A17）；Node 安装/升级/卸载入口 readonly 负空间不渲染（admin 专属变更）；3 只读 Action + 7 负空间不变（Node 无新 HTTP Action） |
+| v1.5 | 2026-11-20 | dict_changed + content_changed | Python 环境增量同步（数据源升 api v1.4，admin v1.5；app-mgmt D0 Q2）：字典 env_type 八值→九值（+python，第 3 节引用 admin 自动同步，五方同值）；卡片九条目（+Python）；Python 服务状态/自启 null 不渲染（运行时型 ⚠️A17 同构）；venv/pip 能力位只读呈现（与 admin 同数据）；Python 安装/升级/卸载入口 readonly 负空间不渲染（admin 专属变更）；3 只读 Action + 7 负空间不变（Python 无新 HTTP Action） |

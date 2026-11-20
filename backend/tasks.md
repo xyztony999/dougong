@@ -1194,3 +1194,15 @@
 - 实现裁定上报（A-DBT11~A-DBT13 详见裁定表）：SignonURL 面板直连端口口径（D-23 落码歧义裁定，reopen 可达性必需）；ConfigRemove origin-absent 泛化扩展（D-19⑥「文件不存在态」语义兑现，唯一消费方 db-tools）；selectLanding 排除自动块候选（回归测试发现的误判 bug 修复）
 - 跨模块待同步项如实声明：api-panel-core.md 提供方文档登记（S-11-01 钩子/S-07 豁免）归设计轮——本轮按 ask 明示落码机制侧变更（代码已实现，文档不代改）；api-site-mgmt.md ConfigRemove origin-absent 语义扩展登记归设计轮
 - 环境绑定如实声明：nginx -t/reload 实联/端口探针实况/工具本体冒烟（IP:18090 打开/无会话 401/绑域名非匹配 Host 404）归 Linux 目标环境（测试全注入 fake 替身，Windows/Linux 行为一致；Windows 测试环境两处路径/套接字差异已按平台口径修正测试替身，生产代码 Linux 语义不变）
+
+## app-mgmt 后端增量（2026-11-20，api-app-mgmt.md v1.0 + api-env-mgmt.md v1.4 联动）
+
+- [x] T01 · 迁移 015_app_mgmt.sql：app（UNIQUE name + idx_app_unit 唯一索引承载 I-01/02）+ app_task（四态台账 idx_app_task_app_status/idx_app_task_created）；016_env_mgmt_python.sql：env_type CHECK 八→九值表重建（沿 010/014 先例，含 012 引导两列全量拷贝）
+- [x] T02 · store/appmgmt：AppRepo（GetByID/GetByName/List/Create/Delete/UpdateStartSpec）+ TaskRepo（Create/InFlightByName/InFlightByApp/GetByID/List/MarkRunning/Retry/AppendOutput/Finish/FailRunningAll/InFlightIDs）+ TxStore 同事务审计（I-07）；全参数化 SQL 仅本包
+- [x] T03 · service/appmgmt：D-01 实时探测投影/D-03 创建校验链（APP_001~006+白名单 APP_012+EvalSymlinks 防逃逸）/D-04 异步任务互斥+重启恢复 I-08/D-05 创建执行链+半档案不残留 I-C02/D-06 unit 安全写入（备份→原子写→systemd-analyze verify→失败回滚）/D-07 删除保守（purgeDir 显式/站点不自动删/绝不静默删代码）/D-09 参数基线比对（fmtMtime 纳秒）/D-10 服务操作瞬时通道/D-13 失败重试（runTask 守卫修正：仅终态早退，Retry running 再入不吞）/D-12 建站 OHS 消费适配器（sitesvc.CreateSite reverse_proxy + ListSites hasSite 值快照）；跨模块 OHS：envsvc.PythonReadiness（v1.4 新增 envpack ProbeVenvSupport/ProbePipAvailable 能力位）+ site-mgmt 提供方登记跨模块待同步项
+- [x] T04 · api/appmgmt：16 接口（GET 5〔app/list·app/env·task/list·task/detail·log〕/POST 11）+ 中间件链 InitGuard→AuthRequired→CsrfGuard(POST)→RoleRequired；APP_001~012 errcode
+- [x] T05 · 复用既有中间件（无新增 middleware）；main 装配：菜单「应用管理」Order 860 两角色 + appSvc.RecoverInFlight + RegisterModules 追加
+- [x] T06 · 测试：service 8 测试函数全注入替身（校验链六路/创建链含 I-C01 档案登记与 I-C02 无残留/删除 purgeDir 两分支/重试 D-13 语义与不可重试/互斥 APP_006/重启恢复/参数基线乐观锁/建站联动成功与透传）；api 全栈权限矩阵（两角色/⚠️A8 log+env admin 专属/CSRF 越界 AUTH_003/生命周期 create→list→delete）；SyncDispatch 测试缝（同步 runTask 沿 env-mgmt 先例）
+- [x] T07 · 合规：R-08 全参数数组（python3/pip/systemctl/journalctl/systemd-analyze）；SQL 仅 store 层参数化；goroutine 有限时自然终止（G-06）；%w 包装；ctx 首参
+- [x] 自验：go build/vet=0；全仓 test -race -count=1 55 包 0 FAIL（新增 appmgmt service 8+api 1）；gofmt 0；GOOS=linux CGO_ENABLED=0 交叉=0
+- [x] A-APP 实现裁定：A-APP1 fmtMtime 纳秒基线（RFC3339 秒级同秒碰撞失效）；A-APP2 创建参数经任务输出首行 plan:{json} 承载（worker 与发起解耦，pending 不续跑保守语义不变）；A-APP3 runTask 守卫仅终态早退（running=Retry 再入——原 pending 守卫会吞重试，测试锁定）；A-APP4 .env 0600 写入+备份 .dougong-bak；A-APP5 unit 模板 EnvironmentFile 引用（.env 缺失时 systemd 忽略该指令，服务照常启动——如实不影响）；A-APP6 建站 OHS 适配器内 domain 空=server_name "_"（site-mgmt 域名校验拒绝时 APP_011 透传引导站点管理）

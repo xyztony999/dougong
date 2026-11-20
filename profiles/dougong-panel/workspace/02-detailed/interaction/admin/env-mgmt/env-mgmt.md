@@ -2,11 +2,11 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v1.4 |
+| 版本 | v1.5 |
 | 状态 | 稳定 |
-| 最后更新 | 2026-11-19（v1.4 Node 环境增量——db-tools Gate 2 W2 同步，D0 Q1 一步到位） |
+| 最后更新 | 2026-11-20（v1.5 Python 环境增量——app-mgmt D0 Q2 同步，prd-env-mgmt v1.4 FR-09 ⚠️A18） |
 | 用户类型 | admin |
-| 唯一数据源 | 02-detailed/api/api-env-mgmt.md v1.3 |
+| 唯一数据源 | 02-detailed/api/api-env-mgmt.md v1.4 |
 | 组件体系 | Vue 3 + Naive UI（NGrid/NCard/NTag/NButton/NModal/NPopconfirm/NDrawer/NAlert/NSwitch/NSpin） |
 | 确认方式 | headless run：7 项交互确认依据 D3 契约（api-env-mgmt.md D-01~D-19）+ ⚠️A1~A17 + FL v1.2 + PRD FR-01~08 推导，标注于各节 |
 
@@ -44,7 +44,7 @@
 
 | Key | 取值（=01-solution/04-business-enum.md 定稿） | 用途 |
 |-----|--------------------------------------------|------|
-| env_type | nginx / apache / docker / mysql / redis / php_fpm / mongodb / node（v1.1 七值；v1.4 八值 +node，与池/DDL CHECK/api/前端 enums 四方 S8 同值；node displayName=Node.js） | 环境卡片标识与任务筛选 |
+| env_type | nginx / apache / docker / mysql / redis / php_fpm / mongodb / node / python（v1.1 七值；v1.4 八值 +node；v1.5 九值 +python，displayName=Python，与池/DDL CHECK/api/前端 enums 五方 S8 同值） | 环境卡片标识与任务筛选 |
 | env_task_action | install / upgrade / uninstall | 任务动作 Tag（Drawer） |
 | env_task_status | pending / running / succeeded / failed | 任务状态 Tag（colorTag）+筛选 |
 | package_manager_family | apt / dnf / yum | 通道状态呈现 |
@@ -76,7 +76,7 @@
 
 **页头**：通道状态条（channel.available=true → NTag green「包管理通道：{family}」；false → NTag orange「包管理通道不可用（变更功能已禁用）」+ 说明 tooltip）+ 刷新按钮（重新 envList，D-01 实时探测）+ generatedAt「探测于 HH:mm:ss」。
 
-**环境卡片网格**（NGrid 响应式 3 列 × NCard，八条目 D-02，v1.1 六→七 +MongoDB〔displayName=MongoDB〕；v1.4 七→八 +Node.js〔displayName=Node.js，description=「Node.js 运行时（LTS 22.x 轨道，npm 随包供给）」，⚠️A16/A17〕；v1.1a 移除 relatedModule 软引导行）：
+**环境卡片网格**（NGrid 响应式 3 列 × NCard，九条目 D-02，v1.1 六→七 +MongoDB〔displayName=MongoDB〕；v1.4 七→八 +Node.js〔displayName=Node.js，description=「Node.js 运行时（LTS 22.x 轨道，npm 随包供给）」，⚠️A16/A17〕；**v1.5 八→九 +Python**〔displayName=Python，description=「Python 运行时（发行版仓库包，含 venv/pip 支撑）」，⚠️A18〕；v1.1a 移除 relatedModule 软引导行）：
 
 每卡片字段与操作（数据源 envList items[]）：
 
@@ -84,16 +84,16 @@
 |------|------|------|
 | 标题 | displayName + env_type NTag | — |
 | 描述 | description（v1.1a 起：仅环境本体描述，无模块引导文案） | text |
-| 实况 | installed 三态（v1.1 ⚠️A9 精确化）：null →「探测不可用」orange（**仅条目级真错误**——查询超时/通道异常；通道级不可用时整列 null 并由页头横幅承载语义，角标不再重复渲染通道语义）；true → 版本 version + 服务状态（serviceRunning→NTag green「运行中」/gray「已停止」）+ 自启（serviceEnabled）；false →「未安装」gray（**含包名不在包数据库形态**——多候选全未装即未装，非探测失败）；**v1.4 Node 特化（⚠️A17）**：版本经 node --version（api 4.2.1，二进制缺席 version=null 不虚构）；serviceRunning/serviceEnabled=null 且 unitName="" 为**运行时型无服务单元**——服务状态/自启区块不渲染（非「探测不可用」语义，不渲染角标） | D-01 实时投影三态 |
+| 实况 | installed 三态（v1.1 ⚠️A9 精确化）：null →「探测不可用」orange（**仅条目级真错误**——查询超时/通道异常；通道级不可用时整列 null 并由页头横幅承载语义，角标不再重复渲染通道语义）；true → 版本 version + 服务状态（serviceRunning→NTag green「运行中」/gray「已停止」）+ 自启（serviceEnabled）；false →「未安装」gray（**含包名不在包数据库形态**——多候选全未装即未装，非探测失败）；**v1.4 Node 特化（⚠️A17）**：版本经 node --version（api 4.2.1，二进制缺席 version=null 不虚构）；serviceRunning/serviceEnabled=null 且 unitName="" 为**运行时型无服务单元**——服务状态/自启区块不渲染（非「探测不可用」语义，不渲染角标）；**v1.5 Python 特化（⚠️A18，⚠️A17 同构）**：版本经 python3 --version（缺席 null 不虚构）；serviceRunning/serviceEnabled=null 运行时型——服务状态/自启区块不渲染；**venv/pip 能力位呈现（python 条目专属，api 4.1.4 additive 字段）**：已装且能力位全 true → 绿字「venv ✓ pip ✓」；已装但能力缺失 → orange「缺 venv」/「缺 pip」（应用创建前置说明 tooltip「应用管理创建应用需要 venv 与 pip」） | D-01 实时投影三态 |
 | 在途标记 | runningTaskId 非空 → NTag blue「任务进行中」+「查看」链接（跳任务 Drawer 定位该任务） | I-01 |
-| 操作区（admin only；readonly 整区不渲染） | 未装：`安装`（primary）；已装：`升级` + `卸载`（error 色）+ 服务操作组（启动/停止/重启 NPopconfirm + 自启 NSwitch）；**v1.4 Node：安装/升级/卸载照常可达，服务操作组（启动/停止/重启/自启开关）对 Node 不渲染**——serviceRunning/serviceEnabled=null（运行时型无服务单元 ⚠️A17；后端 ServiceOp 对 node 拒绝 ENV_006 兜底，前端不呈现无效入口） | ENV_001 时安装/升级/卸载禁用；服务操作不受通道限制（systemd 通道） |
+| 操作区（admin only；readonly 整区不渲染） | 未装：`安装`（primary）；已装：`升级` + `卸载`（error 色）+ 服务操作组（启动/停止/重启 NPopconfirm + 自启 NSwitch）；**v1.4 Node/v1.5 Python：安装/升级/卸载照常可达，服务操作组（启动/停止/重启/自启开关）对 Node/Python 不渲染**——serviceRunning/serviceEnabled=null（运行时型无服务单元 ⚠️A17/A18；后端 ServiceOp 对 node/python 拒绝 ENV_006 兜底，前端不呈现无效入口） | ENV_001 时安装/升级/卸载禁用；服务操作不受通道限制（systemd 通道） |
 
-**安装/升级确认**（NPopconfirm）：文案「将通过 {family} 安装/升级 {displayName} 到仓库最新版（先刷新包索引，可能需要数分钟）；需配置官方仓库源的环境将自动写入源配置并留痕（MongoDB/Docker CE〔RHEL 系〕/Node.js〔NodeSource 三系，LTS 22.x 轨道〕需第三方官方源，面板代配）」。提交 envInstall → 成功 toast「任务已创建」+ 打开任务 Drawer 定位新任务（taskId 响应）；ENV_003 → 「该环境有任务进行中」+ 查看引导。
+**安装/升级确认**（NPopconfirm）：文案「将通过 {family} 安装/升级 {displayName} 到仓库最新版（先刷新包索引，可能需要数分钟）；需配置官方仓库源的环境将自动写入源配置并留痕（MongoDB/Docker CE〔RHEL 系〕/Node.js〔NodeSource 三系，LTS 22.x 轨道〕需第三方官方源，面板代配；Python 为发行版仓库包无需第三方源，v1.5）」。提交 envInstall → 成功 toast「任务已创建」+ 打开任务 Drawer 定位新任务（taskId 响应）；ENV_003 → 「该环境有任务进行中」+ 查看引导。
 
 **卸载强确认**（NModal，两段警示 ⚠️A6/D-07）：
 
 - 警示一（本域实况）：服务运行中 → NAlert warning「{displayName} 服务当前正在运行」；
-- 警示二（关联模块静态影响）：NAlert error「卸载后对应功能将失去运行环境——Docker：容器管理；MySQL/MongoDB：数据库管理；nginx/PHP-FPM：网站管理；Node.js：数据库工具（mongo-express）；请先到对应模块确认数据已处置」（v1.1 补 MongoDB；v1.4 补 Node.js）；
+- 警示二（关联模块静态影响）：NAlert error「卸载后对应功能将失去运行环境——Docker：容器管理；MySQL/MongoDB：数据库管理；nginx/PHP-FPM：网站管理；Node.js：数据库工具（mongo-express）；Python：应用管理（已创建的 Python 应用将无法运行）；请先到对应模块确认数据已处置」（v1.1 补 MongoDB；v1.4 补 Node.js；v1.5 补 Python）；
 - 操作锁定：NInput 输入环境显示名确认（与 certDelete 类强确认先例对齐：高危双因子）；
 - 提交文案明示「将执行包卸载（保留系统配置与数据目录；已配第三方源文件保留不回收）」→ envUninstall。
 
@@ -181,5 +181,6 @@
 | v1.2 | 2026-11-17 | content_changed | v0.1.4 用户反馈第 1 项（环境页刷新机制缺陷修复）：任务详情在途→终态跃迁时触发环境全景（loadList）与任务清单（loadTasks）重拉——修复「任务完成后环境列表不重拉、用户看到旧 installed/版本/服务态」；轮询纪律不变（running 5s/终态即停/无 SSE/WS，D 阶段口径保持）；readonly 同步（任务 Drawer 两角色可看） | 4.3 |
 | v1.3 | 2026-11-17 | dict_changed + content_changed | 安装后配置就绪增量（数据源升 api v1.2，D-15~D-19/⚠️A11~A15）：①字典 +bootstrap_status（三值 succeeded/failed/skipped，S8 6/6 与池/DDL/api 同值；NULL=无引导步骤不渲染）+颜色方案（succeeded green/failed orange〔包已装故非红〕/skipped gray）；②4.2 任务列表 +「引导」列（bootstrapStatus colorTag + bootstrapNote NTooltip）；③4.3 任务详情 +引导结果横幅（succeeded=已就绪+前往数据库管理链接 / failed=已安装·引导失败+原因+重新安装/升级重试指引 / skipped=保守跳过说明；任务 status 仍包操作结果，引导失败独立维度 D-18）；④outputTail 含 [bootstrap] 行注记；⑤第 8 节检查 1/2 同步（S7 10/10 不变——引导无新 HTTP Action）。**Action/路由/表单零变更**（引导由 worker 自动触发，结果经既有 task/detail 呈现）；readonly 同步（引导结果两角色可看） | 3 / 4.2 / 4.3 / 8 |
 | v1.4 | 2026-11-19 | dict_changed + content_changed | Node 环境增量（数据源升 api v1.3，db-tools Gate 2 W2 闭环，D0 Q1 一步到位；prd FR-08 ⚠️A16/A17）：①字典 env_type 七值→八值（+node，displayName=Node.js，S8 与池/DDL CHECK/api/前端 enums 四方同值）；②4.1 卡片网格七→八条目（+Node.js 卡片）；③Node 特化呈现：安装/升级/卸载照常可达；服务操作组（启动/停止/重启/自启开关）对 Node 不渲染——serviceRunning/serviceEnabled=null 运行时型无服务单元（⚠️A17，后端 ServiceOp ENV_006 兜底）；版本经 node --version（二进制缺席 null 不虚构）；④安装确认文案第三方源清单 +Node.js（NodeSource 三系 LTS 22.x）；卸载警示二 +Node.js（数据库工具 mongo-express）；⑤第 8 节检查 2 同步。**Action/路由/表单零变更**（S7 10/10 不变）；readonly 同步 | 3 / 4.1 / 8 |
+| v1.5 | 2026-11-20 | dict_changed + content_changed | Python 环境增量（数据源升 api v1.4，app-mgmt D0 Q2 一步到位；prd FR-09 ⚠️A18）：①字典 env_type 八值→九值（+python，displayName=Python，S8 五方同值）；②4.1 卡片网格八→九条目（+Python 卡片）；③Python 特化呈现：安装/升级/卸载照常可达（无第三方源）；服务操作组对 Python 不渲染——运行时型 ⚠️A17 同构（后端 ServiceOp ENV_006 兜底）；版本经 python3 --version（缺席 null 不虚构）；**venv/pip 能力位呈现**（python 条目 additive 字段：venvSupport/pipAvailable——绿字「venv ✓ pip ✓」/orange「缺 venv」/「缺 pip」+应用创建前置说明 tooltip）；④安装确认文案注明 Python 发行版仓库包无需第三方源；卸载警示二 +Python（应用管理）；⑤第 8 节检查 2 同步。**Action/路由/表单零变更**（S7 10/10 不变）；readonly 同步 | 3 / 4.1 / 8 |
 
 > FX 质量清单说明：FX-001~FX-141 逐条清单文件未随引擎 payload 发布，本节按分册 9 节结构逐节落实，并以第 8 节 10 项全局一致性自查替代可机械执行部分（全仓先例）；全量 141 项留待 Gate 1 validation 执行。

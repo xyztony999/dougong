@@ -2,7 +2,7 @@
   "_generated": {
     "version": 3,
     "note": "本文件由 engine-gui 文档中心根据项目架构自动生成，可手工编辑（编辑后原样生效）；删除本文件后下次访问将按最新架构重新生成。",
-    "generatedAt": "2026-11-19T14:28:32.859Z",
+    "generatedAt": "2026-11-20T13:30:49.526Z",
     "generator": "engine-gui doc-center 生成器（/dc/api/domains · /api/projects/:id/funcview）"
   },
   "names-map": {},
@@ -214,10 +214,10 @@
           "lowerRibs": []
         }
       },
-      "环境管理（env-mgmt）（v1.19 追加；v1.22 安装后配置就绪；v1.24 +Node）": {
-        "name": "环境管理（env-mgmt）（v1.19 追加；v1.22 安装后配置就绪；v1.24 +Node）",
+      "环境管理（env-mgmt）（v1.19 追加；v1.22 安装后配置就绪；v1.24 +Node；v1.27 +Python）": {
+        "name": "环境管理（env-mgmt）（v1.19 追加；v1.22 安装后配置就绪；v1.24 +Node；v1.27 +Python）",
         "layer": "支撑域",
-        "related": "account-auth（遵奉会话鉴权与只读边界 R-02/ADR-018；消费审计写入 OHS R-03）；service-mgmt（共享 SysdGateway systemd 适配层资产，进程内共享非模块调用）；**database-mgmt（v1.22 消费其 BootstrapAfterInstall 进程内 OHS——安装后配置就绪建账户/注册实例凭据，单向硬依赖）**；docker-mgmt/database-mgmt/site-mgmt/db-tools（被消费：环境未装实况软引导；**db-tools v1.24 消费环境实况读契约〔PHP-FPM/Node/nginx 依赖就绪度〕与 Node 供给**）；apt/dnf·yum/systemd（本机系统组件，envpack 适配器，非业务域）",
+        "related": "account-auth（遵奉会话鉴权与只读边界 R-02/ADR-018；消费审计写入 OHS R-03）；service-mgmt（共享 SysdGateway systemd 适配层资产，进程内共享非模块调用）；**database-mgmt（v1.22 消费其 BootstrapAfterInstall 进程内 OHS——安装后配置就绪建账户/注册实例凭据，单向硬依赖）**；docker-mgmt/database-mgmt/site-mgmt/db-tools（被消费：环境未装实况软引导；**db-tools v1.24 消费环境实况读契约〔PHP-FPM/Node/nginx 依赖就绪度〕与 Node 供给**）；**app-mgmt（v1.27 被消费：环境实况读契约〔Python 就绪度 python3/venv/pip 能力位〕与 Python 供给 FR-09〔发行版仓库包 ⚠️A18〕）**；apt/dnf·yum/systemd（本机系统组件，envpack 适配器，非业务域）",
         "fishbone": {
           "spine": [
             {
@@ -245,6 +245,27 @@
               "code": "AGG-2",
               "name": "tool_deploy_task（工具部署任务）",
               "desc": "目标工具（db_tool_type）、动作、状态、发起者、发起时间、开始/结束时间、命令输出尾部（终态定格）、失败原因"
+            }
+          ],
+          "upperRibs": [],
+          "lowerRibs": []
+        }
+      },
+      "未归组聚合": {
+        "name": "未归组聚合",
+        "layer": "",
+        "related": "",
+        "fishbone": {
+          "spine": [
+            {
+              "code": "AGG-1",
+              "name": "app（应用档案）",
+              "desc": "应用名（全局唯一）、代码目录、入口文件、启动方式（内嵌值对象）、监听端口（默认 127.0.0.1 绑定语义 ⚠️A4）…"
+            },
+            {
+              "code": "AGG-2",
+              "name": "app_task（应用变更任务）",
+              "desc": "目标应用、动作、状态、发起者、发起时间、开始/结束时间、输出尾部（终态定格）、失败原因（含 data.reason ⚠️…"
             }
           ],
           "upperRibs": [],
@@ -725,8 +746,8 @@
           }
         ]
       },
-      "环境管理（env-mgmt）（v1.19 追加；v1.22 安装后配置就绪；v1.24 +Node）": {
-        "description": "运行环境本体供给（软件包层，v0.1.2 反馈第 4 项补位）：内置八环境目录+实况实时探测合并呈现（nginx/Apache/Docker/MySQL/Redis/PHP-FPM/MongoDB/Node.js，⚠️A1/A7/A9，零环境台账投影——包管理器/systemd 为事实源；**v1.24 +Node.js：NodeSource 三系代配+LTS 轨道钉死+npm 随包 ⚠️A16，运行时型无服务单元——服务态 null/启停入口禁用/装完即用无引导 ⚠️A17**）、apt/dnf·yum 双系通道探测择一与官方仓库源代配（⚠️A2/A10，写入审计）、异步变更任务四态机 pending→running→succeeded/failed（⚠️A3，同环境互斥、任务台账落 SQLite、重启恢复 running→failed）、安装与升级同通道幂等（⚠️A4，先刷新索引）、卸载保守语义（⚠️A6 remove 保留配置数据+强确认风险提示）、**安装后配置就绪（v1.22，⚠️A11~A15：数据库类安装成功后 worker 经 db-mgmt OHS 建管理账户/设随机强密码+注册实例凭据，装完即可管；引导结果独立维度 bootstrap_status/note 入任务台账，幂等保守不覆盖）**、已装环境服务启停自启（复用 service-mgmt SysdGateway 共享适配层，操作限定目录环境单元，Node 无单元不适用）、变更与任务终态审计留痕（R-03）、包操作参数数组纪律（R-08）",
+      "环境管理（env-mgmt）（v1.19 追加；v1.22 安装后配置就绪；v1.24 +Node；v1.27 +Python）": {
+        "description": "运行环境本体供给（软件包层，v0.1.2 反馈第 4 项补位）：内置九环境目录+实况实时探测合并呈现（nginx/Apache/Docker/MySQL/Redis/PHP-FPM/MongoDB/Node.js/Python，⚠️A1/A7/A9，零环境台账投影——包管理器/systemd 为事实源；**v1.24 +Node.js：NodeSource 三系代配+LTS 轨道钉死+npm 随包 ⚠️A16，运行时型无服务单元——服务态 null/启停入口禁用/装完即用无引导 ⚠️A17；v1.27 +Python：发行版仓库包无第三方源代配 ⚠️A18，运行时型 ⚠️A17 同构，venv/pip 能力位入就绪度**）、apt/dnf·yum 双系通道探测择一与官方仓库源代配（⚠️A2/A10，写入审计）、异步变更任务四态机 pending→running→succeeded/failed（⚠️A3，同环境互斥、任务台账落 SQLite、重启恢复 running→failed）、安装与升级同通道幂等（⚠️A4，先刷新索引）、卸载保守语义（⚠️A6 remove 保留配置数据+强确认风险提示）、**安装后配置就绪（v1.22，⚠️A11~A15：数据库类安装成功后 worker 经 db-mgmt OHS 建管理账户/设随机强密码+注册实例凭据，装完即可管；引导结果独立维度 bootstrap_status/note 入任务台账，幂等保守不覆盖）**、已装环境服务启停自启（复用 service-mgmt SysdGateway 共享适配层，操作限定目录环境单元，Node/Python 无单元不适用）、变更与任务终态审计留痕（R-03）、包操作参数数组纪律（R-08）",
         "tablePrefix": "",
         "tableCount": 6,
         "aggregateRoot": "env_install_task",
@@ -792,6 +813,30 @@
             "table": "JSON",
             "type": "entity",
             "relation": "内嵌于 db_tool（site_ref JSON 列整体序列化）",
+            "parent": null,
+            "condition": ""
+          }
+        ]
+      },
+      "未归组聚合": {
+        "description": "对象清单中归属域不在业务域清单的聚合根（自动归集）",
+        "tablePrefix": "",
+        "tableCount": 6,
+        "aggregateRoot": "app（应用档案）",
+        "objects": [
+          {
+            "name": "app（应用档案）",
+            "table": "",
+            "type": "aggregate",
+            "relation": "",
+            "parent": null,
+            "condition": ""
+          },
+          {
+            "name": "app_task（应用变更任务）",
+            "table": "",
+            "type": "aggregate",
+            "relation": "",
             "parent": null,
             "condition": ""
           }
