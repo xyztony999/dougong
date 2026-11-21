@@ -460,6 +460,8 @@ func run(args []string) error {
 	appSvc := appsvc.New(appx.New(), sysdGateway, appStore, appsvc.Options{
 		EnvReady: envSvc,                          // PythonReadiness 读契约 OHS（D-08）
 		SiteLink: appsvc.AdaptSiteLinker(siteSvc), // 建站 OHS 消费（D-12）
+		// ComposeCre 容器化通道：B 阶段待接（docker-mgmt S-50-04 提供方在位，
+		// api-docker-mgmt v1.1 D-11；nil=容器化形态如实报「通道未装配」）
 	})
 	appSvc.RecoverInFlight(ctx)
 	panelSvc.Menus().Register(

@@ -699,8 +699,9 @@ export const APP_TASK_STATUS: Record<AppTaskStatus, DictItem> = {
 }
 
 /** app_start_mode（app-mgmt D2 定稿 ⚠️A4）：FastAPI 预设（venv 内 uvicorn 模板）/自定义命令（venv 内相对路径白名单） */
-export type AppStartMode = 'preset_fastapi' | 'custom'
+export type AppStartMode = 'preset_fastapi' | 'custom' | 'container'
 export const APP_START_MODE: Record<AppStartMode, DictItem> = {
   preset_fastapi: { label: 'FastAPI 预设', tag: 'info' },
-  custom: { label: '自定义命令', tag: 'default' }
+  custom: { label: '自定义命令', tag: 'default' },
+  container: { label: '容器运行', tag: 'info' }
 }

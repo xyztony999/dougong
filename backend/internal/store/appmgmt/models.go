@@ -21,6 +21,7 @@ type Executor = store.Executor
 const (
 	StartModePresetFastAPI = "preset_fastapi" // FastAPI 预设（venv 内 uvicorn 模板，D-06）
 	StartModeCustom        = "custom"         // 自定义命令（venv 内相对路径白名单，D-06）
+	StartModeContainer     = "container"      // 容器化形态（v1.1 ⚠️A13：面板生成单应用 compose + 归属标签，经 docker-mgmt 通道；无 unit/D-06 venv 链）
 
 	ActionCreate      = "create"       // 创建应用（venv→依赖→单元→可选启动）
 	ActionDepsInstall = "deps_install" // 依赖重装（requirements.txt）

@@ -66,3 +66,11 @@ var validStateFilters = map[string]bool{
 	"restarting":          true,
 	"removing":            true,
 }
+
+// v1.1 创建类审计动作（api-docker-mgmt.md v1.1 §3.4）。
+const (
+	AuditContainerCreated      = "container_created"
+	AuditVolumeCreated         = "volume_created"
+	AuditNetworkCreated        = "network_created"
+	AuditComposeProjectCreated = "compose_project_created"
+)

@@ -28,3 +28,7 @@ var (
 	// ErrAppParamsInvalid APP_012 参数校验失败（基线不一致/行格式/白名单，D-06/D-09）；data.reason。
 	ErrAppParamsInvalid = New("APP_012", "参数校验失败")
 )
+
+// ErrAppImageInvalid APP_013 镜像引用格式非法（容器化形态校验，R-14；
+// 复用 DK_012 同规则——名称[:tag] 服务端格式校验）。
+var ErrAppImageInvalid = New("APP_013", "镜像引用格式非法")

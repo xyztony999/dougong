@@ -89,6 +89,10 @@ func (m *Module) Register(rg *gin.RouterGroup) {
 	write.POST("/compose/up", m.h.ComposeUp)
 	write.POST("/compose/down", m.h.ComposeDown)
 	write.POST("/compose/restart", m.h.ComposeRestart)
+	write.POST("/container/create", m.h.ContainerCreate)
+	write.POST("/volume/create", m.h.VolumeCreate)
+	write.POST("/network/create", m.h.NetworkCreate)
+	write.POST("/compose/create", m.h.ComposeCreate)
 }
 
 // 编译期断言：Module 实现 api.Module 契约。

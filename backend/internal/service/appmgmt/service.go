@@ -77,7 +77,8 @@ type Service struct {
 	sysd         SysdGateway
 	store        *storeapp.Store
 	envReady     EnvReadySource
-	siteLink     SiteLinkGateway // nil=未装配（hasSite 呈现 null；site/link 拒绝）
+	siteLink     SiteLinkGateway       // nil=未装配（hasSite 呈现 null；site/link 拒绝）
+	composeCre   ComposeProjectCreator // nil=未装配（容器化形态拒绝并引导 docker-mgmt）
 	clock        func() time.Time
 	syncDispatch bool // 测试缝：同步执行 runTask（确定性断言，沿 env-mgmt 测试先例）
 }
@@ -86,6 +87,7 @@ type Service struct {
 type Options struct {
 	EnvReady     EnvReadySource
 	SiteLink     SiteLinkGateway
+	ComposeCre   ComposeProjectCreator
 	Clock        func() time.Time
 	SyncDispatch bool
 }
@@ -93,8 +95,8 @@ type Options struct {
 // New 构造服务。
 func New(py PyGateway, sysdGw SysdGateway, store *storeapp.Store, opts Options) *Service {
 	s := &Service{py: py, sysd: sysdGw, store: store,
-		envReady: opts.EnvReady, siteLink: opts.SiteLink, clock: time.Now,
-		syncDispatch: opts.SyncDispatch}
+		envReady: opts.EnvReady, siteLink: opts.SiteLink, composeCre: opts.ComposeCre,
+		clock: time.Now, syncDispatch: opts.SyncDispatch}
 	if s.clock == nil {
 		s.clock = time.Now
 	}
@@ -181,12 +183,21 @@ type CreateRequest struct {
 	StartSpec  StartSpec `json:"startSpec"`
 	ListenPort int       `json:"listenPort"`
 	StartNow   bool      `json:"startNow"`
+	// v1.1 容器化形态字段（startMode=container 时生效，⚠️A13）：
+	Image         string          `json:"image,omitempty"`
+	Env           []EnvKVDTO      `json:"env,omitempty"`
+	Mounts        []MountDTOMount `json:"mounts,omitempty"`
+	RestartPolicy string          `json:"restartPolicy,omitempty"`
 }
 
 // Create 创建应用：APP_001→002→003→004→005→白名单 顺序校验（D-03）→
 // INSERT app_task(pending) 与发起审计同事务 → worker 异步执行（档案登记仅在
 // succeeded 终态同事务，I-C01/C02——创建失败不残留半档案）。
 func (s *Service) Create(ctx context.Context, actor *authsvc.Identity, req CreateRequest) (*TaskCreatedData, error) {
+	// v1.1 容器化形态分支（⚠️A13，D0 Q5）：镜像必填；无 dir/entry/Python 校验。
+	if req.StartMode == storeapp.StartModeContainer {
+		return s.createContainerized(ctx, actor, req)
+	}
 	// APP_001 应用名格式（D-03）。
 	if !appNameRe.MatchString(req.Name) {
 		return nil, errcode.ErrAppInvalidName
@@ -652,4 +663,65 @@ func auditActionForService(op string) string {
 		return AuditActionServiceDisabled
 	}
 	return AuditActionServiceStarted
+}
+
+// createContainerized 容器化形态创建链（⚠️A13 v1.1，D0 Q5）：镜像必填 →
+// 生成单应用 compose.yml（含 dougong-app 归属标签）→ 经 ComposeProjectCreator
+// OHS 落盘并自动 up -d → 档案登记（compose 项目名引用替代 unit_name）。
+// 同步完成（compose 通道即时返回——无需 worker goroutine，与 venv 形态的
+// 异步 venv/pip 链不同：容器化无本地编译/下载步骤）。
+func (s *Service) createContainerized(ctx context.Context, actor *authsvc.Identity, req CreateRequest) (*TaskCreatedData, error) {
+	if _, err := s.store.App().GetByName(ctx, req.Name); err == nil {
+		return nil, errcode.ErrAppNameTaken
+	}
+	if !validateImageRef(req.Image) {
+		return nil, errcode.ErrAppImageInvalid
+	}
+	if req.ListenPort < 1024 || req.ListenPort > 65535 {
+		return nil, errcode.ErrAppPortOccupied.WithData(map[string]any{"port": req.ListenPort})
+	}
+	if s.composeCre == nil {
+		return nil, errcode.ErrAppImageInvalid.WithData(map[string]any{
+			"reason": "容器编排通道未装配（docker-mgmt 未接入）"})
+	}
+	taskID, err := s.createTask(ctx, actor, storeapp.AppTask{
+		AppName: req.Name, Action: storeapp.ActionCreate, RequestedBy: actorName(actor),
+	}, audit.Entry{Action: AuditActionTaskStarted, ObjectType: ObjTypeTask,
+		Detail: map[string]any{"appName": req.Name, "action": storeapp.ActionCreate,
+			"form": "container"}})
+	if err != nil {
+		return nil, err
+	}
+	yamlText := renderAppCompose(req.Name, req.Image, req.ListenPort, req.Env, nil, req.RestartPolicy)
+	if err := s.composeCre.CreateComposeProject(ctx, req.Name, yamlText, true); err != nil {
+		_ = s.store.Task().Finish(ctx, taskID, storeapp.TaskFailed, strPtr("容器编排失败："+err.Error()))
+		return nil, errcode.ErrAppImageInvalid.WithData(map[string]any{"reason": err.Error()})
+	}
+	tx, err := s.store.BeginTx(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("appmgmt: container create tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	specJSON, _ := jsonMarshal(ContainerFormSpec{Image: req.Image, RestartPolicy: req.RestartPolicy})
+	arch := storeapp.App{
+		Name: req.Name, Dir: composeAppRoot(req.Name), Entry: "compose",
+		StartMode: storeapp.StartModeContainer,
+		StartSpec: specJSON, ListenPort: req.ListenPort, UnitName: "",
+		CreatedBy: actorName(actor),
+	}
+	if _, err := tx.App().Create(ctx, arch); err != nil {
+		return nil, fmt.Errorf("appmgmt: container archive: %w", err)
+	}
+	if err := tx.Task().Finish(ctx, taskID, storeapp.TaskSucceeded, nil); err != nil {
+		return nil, fmt.Errorf("appmgmt: container finish: %w", err)
+	}
+	if err := tx.Audit().Append(ctx, auditEntry(actor, AuditActionTaskFinished, ObjTypeTask,
+		fmtID(taskID), map[string]any{"appName": req.Name, "action": storeapp.ActionCreate,
+			"form": "container", "status": storeapp.TaskSucceeded}), s.clock()); err != nil {
+		return nil, fmt.Errorf("appmgmt: container audit: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("appmgmt: container commit: %w", err)
+	}
+	return &TaskCreatedData{TaskID: taskID}, nil
 }

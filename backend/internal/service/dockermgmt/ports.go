@@ -53,6 +53,14 @@ type DockerGateway interface {
 	ListNetworks(ctx context.Context) ([]dockerx.NetworkFact, error)
 	// DeleteNetwork 删除网络（预定义/被接入由 daemon 拒绝，I-05）。
 	DeleteNetwork(ctx context.Context, id string) error
+	// ImageExists 本地镜像存在性（v1.1 D-09 容器创建缺失自动拉取判定）。
+	ImageExists(ctx context.Context, ref string) bool
+	// CreateContainer 创建并启动容器（v1.1 D-09 docker run 语义）。
+	CreateContainer(ctx context.Context, spec dockerx.CreateContainerSpec) (string, error)
+	// CreateVolume 创建命名卷（v1.1 D-10）。
+	CreateVolume(ctx context.Context, name, driver string) error
+	// CreateNetwork 创建自定义网络（v1.1 D-10；subnet/gateway 可选）。
+	CreateNetwork(ctx context.Context, name, driver, subnet, gateway string) error
 }
 
 // ComposeRunner 是 Compose CLI 通道契约（api §4.3.5；实现为

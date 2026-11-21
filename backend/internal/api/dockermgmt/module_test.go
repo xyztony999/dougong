@@ -652,3 +652,11 @@ func TestComposeLogsFollowWSReject(t *testing.T) {
 	}
 	_ = wsURL
 }
+
+// v1.1 创建类 stub。
+func (f *fakeGateway) ImageExists(_ context.Context, _ string) bool { return true }
+func (f *fakeGateway) CreateContainer(_ context.Context, _ dockerx.CreateContainerSpec) (string, error) {
+	return "cid-new", nil
+}
+func (f *fakeGateway) CreateVolume(_ context.Context, _, _ string) error        { return nil }
+func (f *fakeGateway) CreateNetwork(_ context.Context, _, _, _, _ string) error { return nil }

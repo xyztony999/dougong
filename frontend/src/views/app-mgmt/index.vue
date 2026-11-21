@@ -40,7 +40,7 @@ const logLines = ref(200)
 const logContent = ref('')
 const tasksShow = ref(false)
 const taskTab = ref<'history' | 'detail'>('history')
-const createForm = reactive({ name: '', dir: '', entry: 'app.py', startMode: 'preset_fastapi' as 'preset_fastapi' | 'custom', listenPort: 8000, startNow: false })
+const createForm = reactive({ name: '', dir: '', entry: 'app.py', startMode: 'preset_fastapi' as 'preset_fastapi' | 'custom' | 'container', listenPort: 8000, startNow: false, image: '' })
 const siteDomain = ref('')
 
 const columns = [
@@ -338,10 +338,14 @@ onUnmounted(pollCleanup)
         <NFormItem label="启动方式">
           <NSelect v-model:value="createForm.startMode" :options="[
             { label: 'FastAPI 预设（uvicorn）', value: 'preset_fastapi' },
-            { label: '自定义命令', value: 'custom' }
+            { label: '自定义命令', value: 'custom' },
+            { label: '容器运行（compose）', value: 'container' }
           ]" />
         </NFormItem>
         <NFormItem v-if="createForm.startMode === 'preset_fastapi'" label="模块:实例"><NInput v-model:value="presetModule" placeholder="app" /><NInput v-model:value="presetApp" placeholder="app" /></NFormItem>
+        <NFormItem v-if="createForm.startMode === 'container'" label="镜像">
+          <NInput v-model:value="createForm.image" placeholder="nginx:latest / ghcr.io/..." />
+        </NFormItem>
         <NFormItem v-if="createForm.startMode === 'custom'" label="启动命令"><NInput v-model:value="customCommand" placeholder=".venv/bin/你的启动命令（须以 .venv/bin/ 开头）" /></NFormItem>
         <NFormItem label="立即启动"><NSwitch v-model:value="createForm.startNow" /></NFormItem>
       </NForm>

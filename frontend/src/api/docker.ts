@@ -245,3 +245,52 @@ export function connectComposeLogsFollow(
 ): DockerLogSocket {
   return connectLogFollow('/docker/compose/logs-follow', params, events)
 }
+
+
+// ---- v1.1 创建类 Action（api-docker-mgmt.md v1.1 FR-19~22）----
+
+/** 容器创建请求体 */
+export interface DockerContainerCreateRequest {
+  name: string
+  image: string
+  ports?: { hostPort: string; containerPort: string; protocol?: string }[]
+  env?: { key: string; value: string }[]
+  mounts?: { source: string; target: string; mode?: string }[]
+  restartPolicy?: string
+  network?: string
+}
+
+/** 容器创建响应 */
+export interface DockerContainerCreateData {
+  containerId: string
+  name: string
+  state: string
+}
+
+/** containerCreate：创建并启动容器（镜像缺失自动拉取；DK_019~023） */
+export function containerCreate(req: DockerContainerCreateRequest): Promise<DockerContainerCreateData> {
+  return request<DockerContainerCreateData>('/docker/container/create', { method: 'POST', body: req })
+}
+
+/** volumeCreate：创建命名卷（DK_024） */
+export function volumeCreate(name: string, driver?: string): Promise<{ name: string; driver: string }> {
+  return request('/docker/volume/create', { method: 'POST', body: { name, driver } })
+}
+
+/** networkCreate：创建自定义网络（DK_025） */
+export function networkCreate(name: string, driver?: string, subnet?: string, gateway?: string): Promise<{ name: string; driver: string }> {
+  return request('/docker/network/create', { method: 'POST', body: { name, driver, subnet, gateway } })
+}
+
+/** Compose 项目创建响应 */
+export interface ComposeCreateData {
+  projectName: string
+  workingDir: string
+  configFile: string
+  started: boolean
+}
+
+/** composeCreate：新建 Compose 项目（YAML 校验+落盘+自动 up -d；DK_026/027） */
+export function composeCreate(projectName: string, composeYaml: string, autoUp?: boolean): Promise<ComposeCreateData> {
+  return request<ComposeCreateData>('/docker/compose/create', { method: 'POST', body: { projectName, composeYaml, autoUp } })
+}
