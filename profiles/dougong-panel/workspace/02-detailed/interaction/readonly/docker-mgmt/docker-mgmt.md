@@ -21,6 +21,10 @@
 | 可见页面 | /docker——与 admin 同路由（readonly 可进入查看五类清单、容器与 Compose 日志、资源占用、接管结论全集，FL 2.2「全可看」） |
 | 错误处理 | 与 admin 一致，另含 AUTH_008 全局边界拒绝提示「权限不足：只读角色禁止容器管理变更操作」（正常 UI 无入口不触发——api 3.3 readonly 写全 ✗ + 全局中间件拦截）；DK_003~018 中写侧错误码（DK_004~006/008/010~013/016/018）正常流程对 readonly 不可达（无写入口） |
 
+## 第 2a 节 v1.1 新增负空间（创建类，2026-11-22）
+
+containerCreate / volumeCreate / networkCreate / composeCreate 四 Action readonly 全部负空间不渲染（ADR-018：创建类为变更操作 admin 专属）；四 Tab 工具栏无「创建」入口。
+
 ## 第 2 节 Action 定义
 
 | Action | 方法 | 路径 | 页面 | 说明 |

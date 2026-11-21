@@ -21,6 +21,17 @@
 | 状态管理 | Pinia：dockerStore（daemonStatus/containerItems/composeItems/imageItems/volumeItems/networkItems/generatedAt×5/listParams/inFlight×12/logDrawer 态/WS 订阅句柄）；枚举常量 store（与 account-auth/firewall 等共用 enums.ts） | 栈版本表 |
 | 错误处理 | 统一拦截器按 api 3.4 code 分流：AUTH_001/002→跳登录（全局拦截器）、AUTH_003→CSRF 失败提示（全局）、AUTH_008→「权限不足：只读角色禁止容器管理变更操作」（全局边界拒绝，正常 UI 无入口不触发）、DK_001→正常 UI 不可达（控件与服务端权威面约束，R-14）兜底「参数非法」提示、DK_002→正常流程不可达（status 先行引导态，第 4.0 节）兜底跳引导态（api D-01/I-01）、DK_003→warning「该容器已不存在（可能已在面板外删除）」+ 自动重拉容器清单、DK_004→warning「容器当前状态（{currentState}）不允许该操作，可用：{allowedActions 中文串}」+ 重拉容器清单（服务端权威动作面为准，api D-04/I-04）、DK_005/DK_007/DK_009→warning「目标不存在（可能已在面板外删除）」+ 重拉对应清单、DK_006/DK_008/DK_010→warning「{镜像被容器引用/卷被容器挂载/网络被容器接入}，无法删除」+ data.reason、DK_011→warning「预定义网络（bridge/host/none 等）不可删除」、DK_012→拉取 Dialog 字段错误提示（ref 格式，R-14）、DK_013→error「镜像拉取失败：{data.reason}」（Dialog 保持打开）、DK_014→warning「该项目已不存在」+ 重拉 Compose 清单、DK_015→NAlert warning 呈现 label 记录路径 + 提示「可经容器页逐个操作兜底」（api D-06/I-06）、DK_016→error「compose 命令执行失败：{data.reason}」、DK_017→error「Docker 操作失败：{data.reason}」、DK_018→warning「该项目已有操作进行中，请稍候」（api D-06/I-08） | api 3.4 + D-01/D-04/D-05/D-06/D-08/I-01~I-08 |
 
+## 第 2a 节 v1.1 新增 Action（创建类，2026-11-22）
+
+| Action | 方法 | 路径 | 页面 | 权限 | CSRF |
+|--------|------|------|------|------|------|
+| containerCreate | POST | /docker/container/create | 容器 Tab（创建容器 Dialog） | admin | ✓ |
+| volumeCreate | POST | /docker/volume/create | 卷 Tab（创建卷 Dialog） | admin | ✓ |
+| networkCreate | POST | /docker/network/create | 网络 Tab（创建网络 Dialog） | admin | ✓ |
+| composeCreate | POST | /docker/compose/create | Compose Tab（新建项目 Dialog） | admin | ✓ |
+
+> readonly 四 Action 全部负空间不渲染（ADR-018）；admin 表格工具栏 +「创建」按钮（容器/卷/网络/Compose 四 Tab 各自入口）。
+
 ## 第 2 节 Action 定义（与 API 一一对应）
 
 | Action | 方法 | 路径 | 页面 | 权限 | CSRF |
