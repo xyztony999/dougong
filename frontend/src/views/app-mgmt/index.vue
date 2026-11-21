@@ -316,9 +316,15 @@ onUnmounted(pollCleanup)
 
     <NAlert v-if="loadError" type="error" class="load-err">{{ loadError }} <NButton size="tiny" @click="refresh">重试</NButton></NAlert>
 
-    <NDataTable :columns="columns" :data="items" :row-key="(r: AppItem) => r.id" />
-
-    <NEmpty v-if="items.length === 0 && !loadError" description="还没有应用，点击「创建应用」开始" />
+    <!-- 空态收敛为表格 #empty 插槽（缺陷 2 修复：默认「无数据」与自定义空态不再双渲染） -->
+    <NDataTable :columns="columns" :data="items" :row-key="(r: AppItem) => r.id">
+      <template #empty>
+        <div class="tbl-empty">
+          <NEmpty description="还没有应用" />
+          <NButton v-if="isAdmin && !loadError" size="small" type="primary" @click="createShow = true">创建应用</NButton>
+        </div>
+      </template>
+    </NDataTable>
 
     <!-- 创建向导（两分组：基本信息/启动配置；mode 条件显隐） -->
     <NModal v-model:show="createShow" preset="card" title="创建应用" style="width: 560px">
@@ -451,4 +457,5 @@ onUnmounted(pollCleanup)
 .log-head { display: flex; gap: 8px; margin-bottom: 8px; }
 .log { background: rgba(128, 128, 128, 0.08); padding: 8px; max-height: 360px; overflow: auto; font-size: 12px; white-space: pre-wrap; }
 .site-row { display: flex; gap: 8px; align-items: center; }
+.tbl-empty { padding: 36px 0; display: flex; flex-direction: column; align-items: center; gap: 12px; }
 </style>

@@ -125,15 +125,21 @@ var Catalog = []CatalogEntry{
 		// NodeSource 官方源三系代配（⚠️A16，沿 ⚠️A10 同构机制；LTS 轨道编译期钉死）。
 		VendorRepo: map[string]bool{"apt": true, "dnf": true, "yum": true}},
 	// v1.4 Python 环境条目（prd FR-09/⚠️A18：八→九环境；发行版仓库包无第三方
-	// 源代配——apt python3/python3-venv/python3-pip 三包候选〔Debian 系 venv
+	// 源代配——探测候选 apt python3/python3-venv/python3-pip 三包〔Debian 系 venv
 	// 支撑需 python3-venv〕、rpm 系 python3 自含；运行时型 ⚠️A17 同构；venv/pip
-	// 能力位经 PythonReadiness OHS 供 app-mgmt 消费）。候选包名矩阵 D3 终稿。
+	// 能力位经 PythonReadiness OHS 供 app-mgmt 消费）。v1.4a 缺陷修复（实机 RHEL：
+	// python3 预装→「已装」态 pip 永远缺位）：主包 PkgByFamily 仅承载探测候选
+	// （安装取首选 python3）；venv/pip 支撑包移入 ExtraPkgsByFamily（worker
+	// install/upgrade 后 best-effort 补装——「已装但不完整」经升级动作即可补齐，
+	// 沿 phpMyAdmin PHP 扩展先例）。
 	{Type: storeenv.EnvPython, DisplayName: "Python",
 		Description:  "Python 运行时（发行版仓库包，含 venv/pip 支撑）",
 		UnitByFamily: map[string]string{},
 		PkgByFamily: map[string][]string{
-			"apt": {"python3", "python3-venv", "python3-pip"},
-			"dnf": {"python3"}, "yum": {"python3"}}},
+			"apt": {"python3"}, "dnf": {"python3"}, "yum": {"python3"}},
+		ExtraPkgsByFamily: map[string][]string{
+			"apt": {"python3-venv", "python3-pip"},
+			"dnf": {"python3-pip"}, "yum": {"python3-pip"}}},
 }
 
 // CatalogByType 目录索引。
