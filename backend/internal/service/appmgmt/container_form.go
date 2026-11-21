@@ -98,3 +98,12 @@ func renderAppCompose(name, image string, port int, env []EnvKVDTO, mounts []Mou
 
 func itoa(n int) string                 { return fmt.Sprintf("%d", n) }
 func composeAppRoot(name string) string { return "/opt/dougong-compose/" + name }
+
+// ComposeCreatorFunc 是 ComposeProjectCreator 的函数适配器（main.go 闭包
+// 装配——消费方零耦合，跨模块通道经 dockermgmt 服务方法承载）。
+type ComposeCreatorFunc func(ctx context.Context, projectName, composeYaml string, autoUp bool) error
+
+// CreateComposeProject 实现 ComposeProjectCreator。
+func (f ComposeCreatorFunc) CreateComposeProject(ctx context.Context, projectName, composeYaml string, autoUp bool) error {
+	return f(ctx, projectName, composeYaml, autoUp)
+}

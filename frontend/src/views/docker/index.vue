@@ -17,6 +17,7 @@ import { NButton, NPopconfirm, NTag, NTooltip } from 'naive-ui'
 import type { DataTableColumns, SelectOption } from 'naive-ui'
 import type { VNode } from 'vue'
 import { ApiError } from '@/api/http'
+import { containerCreate, volumeCreate, networkCreate, composeCreate } from '@/api/docker'
 import {
   composeDown,
   composeRestart,
@@ -777,6 +778,51 @@ onUnmounted(() => {
   }
   store.resetView()
 })
+
+// ---- v1.1 创建类 Modal（api-docker-mgmt.md v1.1 FR-19~22）----
+const showContainerCreate = ref(false)
+const showVolumeCreate = ref(false)
+const showNetworkCreate = ref(false)
+const showComposeCreate = ref(false)
+const ccForm = reactive({ name: '', image: '', hostPort: '', containerPort: '', envKey: '', envValue: '', restartPolicy: 'unless-stopped', network: '' })
+const vcForm = reactive({ name: '', driver: 'local' })
+const ncForm = reactive({ name: '', driver: 'bridge', subnet: '', gateway: '' })
+const pjForm = reactive({ projectName: '', composeYaml: '', autoUp: true })
+
+async function doContainerCreate() {
+  try {
+    const ports = ccForm.hostPort && ccForm.containerPort ? [{ hostPort: ccForm.hostPort, containerPort: ccForm.containerPort }] : []
+    const env = ccForm.envKey ? [{ key: ccForm.envKey, value: ccForm.envValue }] : []
+    await containerCreate({ name: ccForm.name, image: ccForm.image, ports, env, restartPolicy: ccForm.restartPolicy, network: ccForm.network || undefined })
+    message.success('容器已创建并启动')
+    showContainerCreate.value = false
+    await refreshAll()
+  } catch (e) { message.error(String(e)) }
+}
+async function doVolumeCreate() {
+  try {
+    await volumeCreate(vcForm.name, vcForm.driver)
+    message.success('卷已创建')
+    showVolumeCreate.value = false
+    await refreshAll()
+  } catch (e) { message.error(String(e)) }
+}
+async function doNetworkCreate() {
+  try {
+    await networkCreate(ncForm.name, ncForm.driver, ncForm.subnet || undefined, ncForm.gateway || undefined)
+    message.success('网络已创建')
+    showNetworkCreate.value = false
+    await refreshAll()
+  } catch (e) { message.error(String(e)) }
+}
+async function doComposeCreate() {
+  try {
+    await composeCreate(pjForm.projectName, pjForm.composeYaml, true)
+    message.success('Compose 项目已创建并启动')
+    showComposeCreate.value = false
+    await refreshAll()
+  } catch (e) { message.error(String(e)) }
+}
 </script>
 
 <template>
@@ -785,7 +831,43 @@ onUnmounted(() => {
     <n-card size="small" title="Docker 接管状态">
       <template #header-extra>
         <n-button size="small" :loading="store.statusLoading" @click="refreshAll()">刷新</n-button>
-      </template>
+      
+  <!-- v1.1 创建类 Modal（admin only，readonly 不渲染） -->
+  <NModal v-if="authStore.isAdmin" v-model:show="showContainerCreate" preset="card" title="创建容器" style="width: 480px">
+    <NForm label-placement="left" label-width="90">
+      <NFormItem label="容器名"><NInput v-model:value="ccForm.name" placeholder="my-container" /></NFormItem>
+      <NFormItem label="镜像"><NInput v-model:value="ccForm.image" placeholder="nginx:latest" /></NFormItem>
+      <NFormItem label="端口映射"><NInput v-model:value="ccForm.hostPort" placeholder="8080" style="width:45%" /><span style="margin:0 4px">:</span><NInput v-model:value="ccForm.containerPort" placeholder="80" style="width:45%" /></NFormItem>
+      <NFormItem label="环境变量"><NInput v-model:value="ccForm.envKey" placeholder="KEY" style="width:45%" /><span style="margin:0 4px">=</span><NInput v-model:value="ccForm.envValue" placeholder="value" style="width:45%" /></NFormItem>
+      <NFormItem label="重启策略"><NSelect v-model:value="ccForm.restartPolicy" :options="[{label:'除非手动停止',value:'unless-stopped'},{label:'总是',value:'always'},{label:'失败时',value:'on-failure'},{label:'不重启',value:'no'}]" /></NFormItem>
+    </NForm>
+    <template #footer><NButton type="primary" @click="doContainerCreate">创建并启动</NButton></template>
+  </NModal>
+  <NModal v-if="authStore.isAdmin" v-model:show="showVolumeCreate" preset="card" title="创建卷" style="width: 400px">
+    <NForm label-placement="left" label-width="70">
+      <NFormItem label="卷名"><NInput v-model:value="vcForm.name" /></NFormItem>
+      <NFormItem label="驱动"><NInput v-model:value="vcForm.driver" placeholder="local" /></NFormItem>
+    </NForm>
+    <template #footer><NButton type="primary" @click="doVolumeCreate">创建</NButton></template>
+  </NModal>
+  <NModal v-if="authStore.isAdmin" v-model:show="showNetworkCreate" preset="card" title="创建网络" style="width: 440px">
+    <NForm label-placement="left" label-width="70">
+      <NFormItem label="网络名"><NInput v-model:value="ncForm.name" /></NFormItem>
+      <NFormItem label="驱动"><NInput v-model:value="ncForm.driver" placeholder="bridge" /></NFormItem>
+      <NFormItem label="子网"><NInput v-model:value="ncForm.subnet" placeholder="172.18.0.0/16（可选）" /></NFormItem>
+      <NFormItem label="网关"><NInput v-model:value="ncForm.gateway" placeholder="172.18.0.1（可选）" /></NFormItem>
+    </NForm>
+    <template #footer><NButton type="primary" @click="doNetworkCreate">创建</NButton></template>
+  </NModal>
+  <NModal v-if="authStore.isAdmin" v-model:show="showComposeCreate" preset="card" title="新建 Compose 项目" style="width: 600px">
+    <NForm label-placement="left" label-width="80">
+      <NFormItem label="项目名"><NInput v-model:value="pjForm.projectName" placeholder="小写字母/数字/连字符" /></NFormItem>
+      <NFormItem label="compose.yml"><NInput v-model:value="pjForm.composeYaml" type="textarea" :rows="12" placeholder="粘贴 compose.yml 内容" /></NFormItem>
+      <NFormItem label=""><NSwitch v-model:value="pjForm.autoUp" /><span style="margin-left:8px">创建后自动启动</span></NFormItem>
+    </NForm>
+    <template #footer><NButton type="primary" @click="doComposeCreate">创建并启动</NButton></template>
+  </NModal>
+</template>
       <n-spin v-if="store.statusLoading && store.daemon === null" size="small" class="header-state" />
       <n-alert v-else-if="store.statusFailed" type="error" title="接管状态获取失败">
         <n-button size="small" @click="refreshAll()">重试</n-button>

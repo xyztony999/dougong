@@ -79,6 +79,7 @@ type Service struct {
 	envReady     EnvReadySource
 	siteLink     SiteLinkGateway       // nil=未装配（hasSite 呈现 null；site/link 拒绝）
 	composeCre   ComposeProjectCreator // nil=未装配（容器化形态拒绝并引导 docker-mgmt）
+	cops         ComposeOps            // nil=容器化运维通道不可用
 	clock        func() time.Time
 	syncDispatch bool // 测试缝：同步执行 runTask（确定性断言，沿 env-mgmt 测试先例）
 }
@@ -88,6 +89,7 @@ type Options struct {
 	EnvReady     EnvReadySource
 	SiteLink     SiteLinkGateway
 	ComposeCre   ComposeProjectCreator
+	ComposeOps   ComposeOps
 	Clock        func() time.Time
 	SyncDispatch bool
 }
@@ -95,7 +97,7 @@ type Options struct {
 // New 构造服务。
 func New(py PyGateway, sysdGw SysdGateway, store *storeapp.Store, opts Options) *Service {
 	s := &Service{py: py, sysd: sysdGw, store: store,
-		envReady: opts.EnvReady, siteLink: opts.SiteLink, composeCre: opts.ComposeCre,
+		envReady: opts.EnvReady, siteLink: opts.SiteLink, composeCre: opts.ComposeCre, cops: opts.ComposeOps,
 		clock: time.Now, syncDispatch: opts.SyncDispatch}
 	if s.clock == nil {
 		s.clock = time.Now
@@ -456,6 +458,13 @@ func (s *Service) ServiceOp(ctx context.Context, actor *authsvc.Identity, appID 
 	if err != nil {
 		return nil, errcode.ErrAppNotFound
 	}
+	// v1.1 容器化形态走 compose 通道（⚠️A13）。
+	if app.StartMode == storeapp.StartModeContainer {
+		if err := s.containerServiceOp(ctx, app.Name, op); err != nil {
+			return nil, err
+		}
+		return &ServiceOpData{AppID: app.ID, Unit: app.UnitName}, nil
+	}
 	var opErr error
 	switch op {
 	case "start":
@@ -554,6 +563,13 @@ func (s *Service) LogTail(ctx context.Context, appID int64, lines int) (*LogData
 	}
 	if lines != 200 && lines != 500 && lines != 1000 {
 		lines = LogTailDefault
+	}
+	if app.StartMode == storeapp.StartModeContainer {
+		contentLines, logErr := s.cops.Logs(ctx, app.Name, app.Dir, "docker-compose.yml", lines)
+		if logErr != nil {
+			return nil, errUnitOp("日志查询失败：" + logErr.Error())
+		}
+		return &LogData{AppID: app.ID, Unit: app.UnitName, Lines: lines, Content: strings.Join(contentLines, "\n")}, nil
 	}
 	content, err := s.py.Tail(ctx, app.UnitName, lines)
 	if err != nil {
