@@ -2,7 +2,7 @@
   "_generated": {
     "version": 3,
     "note": "本文件由 engine-gui 文档中心根据项目架构自动生成，可手工编辑（编辑后原样生效）；删除本文件后下次访问将按最新架构重新生成。",
-    "generatedAt": "2026-11-20T13:30:49.526Z",
+    "generatedAt": "2026-11-21T16:24:41.306Z",
     "generator": "engine-gui doc-center 生成器（/dc/api/domains · /api/projects/:id/funcview）"
   },
   "names-map": {},
@@ -261,11 +261,6 @@
               "code": "AGG-1",
               "name": "app（应用档案）",
               "desc": "应用名（全局唯一）、代码目录、入口文件、启动方式（内嵌值对象）、监听端口（默认 127.0.0.1 绑定语义 ⚠️A4）…"
-            },
-            {
-              "code": "AGG-2",
-              "name": "app_task（应用变更任务）",
-              "desc": "目标应用、动作、状态、发起者、发起时间、开始/结束时间、输出尾部（终态定格）、失败原因（含 data.reason ⚠️…"
             }
           ],
           "upperRibs": [],
@@ -826,14 +821,6 @@
         "objects": [
           {
             "name": "app（应用档案）",
-            "table": "",
-            "type": "aggregate",
-            "relation": "",
-            "parent": null,
-            "condition": ""
-          },
-          {
-            "name": "app_task（应用变更任务）",
             "table": "",
             "type": "aggregate",
             "relation": "",
