@@ -2,9 +2,9 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v1.0 |
+| 版本 | v1.1 |
 | 状态 | 稳定 |
-| 最后更新 | 2026-11-14 |
+| 最后更新 | 2026-11-22（v1.1 创建类增量 D1：+4 端点 container/create·volume/create·network/create·compose/create + DK_019~027 + D-09~D-12，d0-clarification-docker-mgmt-create-2026-11-21.md 五项拍板） |
 | 输入 | prd-docker-mgmt.md v1.0（完备性检查通过：G 5/5、T 适用 6/6、N 4/4）、domain-model.md v1.13（docker-mgmt 域：5 实体 container/image/volume/network/compose_project，无聚合根）、d0-clarification-docker-mgmt.md、D1 三文档（BA/AA/FL v1.0，BA 附录B 状态映射与动作矩阵） |
 | 接口规约 | 无激活技术栈（ACTIVE_STACKS 为空）——按通用 REST/JSON 契约设计；认证=HttpOnly Cookie 会话（R-02）；鉴权=RBAC 两角色边界矩阵（ADR-018）；**零持久化**（kb 拍板：无表、无 DDL、无 SQL；容器/镜像/卷/网络经官方 Go SDK、Compose 经 `docker compose` CLI 参数数组，R-08/ADR-013） |
 
@@ -34,6 +34,10 @@
 | D-06 | Compose 操作=**动词端点** POST /docker/compose/{up,down,restart}（service-mgmt 动作段风格）+ GET /docker/compose/logs；CLI 组装=`docker compose --project-name <p> --project-directory <dir> -f <file> <verb>`（label 取 `com.docker.compose.project` / `.working_dir` / `.config_files` 三键，R-13；全部参数数组执行，R-08/ADR-013）；超时 300s；**同项目并发互斥**=进程内 per-project 串行执行，进行中再提交 → DK_018（data.busy=true）；compose/list 响应每项目携带 `locatable: bool`（服务端定位判定：工作目录存在且配置文件可读），false 时操作/日志端点 → DK_015 | 动词端点与生命周期六动作风格一致；compose_action 枚举为操作集权威口径（审计 detail 与 D4 动作渲染），承载形态为路径动作段与 logs 端点（枚举池行依据已补注）；locatable 前置判定避免操作时才发现定位失败。**关闭 prd 待对齐-5** |
 | D-07 | 资源占用快照=**单次 stats 读取**：CPU%（daemon stats 计算值）+ 内存 usage/limit/percent 一次快照返回（无短窗 stream、无历史）；快照为读取时派生值（响应即消亡，domain-model 过程数据 P2） | 排障场景单次快照足够（PRD FR-05）；历史趋势归 monitoring（OUT-8）。**关闭 prd 待对齐-6** |
 | D-08 | daemon 拒绝原因映射（R-14 之外的错误归一）：SDK/daemon 错误按语义归类——`not found` → 各资源 DK_00x_NOT_FOUND；`conflict/in use`（镜像被引用/卷被挂载/网络被接入）→ DK_006/008/010；预定义网络删除 → DK_011；其余 → DK_017（data.reason 原 stderr 透传，不虚构）；Compose CLI 失败 → DK_016（data.reason 透传） | daemon 拒绝为删除约束最终权威（D1 口径-4）；语义归类支撑前端精准提示，原文透传保真。**关闭 prd 待对齐-7** |
+| D-09 | 容器创建=**同步 POST /docker/container/create**：服务端逐项校验（容器名白名单 ^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$ /端口映射 host:container 格式与范围/环境变量 KEY=VALUE/挂载 source:target[:mode]/重启策略四值/网络名存在于清单）→ 镜像本地缺失自动先拉取（复用 pull 通道 600s）→ SDK ContainerCreate+Start → 创建后即读实况返回 `{containerId, name, state}`；端口冲突/名称冲突/网络不存在等 daemon 拒绝如实透传（DK_019~023 语义归类） | docker run 语义一步到位（D0 Q2）；校验服务端权威 R-14；零台账投影不变——创建后经 list 即时可见 |
+| D-10 | 卷创建/网络创建=**同步 POST**（S-48-03/S-49-03）：卷 `{name, driver?=local}`、网络 `{name, driver?=bridge, subnet?, gateway?}`；重名/非法名称/子网冲突 daemon 拒绝如实透传（DK_024/DK_025 data.reason）；创建后即时进入清单实况并可选为容器创建数据源（表单联动，D0 Q4） | daemon 为最终权威（I-05 同构）；创建后投影刷新 |
+| D-11 | Compose 项目创建=**同步 POST /docker/compose/create**：req `{projectName, composeYaml, autoUp?=true}`；服务端 YAML 语法校验（失败 DK_026 data.reason 带行号）→ 项目名白名单 ^[a-z0-9][a-z0-9-]{0,63}$（防逃逸+根前缀约束）→ 落盘根 `/opt/dougong-compose/{projectName}/docker-compose.yml`（编译期常量；目录已存在 → DK_027 重名拒绝）→ 原子写 0644 → autoUp 时经 ComposeRunner up -d（复用项目级互斥 DK_018/D-06）→ 响应 `{projectName, workingDir, configFile, started}`；**归属标签预埋（⚠️A22）**：服务端在写入前向 YAML labels 段注入 `dougong.app={projectName}`（app-mgmt 容器化应用消费，全网视图经标签区分归属）；compose 全文不落审计 detail（脱敏 ⚠️A9 同构） | 落盘根常量+白名单双防逃逸；YAML 校验库选型（go-yaml）与互斥复用沿既有；**关闭 prd v1.1 待对齐（校验器/常量）** |
+| D-12 | 错误码接力 DK_019~027（容器创建语义 5 + 卷/网络创建 2 + Compose 创建 2），零台账哲学不变（创建对象即时进入实况投影，无新域对象无新状态机）；审计动作常量 +4：container_created/volume_created/network_created/compose_project_created | 编号全序唯一沿既有 DK 段；A-APP 段无交叉 |
 | D-09 | **操作与审计非同事务**：业务动作在 daemon/CLI 侧（非 SQLite 事务域），动作完成后经 AuditService.Record 独立写入；写入失败重试一次，仍失败记面板运行日志兜底、不影响操作结果返回 | account-auth I-05「同事务」前提是变更落 SQLite；本模块动作不可回滚，强一致不可达成——如实降级并显式声明（firewall D-09 / service-mgmt D-06 同判） |
 | D-10 | 零持久化与混合模式（MIXED）声明：五类对象实际为自管投影（数据源=本机 Docker daemon，无外部同步源，R-09），不设 manage_mode 字段；写侧为 SDK 调用/命令转发非数据 CRUD | kb 拍板不落库；分册 Step 2 默认混合模式，本模块无托管侧（firewall D-10 / service-mgmt D-07 同构） |
 | D-11 | 资源寻址标识：`containerId`（daemon 64-hex ID）、`imageId`（daemon ID）、`volumeName`（卷名原生即稳定标识）、`networkId`（daemon ID）、`project`（label 项目名）——均为前端**不透明引用**（来自各 list 响应，原样透传回操作端点，不解析内容仅校验非空） | 与 domain-model 判定一致（标识跨读取稳定可寻址）；不透明引用避免前端拼装/猜测标识形态 |
@@ -127,6 +131,15 @@
 | DK_016 | COMPOSE_EXEC_FAILED | 操作失败 | compose CLI 执行失败（data.reason 透传 stderr；含超时，I-03） |
 | DK_017 | DAEMON_EXEC_FAILED | 操作失败 | SDK 操作失败（daemon 内部错误，data.reason 原文透传不虚构，D-08） |
 | DK_018 | COMPOSE_OPERATION_BUSY | 拒绝 | 同项目 up/down/restart 进行中（进程内 per-project 串行互斥，data.busy=true，D-06/I-08） |
+| DK_019 | CONTAINER_NAME_INVALID | 参数错误 | 容器名格式非法（D-09 白名单，R-14） |
+| DK_020 | PORT_MAPPING_INVALID | 参数错误 | 端口映射格式非法（host:container 范围/格式，R-14） |
+| DK_021 | ENV_FORMAT_INVALID | 参数错误 | 环境变量格式非法（须 KEY=VALUE，R-14） |
+| DK_022 | MOUNT_FORMAT_INVALID | 参数错误 | 挂载格式非法（source:target[:mode]，R-14） |
+| DK_023 | CONTAINER_CREATE_FAILED | 操作失败 | 容器创建/启动失败（名称冲突/端口占用/网络不存在等 daemon 拒绝透传 data.reason；镜像拉取失败 DK_013 透传） |
+| DK_024 | VOLUME_CREATE_FAILED | 操作失败 | 卷创建失败（重名/非法名称 daemon 拒绝透传 data.reason，D-10） |
+| DK_025 | NETWORK_CREATE_FAILED | 操作失败 | 网络创建失败（重名/子网冲突等透传 data.reason，D-10） |
+| DK_026 | COMPOSE_YAML_INVALID | 参数错误 | compose.yml 语法校验失败（data.reason 带行号，D-11） |
+| DK_027 | COMPOSE_PROJECT_EXISTS | 拒绝 | 项目已存在（落盘目录已存在，data.projectName，D-11） |
 | AUTH_001/002 | （复用） | 401 | 未登录/会话过期——中间件归 account-auth |
 | AUTH_003 | （复用） | 403 | CSRF 校验失败（POST） |
 | AUTH_008 | （复用）FORBIDDEN | 拒绝 | readonly 越界写操作，附边界原因（ADR-018） |
@@ -230,6 +243,10 @@
 | /docker/container/pause | POST | admin | 暂停（矩阵守卫） |
 | /docker/container/unpause | POST | admin | 恢复（矩阵守卫） |
 | /docker/container/delete | POST | admin | 删除（确认制 + 仅 stopped 态） |
+| /docker/container/create | POST | admin | 创建并启动容器（镜像缺失自动拉取；D-09） |
+| /docker/volume/create | POST | admin | 创建命名卷（D-10） |
+| /docker/network/create | POST | admin | 创建自定义网络（D-10） |
+| /docker/compose/create | POST | admin | 新建 Compose 项目（YAML 校验+落盘+自动 up -d；D-11） |
 
 **接口详情**（请求/响应/校验）：
 
@@ -240,6 +257,11 @@
 - **GET /docker/container/stats**：query `{containerId}`。校验：DK_001/DK_002/DK_003。响应 data=`{cpuPercent, memUsageBytes, memLimitBytes, memPercent, generatedAt}`（单次快照，D-07）。审计：无（查看类）。
 - **POST /docker/container/{start|stop|restart|pause|unpause}**：req `{containerId}`。校验顺序（R-14/I-04）：containerId 非空（DK_001）→ daemon 可用（DK_002）→ 存在性（DK_003，实况复核）→ **矩阵校验**（当前态不允许该动作 → DK_004，data=`{currentState, action, allowedActions}`；过渡态 allowedActions=[] 恒拒）→ SDK 执行（失败 DK_017，data.reason 透传）。成功 data=`{containerId, currentState}`（操作后即读实况）。审计：container_started/stopped/restarted/paused/unpaused（change；detail={containerId, name, action}；结果按执行实况——DK_004/017 为 failure，I-06）。
 - **POST /docker/container/delete**：req `{containerId}`（**无 force 字段**，I-04/I-05）。校验顺序：DK_001 → DK_002 → DK_003 → 矩阵校验（仅 stopped 态开放；running/paused/过渡态 → DK_004，提示先停止）→ SDK 执行（失败 DK_017）。成功 data=`{deleted: true, containerId}`。删除确认交互在前端（危险操作防护，非服务端两段式——无面板自锁风险场景，区别于 firewall FW_005）。审计：container_deleted（change；detail={containerId, name, image}）。
+
+- **POST /docker/container/create**：req `{name, image, ports?: [{hostPort, containerPort, protocol?}], env?: [{key, value}], mounts?: [{source, target, mode?}], restartPolicy?: "no"|"always"|"unless-stopped"|"on-failure", network?: string}`。校验顺序：daemon 可用（DK_002）→ 逐项格式校验（DK_019/020/021/022，R-14）→ 网络名存在于清单（不存在 DK_009）→ 容器名/端口占用 daemon 拒绝在创建时透传（DK_023）。执行：镜像本地缺失 → 自动拉取（600s，失败 DK_013 透传不创建）→ SDK ContainerCreate+Start（失败 DK_023，data.reason 透传）。成功 data=`{containerId, name, state}`（即读实况）。审计：container_created（change；detail={name, image}；不含环境变量值）。
+- **POST /docker/volume/create**：req `{name, driver?: "local"}`。校验：daemon 可用（DK_002）→ 名称格式（DK_001）。执行 SDK VolumeCreate（重名/非法名称 daemon 拒绝 → DK_024，data.reason 透传）。成功 data=`{name, driver}`。审计：volume_created（change）。
+- **POST /docker/network/create**：req `{name, driver?: "bridge", subnet?, gateway?}`。校验：daemon 可用（DK_002）→ 名称格式（DK_001）→ 子网/网关格式可选校验（DK_001）。执行 SDK NetworkCreate（重名/子网冲突 → DK_025，data.reason 透传）。成功 data=`{name, driver, subnet?}`。审计：network_created（change）。
+- **POST /docker/compose/create**：req `{projectName, composeYaml, autoUp?: true}`。校验：daemon 可用（DK_002）→ 项目名白名单（DK_001）→ YAML 语法校验（失败 DK_026，data.reason 带行号）→ 落盘目录已存在（DK_027，data.projectName）。执行：归属标签注入（⚠️A22，labels 段 `dougong.app={projectName}`，写入前处理）→ 目录创建+原子写 0644 → autoUp 时 ComposeRunner up -d（项目级互斥 DK_018；up 失败 DK_016 透传，**已落盘的 compose.yml 保留**——项目可在列表重试 up，不回滚删除）。成功 data=`{projectName, workingDir, configFile, started}`。审计：compose_project_created（change；detail={projectName}；不含 compose 全文）。
 
 **跨接口复用规则**：daemon 可用性前置统一由 DaemonGuard 中间件 + DaemonProbeService 承载（DK_002）；权威动作面计算统一走 ContainerProjector.supportedActions（list 响应与 DK_004 data 同源）；写操作审计统一走 `AuditService.Record`（D-09）；SDK 执行统一经 DockerGateway（I-03）；日志尾部/跟随统一走 LogStreamService（D-03）。
 
@@ -460,3 +482,4 @@ ComposeRunner {
 ### 6.3 版本号规则
 
 语义化版本：vMAJOR.MINOR——结构/接口增删改升 MAJOR；字段/枚举/规则微调升 MINOR；本文档随模块迭代在 6.1 追加行。
+| v1.1 | 2026-11-22 | 创建类能力增量 D1（BA/AA/FL v1.1 级联，d0-clarification-docker-mgmt-create-2026-11-21.md 五项拍板）：①interface_added ×4：POST /docker/container/create（D-09：逐项校验 DK_019~022+镜像缺失自动拉取复用 pull 通道+SDK Create+Start+创建后即读实况）、POST /docker/volume/create（D-10：名称/驱动，daemon 拒绝透传 DK_024）、POST /docker/network/create（D-10：名称/驱动/子网网关可选，透传 DK_025）、POST /docker/compose/create（D-11：YAML 校验 DK_026 带行号+项目名白名单+落盘根 /opt/dougong-compose/ 防逃逸+目录已存在 DK_027+autoUp 复用项目级互斥+up 失败不回滚落盘+⚠️A22 归属标签注入）；端点 22→26（GET 9/POST 15/WS 2）；②enum_value_added/rule_added：DK_019~027 九码接力（D-12）；D-09~D-12 四项设计决策；审计动作常量 +4（container_created/volume_created/network_created/compose_project_created）；③零台账投影哲学不变（新建对象即时进实况清单）；⚠️A22 归属标签预埋供 app-mgmt 容器化应用（跨模块消费方登记见 api-app-mgmt.md v1.1）；④关闭 prd v1.1 待对齐（校验器选型 go-yaml/落盘根常量/容器创建校验细则均 D-09~D-11 落定）；无旧版 DDL 变更（零持久化不变） |

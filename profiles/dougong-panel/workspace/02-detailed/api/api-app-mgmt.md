@@ -2,9 +2,9 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v1.0 |
+| 版本 | v1.1 |
 | 状态 | 稳定 |
-| 最后更新 | 2026-11-20（初始生成） |
+| 最后更新 | 2026-11-22（v1.1 容器化应用增量 D1：create 双形态 + APP_013 镜像校验 + start_mode 扩 container + 迁移 017，d0-clarification-docker-mgmt-create-2026-11-21.md Q5） |
 | 输入 | prd-app-mgmt.md v1.0（FR-01~12；完备性检查通过：G 5/5、T 适用 8/8、N 4/4）、domain-model.md v1.27（app+app_task 双聚合根+启动方式值对象）、D1 三文档（BA/AA/FL v1.0，⚠️A1~A12+安全四道防线 BA 2.4/AA 附录C）、api-env-mgmt.md v1.4（Python 环境供给 FR-09+就绪度读契约）、api-site-mgmt.md v2.8（ConfigWritePipeline OHS D-21）、prd-env-mgmt.md 待对齐承接（能力位字段/候选包名） |
 | 接口规约 | 栈规约 backend-02-api-conventions.md（go-vue3）；认证=HttpOnly Cookie 会话 + CSRF token（R-02，复用 account-auth）；鉴权=RBAC 两角色边界矩阵（ADR-018；日志 admin 专属 ⚠️A8）；外部命令一律字面量参数数组（R-08） |
 
@@ -159,6 +159,7 @@ app（应用档案）
 | APP_010 | UNIT_OP_FAILED | 操作失败 | systemd 服务操作失败（D-10）；data.reason（网关错误详情） |
 | APP_011 | SITE_LINK_FAILED | 操作失败 | 建站联动失败（D-12）；data.reason（site-mgmt OHS 错误透传，如端口/命名冲突语义） |
 | APP_012 | PARAMS_INVALID | 参数错误 | 参数校验失败（.env 基线不一致/行格式非法/自定义命令白名单不通过 D-06/D-09；data.reason 细分） |
+| APP_013 | IMAGE_INVALID | 参数错误 | 容器化应用镜像引用格式非法（`名称[:tag]` 服务端格式校验，复用 DK_012 同规则；R-14） |
 | AUTH_001/002/003/008 | （复用） | — | 未登录/过期/CSRF 失败/readonly 越界（account-auth 归口） |
 
 **枚举**（本模块 D2 定稿入池 3 项 + env_type 引用，本次引用）：
@@ -311,7 +312,7 @@ app_task_status 四态状态机（⚠️A3）：
 **接口详情**（全部写接口隐含 CSRF 与 AUTH_008 角色边界；create/delete/deps 隐含互斥 APP_006、档案前置 APP_007，不再逐条重复）：
 
 - **GET /app/app/list**：无参。处理：AppRepository.List 全量 → AppProber 逐应用探测（服务运行/自启经 SysdGateway 单元态〔unit_name=档案映射〕；venv 存在性文件判定；Python 就绪度经 EnvReadySource〔D-08，模块级一次探测全应用共享——就绪度为环境事实非应用事实〕；依赖安装态 venv 内包查询；端口监听本机查询）→ 在途任务标记（I-05 按 name/id 归组查询 pending/running）→ 站点提示（经 site-mgmt 站点清单联动查询按端口/命名匹配呈现，只读值快照）。响应 data=`{pythonReadiness: {installed: boolean, version: string|null, venvSupport: boolean, pipAvailable: boolean}, items:[{id, name, dir, entry, startMode: app_start_mode, listenPort, serviceRunning: boolean|null, serviceEnabled: boolean|null, venvExists: boolean, depsInstalled: boolean|null, portListening: boolean|null, runningTaskId: number|null, hasSite: boolean|null}], generatedAt}`（探测失败字段 null 如实不虚构）。审计：—（查看类）。
-- **POST /app/app/create**：req `{name, dir, entry, startMode: app_start_mode, startSpec?: {module?, app?, args?}（preset_fastapi）| {command}（custom）, listenPort, startNow?: boolean}`。校验链（D-03 顺序）：APP_001 → APP_002 → APP_003（dir 规范化+entry 存在）→ APP_004（data.missing 分层）→ APP_005 → 白名单校验（custom 时 APP_012）。执行：INSERT app_task（action=create，app_name=name，app_id=0，pending）+发起审计同事务 → worker（D-05：CreateVenv→pip install〔有 requirements.txt〕→单元生成〔D-06 安全管线〕→startNow 时 start→succeeded+档案 INSERT 同事务〔I-C01/C02〕）。响应 data=`{taskId}`。审计：app_task_started + app_task_finished。
+- **POST /app/app/create**：req `{name, startMode: app_start_mode, listenPort, startNow?: boolean, ...形态分支字段}`——**v1.1 双形态（⚠️A13）**：venv 形态（startMode=preset_fastapi|custom）字段不变 `{dir, entry, startSpec}`；**container 形态（startMode=container）**：`{image, ports?: [{host, container, protocol?}], env?: [{key, value}], mounts?: [{source, target}], restartPolicy?: "no"|"always"|"unless-stopped"|"on-failure"}`——镜像必填（格式校验 APP_013，复用 DK_012 规则）；无 dir/entry/Python 就绪度校验；服务端生成单应用 compose.yml（含 dougong-app 归属标签 ⚠️A13）→ 经 docker-mgmt Compose 项目创建通道（api-docker-mgmt.md v1.1 D-11，消费方定义）落盘并自动 up -d → app 档案持 compose 项目名引用（unit_name 为空；venv 探测/端口监听实况口径分支）。校验链（D-03 顺序）：APP_001 → APP_002 → APP_003（dir 规范化+entry 存在）→ APP_004（data.missing 分层）→ APP_005 → 白名单校验（custom 时 APP_012）。执行：INSERT app_task（action=create，app_name=name，app_id=0，pending）+发起审计同事务 → worker（D-05：CreateVenv→pip install〔有 requirements.txt〕→单元生成〔D-06 安全管线〕→startNow 时 start→succeeded+档案 INSERT 同事务〔I-C01/C02〕）。响应 data=`{taskId}`。审计：app_task_started + app_task_finished。
 - **POST /app/app/delete**：req `{appId, purgeDir?: boolean=false}`。校验：APP_007。执行：INSERT app_task（action=delete，purge_dir=请求值）+审计 → worker（D-07：stop→disable→单元移除+daemon-reload→〔purgeDir〕目录删除→succeeded+档案 DELETE 同事务〔I-C01/C04〕）。响应 data=`{taskId}`。审计：app_task_started + app_task_finished（detail 含删除范围）。
 - **GET /app/app/env**：query `{appId}`。校验：APP_007。处理：读 {dir}/.env（不存在=空数组如实；行原样呈现，KEY=VALUE 解析仅供前端表单渲染）。响应 data=`{appId, lines: string[], updatedAt: string|null}`。审计：—（查看类，参数面 admin 专属）。
 - **POST /app/app/params**：req `{appId, envLines?: string[], startSpec?: 同 create（可选，仅变更段提交）, baseMtime?: string}`。校验：APP_007；基线比对（D-09：.env 现 mtime 与 baseMtime 不一致 → APP_012 data.reason=「文件已被外部修改，请刷新后重试」）；行格式/白名单（APP_012）。执行：.env 整文件原子写（备份原文件失败还原）+ startSpec 变更时单元更新（D-06 安全管线）→ 同事务审计。响应 data=`{appId, needRestart: true}`（前端呈现「需重启应用生效」提示，不自动重启）。审计：app_params_updated（change，detail 不含参数值）。
@@ -475,3 +476,4 @@ CREATE INDEX IF NOT EXISTS idx_app_task_created ON app_task(created_at);
 | M3 | 枚举引用有定义（app_task_action/app_task_status/app_start_mode/env_type/panel_role/audit_action/audit_result 均在 04-business-enum.md 有定义；本域 3 项 D2 已入池） | ✅ |
 | M4 | 占位符残留（🔒 章节无 {按需填写}/TODO） | ✅ |
 | M5 | 变更记录（6.1 含 v1.0 initial 行；6.2/6.3 在位） | ✅ |
+| v1.1 | 2026-11-22 | 容器化应用增量 D1（BA/AA/FL v1.1 级联，d0-clarification-docker-mgmt-create-2026-11-21.md Q5「本轮一起做」）：①enum_value_added：app_start_mode +container（DDL CHECK 迁移 017_app_container.sql 表重建沿 015 先例）；②rule_changed：POST /app/app/create 请求扩 container 形态分支（image 必填 APP_013/端口映射/环境变量/挂载/重启策略；无 dir/entry/Python 就绪度校验）；③跨模块消费 +docker-mgmt Compose 项目创建通道（api-docker-mgmt.md v1.1 S-50-04/D-11 提供方在位——归属标签 dougong.app 注入；消费方契约本侧登记）；④field_changed：app 档案 unit_name 对容器化形态为空、改持 compose 项目名引用（start_spec JSON 承载容器化参数）；⑤错误码 +APP_013 IMAGE_INVALID（镜像格式校验，复用 DK_012 规则）；⑥建站联动（FR-10/S-61-04）对容器化形态同等适用（反代到容器映射端口）；⑦app_start_mode 枚举池 +container 值（D2 确认，四方同值归 D4 前端 enums 同步） |
