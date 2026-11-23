@@ -2,11 +2,11 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v1.0 |
+| 版本 | v1.1 |
 | 状态 | 稳定 |
-| 最后更新 | 2026-11-14 |
+| 最后更新 | 2026-11-23 |
 | 用户类型 | admin（readonly 视角为本文档子集，差异见 ../readonly/docker-mgmt/docker-mgmt.md） |
-| 唯一数据源 | 02-detailed/api/api-docker-mgmt.md v1.0 |
+| 唯一数据源 | 02-detailed/api/api-docker-mgmt.md v1.1 |
 | 组件体系 | Vue 3 + Naive UI（NTabs/NDataTable/NSelect/NInput/NButton/NTag/NPopconfirm/NModal/NAlert/NEmpty/NDrawer/NSwitch/NSpin/NTooltip；日志跟随为滚动文本流呈现，非终端仿真——不引入 xterm.js，不入 code 型；无激活栈 profile，不使用 vue3-engine 栈 Scm\* 组件） |
 | 确认方式 | headless run：7 项交互确认依据 D3 契约（api-docker-mgmt.md D-01~D-11 + I-01~I-09）+ ADR-018 + BA 附录B 矩阵 + FL v1.0 推导，标注于各节 |
 
@@ -31,6 +31,8 @@
 | composeCreate | POST | /docker/compose/create | Compose Tab（新建项目 Dialog） | admin | ✓ |
 
 > readonly 四 Action 全部负空间不渲染（ADR-018）；admin 表格工具栏 +「创建」按钮（容器/卷/网络/Compose 四 Tab 各自入口）。
+>
+> ⚠️ 2026-11-23 更正：本节初版（56a3033）只登记了 Action 表，第 4.1/4.3/4.5/4.6 工具条描述与第 5 节弹窗规格未同步（工具条仍写「无新增按钮/仅刷新」）——实现据此漏做全部触发按钮，v0.3.0 交付断裂（弹窗无入口）。v1.1 已补 4.x 工具条动作与 5.5~5.8 四弹窗字段规格；「入口可达性」自此列入 Gate 2 硬性检查项（每动作：触发按钮→弹窗→Action→端点 四环逐项核验，缺一环即 FAIL）。
 
 ## 第 2 节 Action 定义（与 API 一一对应）
 
@@ -128,7 +130,7 @@
 | Compose 项目筛选 | NInput（clearable） | 项目名精确输入 | query `composeProject`（api：等值匹配） |
 | 刷新 | NButton（loading 防抖） | 以当前参数重拉 | — |
 
-表格上方灰字「数据生成于 {generatedAt}」+「共 N 个容器」。**无新增按钮**（容器创建不在面板动作集，PRD OUT-7——经 Compose up 或面板外 docker CLI 达成）。
+表格上方灰字「数据生成于 {generatedAt}」+「共 N 个容器」。**工具条含「创建容器」按钮**（primary，admin 专属，readonly 不渲染——v1.1 PRD OUT-7 已翻转，FR-19）→ 打开 5.5 创建容器 Dialog。
 
 **表格列**（NDataTable）：
 
@@ -169,7 +171,7 @@
 
 ### 4.3 Tab 2 Compose（确认项 2/3）
 
-**工具条**仅「刷新」按钮（compose/list 无筛选参数，api 4.3.4）。表格上方灰字「数据生成于 {generatedAt}」+「共 N 个项目」。
+**工具条**：「新建项目」按钮（primary，admin 专属，v1.1 FR-22）→ 打开 5.8 新建 Compose 项目 Dialog + 「刷新」按钮（compose/list 无筛选参数，api 4.3.4）。表格上方灰字「数据生成于 {generatedAt}」+「共 N 个项目」。
 
 **表格列**：
 
@@ -209,7 +211,7 @@ locatable=false：up/down/restart 按钮**禁用置灰** + Tooltip「工作目�
 
 ### 4.5 Tab 4 卷（确认项 3/4）
 
-工具条仅刷新。表格上方灰字「数据生成于 {generatedAt}」+「共 N 个卷」。
+工具条：「创建卷」按钮（primary，admin 专属，v1.1 FR-21）→ 打开 5.6 创建卷 Dialog + 刷新。表格上方灰字「数据生成于 {generatedAt}」+「共 N 个卷」。
 
 | 列 | 类型 | 宽度 | 说明 |
 |----|------|------|------|
@@ -223,7 +225,7 @@ locatable=false：up/down/restart 按钮**禁用置灰** + Tooltip「工作目�
 
 ### 4.6 Tab 5 网络（确认项 3/4）
 
-工具条仅刷新。表格上方灰字「数据生成于 {generatedAt}」+「共 N 个网络」。
+工具条：「创建网络」按钮（primary，admin 专属，v1.1 FR-20/21）→ 打开 5.7 创建网络 Dialog + 刷新。表格上方灰字「数据生成于 {generatedAt}」+「共 N 个网络」。
 
 | 列 | 类型 | 宽度 | 说明 |
 |----|------|------|------|
@@ -275,6 +277,42 @@ locatable=false：up/down/restart 按钮**禁用置灰** + Tooltip「工作目�
 
 表单底部灰字说明「拉取经本机 Docker daemon 执行（面向公有仓库），大镜像可能耗时较长」（api D-05 同步 600s 契约的用户可知会项；D4 以前端 pending 态呈现——提交后按钮 loading + 「拉取中…」文案，无进度流）。按钮：**拉取 / 取消**（工具类无审批语义，分册按钮组合参照 master_data 的 保存/取消 形态）。成功 → message.success「镜像已拉取：{ref}」+ 关闭 Dialog + 重拉 imageList；DK_013 → error + data.reason（Dialog 保持打开供修正重试）。
 
+### 5.5 创建容器 Dialog（containerCreate，v1.1 FR-19）
+
+**形态依据**：7 组字段 > 5 → NModal（宽 640px）；入口：Tab 1 工具栏「创建容器」按钮（4.1）。字段集=D0 拍板基础全集（d0-clarification-docker-mgmt-create-2026-11-21.md Q1）：
+
+| 字段 | 组件 | 取值与校验（服务端 R-14 权威） |
+|------|------|------|
+| 容器名 | NInput | 占位「小写字母/数字/连字符，如 my-app」；DK_019 |
+| 镜像 | NInput | 占位「nginx:latest（本地不存在会自动拉取）」；必填（服务端 DK_001+reason「镜像必填」）；缺失自动拉取复用 PullImage 通道（Q2） |
+| 端口映射（多组） | NInput×2 动态行 | 主机端口:容器端口，行级「添加端口映射/删除」，空行提交前过滤；端口 1~65535 数字，DK_020 |
+| 环境变量（多组） | NInput×2 动态行 | KEY=value，行级增删；键非空且不含空格，DK_021 |
+| 挂载（多组） | NInput×2 动态行 | 宿主机路径或卷名:容器内路径，行级增删；两段必填、source 禁 `..`，DK_022 |
+| 重启策略 | NSelect | 除非手动 stopped（默认）/总是/失败时/不重启（四选项）；DK_001 兜底 |
+| 网络 | NSelect clearable | 选项=网络 Tab 清单同源投影（store.networkItems 打开弹窗时惰性加载）；留空=默认 bridge；选择后服务端 ensureNetworkExists 前置拦截（不存在 DK_009） |
+
+按钮：**创建并启动**（创建即 up，Q2；loading 在途互斥）。成功 → message.success「容器已创建并启动：{name}」+ 关闭 + 重拉容器清单（镜像/网络清单标记过期）。失败分流：DK_019~022 字段格式 → Dialog 内 NAlert error 呈现映射文案（**Dialog 保持打开**供修正重试）；DK_023 创建失败/DK_013 拉取失败 → NAlert「{文案}：{data.reason}」（保持打开）；DK_002 → 跳引导态（4.0）。
+
+### 5.6 创建卷 Dialog（volumeCreate，v1.1 FR-21）
+
+NModal 宽 420px；入口：Tab 4 工具栏「创建卷」（4.5）。字段：卷名 NInput（占位「如 site-data」，DK_001 兜底）+ 驱动 NInput（占位「local」，可空）。按钮 **创建**。成功 → message.success + 关闭 + 重拉卷清单；DK_024 → NAlert「卷创建失败：{data.reason}」（保持打开）。
+
+### 5.7 创建网络 Dialog（networkCreate，v1.1 FR-20）
+
+NModal 宽 460px；入口：Tab 5 工具栏「创建网络」（4.6）。字段：网络名 NInput（DK_001 兜底）+ 驱动 NInput（占位「bridge」，可空）+ 子网 NInput（占位「172.18.0.0/16（可选）」）+ 网关 NInput（占位「172.18.0.1（可选）」）。按钮 **创建**。成功 → message.success + 关闭 + 重拉网络清单；DK_025 → NAlert「网络创建失败：{data.reason}」（保持打开）。创建的网络即时出现在 5.5 容器创建的网络下拉（同源投影）。
+
+### 5.8 新建 Compose 项目 Dialog（composeCreate，v1.1 FR-22，D-11）
+
+NModal 宽 640px；入口：Tab 2 工具栏「新建项目」（4.3）。字段：
+
+| 字段 | 组件 | 取值与校验 |
+|------|------|------|
+| 项目名 | NInput | 小写字母/数字/连字符（=落盘目录名）；已占用 → DK_027「换一个项目名」（保持打开） |
+| compose.yml | NInput textarea rows=14 | 粘贴全文；服务端 YAML 语法校验，DK_026 报错带行号（NAlert 呈现 reason，保持打开） |
+| 创建后自动启动 | NSwitch（默认开） | 开=落盘后自动 `compose up -d`（Q3）；关=仅落盘，项目出现在列表后手动启动；按钮文案随开关切换「创建并启动/创建」 |
+
+成功 → message.success「Compose 项目已创建并启动：{name}」（未启动态如实注明）+ 关闭 + 重拉 Compose 与容器清单。落盘位置 /opt/dougong-compose/{项目名}/docker-compose.yml（api D-11，config docker.compose_root 可配）。
+
 ## 第 6 节 详情页
 
 **无独立详情路由页**（确认项 6 判定）：api-docker-mgmt.md 无 detail 类路由接口——容器观测（stats/logs）经 Drawer 承载（5.1，打开时按需拉取）、Compose 日志经 Drawer 承载（5.2）；全部清单字段已在表格行内呈现（含 label 透传列即与 daemon/CLI 互认的详情承载，api 4.3.1）；无子表 Card、无审批记录 Card、无操作日志 Card（操作历史经 account-auth 审计日志查询，PRD N4）。
@@ -313,5 +351,7 @@ locatable=false：up/down/restart 按钮**禁用置灰** + Tooltip「工作目�
 | 版本 | 日期 | 变更类型 | 说明 |
 |------|------|---------|------|
 | v1.0 | 2026-11-14 | initial | 首次生成：1 hybrid 页面（页头 daemon 状态 Card + 引导态 + 容器/Compose/镜像/卷/网络五 Tab）、2 Drawer（容器详情=资源快照+日志双 Card；Compose 日志）、1 Dialog（拉取镜像）、24 Action（9 GET + 2 WS 读 + 13 POST 写）、3 字典 Key + panel_role 复用、0 独立表单路由页/0 详情路由页；supportedActions 权威渲染（容器六按钮）、locatable 预警+禁用（Compose 定位失败）、日志双通道（tail 档位+WS 跟随+end 帧分级）、刷新纪律（status 先行/Tab 懒加载/写后关联清单标记过期）为本阶段核心交互定义 |
+| v1.1 | 2026-11-22 | increment | 创建类增量 D4（56a3033 初版）：仅新增第 2a 节 Action 表——⚠️ 未同步 4.x 工具条与弹窗规格（交付断裂根因，见 2a 节更正注记） |
+| v1.1 | 2026-11-23 | fix-rewrite | 修复轮重写：4.1/4.3/4.5/4.6 工具条补四创建按钮（admin 专属）+ 5.5~5.8 四创建 Dialog 字段规格逐项（容器基础全集七组字段含多组端口/环境变量/挂载动态行、网络下拉同源投影；Compose 粘贴校验带行号+自动启动开关）+ 失败保留弹窗错误口径（019~022 格式/023~026 执行失败/027 换名）+ 第 8 节全局一致性待 Gate 2 复检（含入口可达性硬性项） |
 
 > FX 质量清单说明：FX-001~FX-141 逐条清单文件未随引擎 0.5.2 payload 发布（monitoring/panel-core/account-auth/service-mgmt/firewall 先例同口径复核），本节按分册 9 节结构逐节落实，并以第 8 节 14 项全局一致性自查替代可机械执行部分；全量 141 项留待 Gate 1 validation 执行。

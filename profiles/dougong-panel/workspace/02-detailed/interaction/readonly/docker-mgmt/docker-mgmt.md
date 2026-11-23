@@ -2,11 +2,11 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v1.0 |
+| 版本 | v1.1 |
 | 状态 | 稳定 |
-| 最后更新 | 2026-11-14 |
+| 最后更新 | 2026-11-23 |
 | 用户类型 | readonly |
-| 唯一数据源 | 02-detailed/api/api-docker-mgmt.md v1.0 |
+| 唯一数据源 | 02-detailed/api/api-docker-mgmt.md v1.1 |
 | 公共页定义 | **以 admin 文档（../admin/docker-mgmt/docker-mgmt.md）为单一事实源**——页头 daemon 状态 Card/引导态/五 Tab/表格列/Drawer/错误处理/刷新纪律逐字复用；本文档仅声明子集差异与负空间（本模块存在 13 个写接口，readonly 为子集视角，对照 firewall/service-mgmt 模式而非 monitoring 全等模式） |
 | 边界依据 | ADR-018：全模块可查看 + 禁一切变更/终端/上传下载——容器启停/重启/暂停恢复/删除、镜像拉取/删除、卷删除、网络删除、Compose up/down/restart 均为变更类动作，readonly 界面无入口、越界请求被全局边界管控拒绝（api 3.3 权限矩阵 13 个 ✗ 项 + AUTH_008）；容器与 Compose 日志（含 WS 跟随）、资源占用为查看类，readonly 全保留 |
 | 组件体系 | Vue 3 + Naive UI（同 admin 文档） |
@@ -75,7 +75,8 @@ containerCreate / volumeCreate / networkCreate / composeCreate 四 Action readon
 | Tab 1 操作列（4.2） | supportedActions 渲染六按钮 + 在途互斥 | **整列不渲染**（负空间，第 2 节）；过渡态行「执行中」灰字提示保留（查看内容） |
 | Tab 2 Compose（4.3） | up/down/restart/日志操作列 + locatable 驱动 | **操作列整列不渲染**（负空间）；项目名 link→日志 Drawer 保留（查看类）；locatable 红色预警 Tag 保留（readonly 亦需知悉定位失败实况，处置线索为「联系管理员或经服务器本地操作」文案，不虚构 readonly 操作路径） |
 | Tab 3 镜像（4.4） | 拉取按钮 + 删除操作列 | 工具栏**无「拉取镜像」按钮** + 操作列**整列不渲染**（负空间） |
-| Tab 4 卷（4.5）/ Tab 5 网络（4.6） | 删除操作列 | 操作列**整列不渲染**（负空间） |
+| Tab 4 卷（4.5）/ Tab 5 网络（4.6） | 创建按钮 + 删除操作列 | 工具栏**无「创建卷」「创建网络」按钮**（v1.1）+ 操作列**整列不渲染**（负空间） |
+| Tab 1 容器（4.1）/ Tab 2 Compose（4.3） | 创建按钮（v1.1） | 工具栏**无「创建容器」「新建项目」按钮**（负空间，第 2a 节） |
 | 页头（4.0） | 状态 Card + 刷新 | **完全一致**（含引导态与不可用 detail——readonly 亦需知道「未装/不可达」实况） |
 | 容器详情 Drawer（5.1）/ Compose 日志 Drawer（5.2） | stats + 日志 + 跟随 | **完全一致**（全部为查看类；WS 跟随对 readonly 开放，ADR-018 日志可看） |
 
@@ -114,5 +115,6 @@ containerCreate / volumeCreate / networkCreate / composeCreate 四 Action readon
 | 版本 | 日期 | 变更类型 | 说明 |
 |------|------|---------|------|
 | v1.0 | 2026-11-14 | initial | 首次生成：只读视角为 admin 子集（11 Action=9 GET+2 WS、同页面、五 Tab 操作列整列不渲染 + 无拉取按钮）；api 3.3 权限矩阵 13 个 ✗ 项逐项负空间对应；引导态/locatable 预警/观测 Drawer（含 WS 跟随）同 admin 全等；公共页定义单一事实源 = admin 文档 |
+| v1.1 | 2026-11-23 | increment | 创建类四 Action 负空间补充登记（2a 节既有声明落进 4.x 逐 Tab 表）：Tab 1/2 工具栏无「创建容器」「新建项目」按钮、Tab 4/5 无「创建卷」「创建网络」按钮——与 admin v1.1 四创建入口逐项对应 |
 
 > FX 清单执行方式同 admin 文档第 9 节注记（清单文件未随 payload 发布，按 9 节结构落实 + 第 8 节自查；全量留待 Gate 1）。
