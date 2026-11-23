@@ -615,3 +615,38 @@ func TestNormalizeNodeStartSpec(t *testing.T) {
 		t.Fatal("空入口文件应被拒")
 	}
 }
+
+// TestIsAbsAny 绝对路径的判定不依赖操作系统：同一份输入在 Windows（开发机）与
+// Linux（服务器、CI）上必须得到相同结果。v0.4.0 发版时 CI 在 Linux 上挂过一次——
+// 判定用了 filepath.IsAbs，盘符路径在 Linux 上不算绝对路径，被当成项目内的相对路径放行。
+func TestIsAbsAny(t *testing.T) {
+	absolute := []string{
+		"/etc/x.js",           // POSIX
+		`\etc\x.js`,           // 根相对（Windows）
+		`C:\etc\x.js`,         // 盘符 + 反斜杠
+		"C:/etc/x.js",         // 盘符 + 斜杠
+		"c:/x.js",             // 小写盘符
+		`Z:\`,                 // 只有盘符根
+		"1:/x",                // 冒号前不是字母也算（与 Windows 一致）
+		"//server/share/x.js", // UNC 路径
+	}
+	for _, p := range absolute {
+		if !isAbsAny(p) {
+			t.Errorf("isAbsAny(%q) = false, want true", p)
+		}
+	}
+	relative := []string{
+		"server.js",
+		"bin/www",
+		"./server.js",
+		"C:",     // 只有盘符、没有根
+		"C:x.js", // 盘符相对路径（没有紧跟的分隔符）
+		"ab:/x",  // 第二个字符不是冒号
+		"a.js",
+	}
+	for _, p := range relative {
+		if isAbsAny(p) {
+			t.Errorf("isAbsAny(%q) = true, want false", p)
+		}
+	}
+}

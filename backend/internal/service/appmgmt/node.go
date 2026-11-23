@@ -77,11 +77,19 @@ func (s *Service) checkNodeReady(ctx context.Context) error {
 	return nil
 }
 
-// isAbsAny 判定路径是否为绝对路径——同时认 POSIX（/x）与平台原生（C:\x）两种
-// 形态。filepath.IsAbs 在 Windows 上不认「/…」、path.IsAbs 在类 Unix 上不认
-// 「C:\…」，只用其一会让校验在某一类开发机上放行越界路径。
+// isAbsAny 判定路径是否为绝对路径。只看字面、不调用 filepath.IsAbs，为的是同一份
+// 输入在 Windows（开发机）和 Linux（服务器、CI）上得到相同的判定：
+//   - 以 / 或 \ 开头（POSIX / 根相对 / UNC）
+//   - 第二个字符是冒号、其后紧跟 / 或 \（盘符路径，如 C:\x、C:/x；与 Windows 一致，
+//     冒号前不限定为字母）
+//
+// filepath.IsAbs 是平台相关的：Windows 上不认「/…」却认「1:/x」，类 Unix 上不认
+// 「C:\…」。v0.4.0 发版时它在 Linux 上把盘符路径当成项目内的相对路径放行过。
 func isAbsAny(p string) bool {
-	return strings.HasPrefix(p, "/") || strings.HasPrefix(p, "\\") || filepath.IsAbs(p)
+	if strings.HasPrefix(p, "/") || strings.HasPrefix(p, "\\") {
+		return true
+	}
+	return len(p) >= 3 && p[1] == ':' && (p[2] == '\\' || p[2] == '/')
 }
 
 // normalizeNodeStartSpec 校验并规整 Node 启动方式值对象（APP_016）：
