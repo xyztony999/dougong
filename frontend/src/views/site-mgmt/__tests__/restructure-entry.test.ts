@@ -259,10 +259,15 @@ describe('Compose 页签：零容器项目可见、可删除', () => {
     expect(dockerViewSource).toContain("'未运行'")
   })
 
-  it('删除项目：行内按钮 → execComposeDelete → composeDelete；确认文案区分是否删除目录', () => {
-    expect(dockerViewSource).toContain("{ default: () => '删除项目' }")
+  it('删除项目：按钮是确认框的触发器 → 确认后 execComposeDelete → composeDelete；确认文案区分是否删除目录', () => {
+    // 接法必须是「按钮弹出确认，确认后才执行」。删除不可恢复；按钮自己绑 onClick 的话点一下就删了
+    // （v0.4.0 开发中在真实浏览器里撞到，全仓同类写法由 __tests__/confirm-trigger.test.ts 把关）
+    expect(dockerViewSource).toMatch(
+      /const deleteBtn = h\(\s*NButton,\s*\{[^}]*\},\s*\{ default: \(\) => '删除项目' \},?\s*\)\s*nodes\.push\(\s*h\(\s*NPopconfirm,\s*\{ onPositiveClick: \(\) => void execComposeDelete\(row\) \},\s*\{\s*trigger: \(\) => deleteBtn,/
+    )
     const del = bodyOf(dockerViewSource, 'execComposeDelete')
     expect(del).toContain('composeDelete(')
     expect(dockerViewSource).toContain('项目目录不在面板管理范围内，不会删除')
     expect(dockerViewSource).toContain('不可恢复')
-  }))
+  })
+})

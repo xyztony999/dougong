@@ -444,32 +444,17 @@ function renderContainerActions(row: DockerContainerItem): VNode {
   ]
   for (const def of actionDefs) {
     if (!row.supportedActions.includes(def.action)) continue
-    const btn = h(
-      NButton,
-      {
-        size: 'small',
-        type: def.danger === true ? 'error' : 'default',
-        ghost: def.danger === true,
-        loading: inFlight,
-        disabled: inFlight,
-        onClick: () => {
-          void execContainerAction(row, def.action)
-        }
-      },
-      { default: () => CONTAINER_ACTION_TEXT[def.action] }
-    )
+    const exec = () => {
+      void execContainerAction(row, def.action)
+    }
+    const buttonProps = { size: 'small', type: def.danger === true ? 'error' : 'default', ghost: def.danger === true, loading: inFlight, disabled: inFlight } as const
+    const label = { default: () => CONTAINER_ACTION_TEXT[def.action] }
     buttons.push(
       def.confirm === null
-        ? btn
-        : h(
-            NPopconfirm,
-            {
-              onPositiveClick: () => {
-                void execContainerAction(row, def.action)
-              }
-            },
-            { trigger: () => btn, default: () => def.confirm }
-          )
+        ? h(NButton, { ...buttonProps, onClick: exec }, label)
+        // 有确认文案的动作：按钮只负责弹出确认，执行放在 NPopconfirm 的 onPositiveClick——
+        // 按钮上再绑 onClick 的话，点一下就直接执行了，确认形同虚设。
+        : h(NPopconfirm, { onPositiveClick: exec }, { trigger: () => h(NButton, buttonProps, label), default: () => def.confirm })
     )
   }
   // 过渡态 supportedActions=[] → 仅灰字「执行中」（4.2）
@@ -550,16 +535,14 @@ function renderComposeActions(row: DockerComposeItem): VNode {
   const nodes: VNode[] = []
   for (const def of verbDefs) {
     const disabled = !row.locatable || inFlight
+    // 按钮只负责弹出确认，不绑 onClick：绑了的话点一下就直接执行，确认形同虚设
     const btn = h(
       NButton,
       {
         size: 'small',
         type: def.danger === true ? 'error' : 'default',
         ghost: def.danger === true,
-        disabled,
-        onClick: () => {
-          void execComposeAction(row, def.verb)
-        }
+        disabled
       },
       { default: () => COMPOSE_ACTION_TEXT[def.verb] }
     )
@@ -589,16 +572,14 @@ function renderComposeActions(row: DockerComposeItem): VNode {
   )
   nodes.push(logsDisabled ? withTooltip(logsBtn, locateTip) : logsBtn)
   // 删除项目（ADR-033 S-50-05；admin 专属）：强确认，文案区分是否连带删除目录。
+  // 按钮只负责弹出确认，不绑 onClick：删除不可恢复，绝不能点一下就执行。
   const deleteBtn = h(
     NButton,
     {
       size: 'small',
       type: 'error',
       ghost: true,
-      disabled: inFlight,
-      onClick: () => {
-        void execComposeDelete(row)
-      }
+      disabled: inFlight
     },
     { default: () => '删除项目' }
   )
