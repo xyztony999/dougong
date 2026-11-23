@@ -3,6 +3,8 @@
 > 判定：**WARN（CRITICAL 0，沿全仓先例）**——B/F 落码完成，编译门控全绿；入口可达性、真实 Docker / PM2 端到端、真实浏览器逐个点击、带数据升级测试均通过。核对过程中发现并修复了 5 个问题，其中「二次确认形同虚设」是容器管理上线以来就存在的安全类缺陷，「分栏实例复用」会让本轮的新功能在主路径上不可用。WARN 为只能在目标服务器上验证的事项与流程性事项，待用户经主会话确认。
 >
 > 依据：baota-restructure-design-2026-11-23.md v1.2、d0-clarification-baota-restructure-2026-11-23.md（六项拍板）、gate1-baota-restructure-2026-11-23.md。
+>
+> **终态（2026-11-23）：PASS**——用户经主会话确认 W1~W8 全部接受，并授权推送与发版 v0.4.0；INDEX 中 app-mgmt / docker-mgmt 的 gate2 已记 pass（site-mgmt 的 gate2 行首是更早一轮的记录，状态不变，本轮增量部分记 PASS）。下文的判定与 WARN 清单保留为首检留痕。
 
 ## 一、编译门控（最终代码 46dd540，全绿）
 
