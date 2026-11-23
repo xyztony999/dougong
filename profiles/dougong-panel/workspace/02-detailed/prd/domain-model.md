@@ -508,6 +508,6 @@ PRD 范围判定：PRD 标注模块名 app-mgmt → 范围明确（跳过 Step 1
 > 依据 ADR-033 与 baota-restructure-design-2026-11-23.md。本节是权威增量。
 
 - **app（应用档案，聚合根）扩字段**：runtime（python | node，缺省 python；迁移 018 仅加列，不重建表）。定位扩展为「运行时项目档案」，承载 Python 与 Node 两种运行时。
-- **启动方式（start spec，值对象）扩取值**：node_file=项目内入口文件相对路径；npm_script=npm 脚本名（缺省 start）；Node 项目另承载 node 与 npm 的解析路径（创建时经 PATH 查找得到，用于服务单元的绝对路径）。container 形态下线（DDL CHECK 保留历史值，服务层拒绝）。
+- **启动方式（start spec，值对象）扩取值**：node_file=项目内入口文件相对路径；npm_script=npm 脚本名（缺省 start）；Node 项目另承载 node 与 npm 的解析路径（创建时经 PATH 查找得到，供面板内嵌的启动器脚本使用）。Node 进程由 PM2 托管（进程名 dougong-app-{名称}），不生成 systemd 单元；PM2 进程列表与开机恢复状态由 PM2 自持，面板不建表。container 形态下线（DDL CHECK 保留历史值，服务层拒绝）。
 - **docker-mgmt 新增投影实体：面板应用（panel_app）**——零台账（沿 D-10 无表无 SQL）：由落盘根扫描（编排文件解析：名称 / 镜像 / 端口 / 服务定义）与容器实况（按 compose 项目聚合）合并而成；状态 docker_app_state{running, stopped, partial}；以名称为寻址键（名称即目录名与 compose 项目名），无持久化标识。
 - **枚举**：+app_runtime{python, node}；+docker_app_state{running, stopped, partial}；app_start_mode 增 node_file、npm_script。

@@ -4,7 +4,7 @@
 |------|-----|
 | 版本 | v1.2 |
 | 状态 | 稳定 |
-| 最后更新 | 2026-11-23（v1.2 宝塔式重组 D2：FR-03 应用创建扩 Node 运行时；OUT 容器运行形态；建站联动与依赖重装适用 Node；app 档案增 runtime） |
+| 最后更新 | 2026-11-23（v1.2 宝塔式重组 D2：FR-03 应用创建扩 Node 运行时（PM2 托管）；OUT 容器运行形态；建站联动与依赖重装适用 Node；app 档案增 runtime） |
 | 输入 | D0 澄清拍板（d0-clarification-app-mgmt-2026-11-20.md，Q1 venv+systemd 主线·容器侧仅排查/Q2 env-mgmt 扩 Python/Q3 能力四项全选/Q4 容器取证只读指向 readonly 账号）、D1 三文档（business-arch-app-mgmt.md v1.0/application-arch-app-mgmt.md v1.0/function-list-app-mgmt.md v1.0，⚠️A1~A12 + 安全架构 BA 2.4 四道防线/AA 附录C）、env-mgmt 三文档 v1.3（Python 环境供给 ⚠️A18）、domain-model.md v1.27（本轮 D2 追加 app-mgmt 域）、prd-env-mgmt.md v1.4（Python 环境 FR-09）、nim-proxy 本体形态（FastAPI+uvicorn+requirements.txt）、idea.md §3/§7（R-02/R-03/R-08/R-09/R-14/ADR-018） |
 | 下游 | D3 API 设计（02-detailed/api/api-app-mgmt.md）、D4 交互设计（02-detailed/interaction/{admin,readonly}/app-mgmt/） |
 
@@ -260,7 +260,7 @@ pending ──→ running ──→ succeeded（终态）
 
 | 版本 | 日期 | 更新说明 |
 |------|------|---------|
-| v1.2 | 2026-11-23 | 宝塔式重组 D2（ADR-033）：FR-03 应用创建扩 Node 运行时（启动文件 / npm 脚本）；OUT 容器运行形态（下线）；建站联动与依赖重装对 Node 同等适用；异常分支增 Node 环境不完整、启动参数非法；app 档案增 runtime |
+| v1.2 | 2026-11-23 | 宝塔式重组 D2（ADR-033）：FR-03 应用创建扩 Node 运行时（PM2 托管进程，启动文件 / npm 脚本）；OUT 容器运行形态（下线）；服务操作与开机自启对 Node 的语义；建站联动与依赖重装对 Node 同等适用；异常分支增 Node 环境不完整、启动参数非法；app 档案增 runtime |
 | v1.1 | 2026-11-22 | 容器化应用增量 D1（d0-clarification-docker-mgmt-create-2026-11-21.md Q5 拍板「本轮一起做」；与 docker-mgmt 创建类增量同轮）：①FR-03 扩双形态（venv/systemd 主线 + 容器化：镜像必填、面板生成单应用 compose.yml〔含 dougong-app 归属标签〕→ 经 docker-mgmt Compose 创建通道落盘并自动 up -d；无 Python 就绪度/目录/入口校验）；②FR-10 建站联动对容器化形态同等适用（反代到容器端口）；③跨模块消费 +docker-mgmt Compose 创建通道（契约归 D3 双侧登记）；④错误码：容器化校验复用 APP 族+新增镜像校验码归 D3；⑤完备性增量复核通过（G 5/5、T 适用 8/8、N 4/4）；⑥枚举 app_start_mode 扩 container 值 D2 确认（枚举池+domain-model 同步，DDL CHECK 迁移归 D3） |
 | v1.0 | 2026-11-20 | 初始生成：依据 D0 四拍板（venv+systemd 主线/env-mgmt 扩 Python/能力全选/容器取证只读指向 readonly）与 D1 三文档建立应用管理 PRD——FR-01~10 覆盖 AA 全部 10 子模块 + FR-11/12 跨模块消费登记（env-mgmt 就绪度读契约/Python 供给）；IN 11/OUT 14；规则汇总 ⚠️A1~A12+A18+防线映射；第六部分 app_task 四态状态机+五项辨析；第七部分 T4/T5；第八部分 N1 五项/N2 十二项；待对齐 7 项归 D3；完备性 G 5/5·T 适用 8/8·N 4/4 通过；枚举池 +app_task_status/app_task_action/app_start_mode 三项 D2 定稿入池 |
 
@@ -268,9 +268,11 @@ pending ──→ running ──→ succeeded（终态）
 
 > 依据 baota-restructure-design-2026-11-23.md 第三、四章。本节是权威增量。
 
-- **FR-03 应用创建（修订）**：创建请求携带运行时（Python / Node）。Python 分支不变；Node 分支：前置校验 Node 就绪度 → 异步任务（有 package.json 时 npm install → 写服务单元 → 可选启动 → 登记）。启动方式：启动文件（项目内相对路径）或 npm 脚本。
+- **FR-03 应用创建（修订）**：创建请求携带运行时（Python / Node）。Python 分支不变；Node 分支：前置校验 Node 就绪度 → 异步任务（有 package.json 时 npm install → 注册 PM2 进程 → 可选保持停止 → 保存进程列表 → 登记）。启动方式：启动文件（项目内相对路径）或 npm 脚本。
+- **服务操作与开机自启（修订）**：Node 项目的启动 / 停止 / 重启经 PM2；开机自启开关——开启会同时启动应用，关闭会同时停止应用；手动启停不改变开机自启设置（下次开机是否启动取决于上一次显式设置开关时的状态）。
 - **OUT（新增）**：容器运行形态——自 app-mgmt 下线，容器化部署归容器管理「应用」页签（ADR-033 / D-app-04）。
 - **建站联动（修订）**：对 Node 项目同等适用。
 - **依赖重装（修订）**：Node 项目执行 npm install。
-- **异常分支（增补）**：Node 环境不完整（缺 node 或 npm）→ 引导环境管理；Node 启动参数非法 → 如实拒绝。
+- **应用日志（修订）**：Node 项目取 PM2 日志文件尾部，标准输出与错误输出合并。
+- **异常分支（增补）**：Node 环境不完整（缺 node、npm 或 PM2）→ 引导环境管理；Node 启动参数非法 → 如实拒绝。
 - **数据**：app 档案增 runtime（迁移 018）；startSpec 对 Node 承载 file 或 script 与 node / npm 路径。

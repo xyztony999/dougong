@@ -4,7 +4,7 @@
 |------|-----|
 | 版本 | v2.0 |
 | 状态 | 稳定 |
-| 最后更新 | 2026-11-23（v2.0 宝塔式重组 D1：C-16-01 应用创建扩运行时分支、容器化分支下线；跨模块消费 env-mgmt NodeReadiness 新增） |
+| 最后更新 | 2026-11-23（v2.0 宝塔式重组 D1：C-16-01 应用创建扩运行时分支、容器化分支下线；新增 PM2Gateway 与启动器脚本；跨模块消费 env-mgmt NodeReadiness） |
 
 ## 第一部分：文档概述
 
@@ -339,7 +339,7 @@ DDD 归类结论（依据 d1 分册归类原则逐条判定）：
 
 | 版本 | 日期 | 更新说明 |
 |------|------|---------|
-| v2.0 | 2026-11-23 | 宝塔式重组 D1（BA v2.0 级联，ADR-033）：C-16-01 应用创建扩 Python / Node 运行时分支，容器化分支与其跨模块契约下线；C-16-02 依赖安装扩 npm install 通道（NodeGateway）；跨模块消费 env-mgmt NodeReadiness 新增；零新子模块 |
+| v2.0 | 2026-11-23 | 宝塔式重组 D1（BA v2.0 级联，ADR-033）：C-16-01 应用创建扩 Python / Node 运行时分支，容器化分支与其跨模块契约下线；C-16-02 依赖安装扩 npm install 通道（NodeGateway）；S-61-01 对 Node 经 PM2Gateway 托管；新增启动器脚本（go:embed）；跨模块消费 env-mgmt NodeReadiness 新增；零新子模块 |
 | v1.1 | 2026-11-21 | 容器化应用增量 D1（BA v1.1 级联，d0-clarification-docker-mgmt-create-2026-11-21.md Q5「本轮一起做」）：①C-16-01 应用创建扩 venv/容器化双形态分支（容器化：镜像必填替代代码目录/入口/Python 就绪度校验；单应用 compose.yml 生成〔含 dougong-app 归属标签 ⚠️A13〕→ docker-mgmt Compose 创建通道落盘+up -d）；②容器化运维通道：启停/重启走 dockerx 容器或 Compose 通道（共享适配层，沿 SysdGateway 先例）、日志走容器日志（journalctl 仅 venv 形态）、删除走 compose down + 目录显式勾选；③跨模块消费 +docker-mgmt S-50-04 Compose 创建 OHS（消费方定义，提供方登记归 docker-mgmt 侧）；④零新子模块零新编码（容器化并入既有 C-16-01 形态分支）；树/调用关系同步；D3 契约（依赖 dockerx 共享 + docker-mgmt OHS）登记 |
 | v1.0 | 2026-11-20 | 初始生成：3 个 BA L3 按 DDD 归类为核心业务域（C-16 应用部署与变更，应用档案 + app_task 双聚合根候选，四态任务状态机）/支撑业务域（S-60 应用清单与实况、S-61 应用运行与暴露），10 个 L4 映射为功能子模块（1 个机制型：S-60-02 应用实况探测；S-61-03 应用日志查看为 UI 型 admin 专属功能点），标注用户类型与调用关系；基础数据域/平台支撑域经判定为空并注明理由；承接既有编码 C-01~C-15、S-01~S-59（已核验 C-16/S-60/S-61 无占用）；跨模块消费四条登记（env-mgmt 环境实况读契约〔本轮 +python〕、site-mgmt 建站 OHS、service-mgmt SysdGateway 通道复用、account-auth 会话边界+审计）+软引导两条（env-mgmt 环境安装/file-manager 代码放置）+被消费零条（service-mgmt 列表可见为通用行为非契约，⚠️A12）；安全架构显式成节（附录C 四道防线→子模块映射+验收口径）；落定 ⚠️A1~A12 口径表与模块边界表；附录B +D1 遗留待对齐项 6（聚合建模/建站契约/就绪度能力位/编译期常量/白名单规则/双入口互斥，归 D2/D3 裁定不阻塞归档） |
 
@@ -349,11 +349,16 @@ DDD 归类结论（依据 d1 分册归类原则逐条判定）：
 
 | 子模块 / 组件 | 变更 |
 |---------------|------|
-| C-16-01 应用创建 | 扩运行时分支：Python（既有 venv 链）与 Node（就绪度校验 → npm install → 服务单元）；容器化分支下线，startMode=container 返回 APP_014 |
+| C-16-01 应用创建 | 扩运行时分支：Python（既有 venv 链）与 Node（就绪度校验 → npm install → 注册 PM2 进程）；容器化分支下线，startMode=container 返回 APP_014 |
 | C-16-02 依赖安装 | runtime=node 时执行 npm install（任务动作与状态机复用） |
-| S-60-01 应用清单呈现 | 条目增 runtime；响应增 pythonReady / nodeReady |
-| S-61-01~04 | 不变（对两种运行时同等适用） |
+| S-60-01 应用清单呈现 | 条目增 runtime；Node 条目增 PM2 状态、重启次数、内存占用；响应增 pythonReady / nodeReady |
+| S-61-01 进程托管与自启 | Node：启动 / 停止 / 重启经 PM2；开机自启开=启动并保存进程列表、关=停止并保存进程列表；手动启停不保存 |
+| S-61-03 应用日志 | Node：读取 PM2 日志文件（out 与 error 两路合并） |
+| S-61-02 参数编辑、S-61-04 建站联动 | 不变（对两种运行时同等适用；Node 的环境变量仍由项目目录 .env 承载） |
 
-- **新增端口**：NodeGateway（npm install、node 与 npm 路径解析），与 PyGateway 并列，由 adapter/appx 承载。
-- **跨模块消费**：env-mgmt NodeReadiness（新增，沿 PythonReadiness 先例）；对 docker-mgmt 的消费（ComposeProjectCreator / ComposeOps）下线。
+- **新增端口**：
+  - NodeGateway（npm install、node 与 npm 路径解析），与 PyGateway 并列，由 adapter/appx 承载。
+  - PM2Gateway（进程注册 / 启停 / 删除 / 状态清单 / 保存 / 日志文件尾部），由新增适配层 adapter/pmx 承载；命令一律参数数组（R-08），不经 shell。
+  - 启动器脚本：面板内嵌的 Node 脚本，首次创建 Node 项目时落到面板数据目录；PM2 进程的执行目标，负责读取 .env 并按启动方式拉起应用。
+- **跨模块消费**：env-mgmt NodeReadiness（新增，沿 PythonReadiness 先例，含 PM2 可用性）；外部进程管理器 PM2（随 Node 环境安装）。对 docker-mgmt 的消费（ComposeProjectCreator / ComposeOps）下线。
 - **下线组件**：createContainerized、container_form、container_ops、ComposeCreatorFunc 装配。
