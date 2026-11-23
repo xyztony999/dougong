@@ -50,6 +50,7 @@ const (
 	VerbUp      = dockerx.VerbUp
 	VerbDown    = dockerx.VerbDown
 	VerbRestart = dockerx.VerbRestart
+	VerbStop    = dockerx.VerbStop
 )
 
 // containerActionOrder 动作权威序（supportedActions 计算按此序过滤输出，D-02）。
@@ -73,4 +74,23 @@ const (
 	AuditVolumeCreated         = "volume_created"
 	AuditNetworkCreated        = "network_created"
 	AuditComposeProjectCreated = "compose_project_created"
+)
+
+// v1.2 面板应用与 Compose 生命周期审计动作（ADR-033，api-docker-mgmt.md v1.2）。
+const (
+	AuditAppCreated            = "app_created"
+	AuditAppService            = "app_service_op"
+	AuditAppDeleted            = "app_deleted"
+	AuditAppSiteLinked         = "app_site_linked"
+	AuditComposeProjectDeleted = "compose_project_deleted"
+)
+
+// ObjectTypeApp 面板应用的审计对象类型。
+const ObjectTypeApp = "docker_app"
+
+// 应用状态（docker_app_state 枚举承载值；实况聚合，非状态机）。
+const (
+	AppStateRunning = "running"
+	AppStateStopped = "stopped"
+	AppStatePartial = "partial"
 )

@@ -26,11 +26,13 @@ const (
 )
 
 // Compose 操作集（compose_action 枚举承载值：up/down/restart 经路径动作段、
-// logs 经 GET 端点；D-06）。
+// logs 经 GET 端点；D-06）。stop 为 ADR-033 面板应用「停止」语义（保留容器，
+// 便于快速再启动；composeArgs 对 stop 不追加 -d）。
 const (
 	VerbUp      = "up"
 	VerbDown    = "down"
 	VerbRestart = "restart"
+	VerbStop    = "stop"
 )
 
 // 定位缺失项（DK_015 data.missing 透传属性）。
@@ -67,6 +69,9 @@ type ComposeProjectFact struct {
 	Containers []ComposeContainerRef // 项目容器实况
 	Locatable  bool                  // 服务端定位判定（D-06）
 	Missing    string                // locatable=false 时首个缺失项（A-D9）
+	// PanelManaged 项目目录位于面板落盘根下（服务层落盘扫描时置位；本适配器
+	// 的 ListProjectFacts 不填——零值 false。ADR-033 D-app-07）。
+	PanelManaged bool
 }
 
 // LogSource 是 ComposeRunner 的 daemon 通道依赖（进程内组合——api §4.3.5
@@ -135,7 +140,7 @@ func (r *ComposeRunner) ListProjectFacts(ctx context.Context) ([]ComposeProjectF
 // -f/<verb> 参数数组；up 补 -d 适配同步终态 A-D8；≤300s；失败 stderr 原文
 // 透传 D-08/A-D17；同项目进行中 ErrBusy）。
 func (r *ComposeRunner) Run(ctx context.Context, fact ComposeProjectFact, verb string) error {
-	if verb != VerbUp && verb != VerbDown && verb != VerbRestart {
+	if verb != VerbUp && verb != VerbDown && verb != VerbRestart && verb != VerbStop {
 		return fmt.Errorf("dockerx: unknown compose verb %q", verb)
 	}
 	if !r.tryAcquire(fact.Project) {

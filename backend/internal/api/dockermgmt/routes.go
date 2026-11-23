@@ -65,6 +65,9 @@ func (m *Module) Register(rg *gin.RouterGroup) {
 	read.GET("/network/list", m.h.NetworkList)
 	read.GET("/compose/list", m.h.ComposeList)
 	read.GET("/compose/logs", m.h.ComposeLogs)
+	// v1.2 面板应用（ADR-033 S-62）：清单与日志为观测类，两角色可看。
+	read.GET("/app/list", m.h.AppList)
+	read.GET("/app/logs", m.h.AppLogs)
 
 	// WS 组（Cookie 会话握手鉴权 admin+readonly + Origin 同源，D-03；
 	// daemon 前置与存在性在握手 handler 内以 HTTP 状态拒绝——A-D13）。
@@ -93,6 +96,13 @@ func (m *Module) Register(rg *gin.RouterGroup) {
 	write.POST("/volume/create", m.h.VolumeCreate)
 	write.POST("/network/create", m.h.NetworkCreate)
 	write.POST("/compose/create", m.h.ComposeCreate)
+	// v1.2（ADR-033）：面板应用的创建/启停/删除/建站与 Compose 项目删除——
+	// 均为变更操作，admin 专属。
+	write.POST("/app/create", m.h.AppCreate)
+	write.POST("/app/service", m.h.AppService)
+	write.POST("/app/delete", m.h.AppDelete)
+	write.POST("/app/site", m.h.AppSite)
+	write.POST("/compose/delete", m.h.ComposeDelete)
 }
 
 // 编译期断言：Module 实现 api.Module 契约。

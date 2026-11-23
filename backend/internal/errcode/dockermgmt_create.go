@@ -22,3 +22,18 @@ var (
 	// ErrDKComposeProjectExists DK_027 项目已存在（落盘目录已存在）。
 	ErrDKComposeProjectExists = New("DK_027", "Compose 项目已存在")
 )
+
+// docker-mgmt v1.2 面板应用与 Compose 生命周期错误码（ADR-033，api-docker-mgmt
+// v1.2 §C；应用重名复用 DK_027）。
+var (
+	// ErrDKAppNotFound DK_028 应用不存在（可能已在面板外删除）。
+	ErrDKAppNotFound = New("DK_028", "应用不存在")
+	// ErrDKAppNameInvalid DK_029 应用名格式非法（小写字母/数字/连字符）。
+	ErrDKAppNameInvalid = New("DK_029", "应用名格式非法")
+	// ErrDKAppOpFailed DK_030 应用操作失败（创建/启停/删除；data.reason 透传）。
+	ErrDKAppOpFailed = New("DK_030", "应用操作失败")
+	// ErrDKAppPortInUse DK_031 主机端口已被占用。
+	ErrDKAppPortInUse = New("DK_031", "主机端口已被占用")
+	// ErrDKComposeDeleteFailed DK_032 Compose 项目删除失败（data.reason 透传）。
+	ErrDKComposeDeleteFailed = New("DK_032", "Compose 项目删除失败")
+)

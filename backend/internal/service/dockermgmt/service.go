@@ -27,6 +27,9 @@ type Service struct {
 	// composeRoot 是 Compose 项目落盘根（默认 DefaultComposeRootDir；经
 	// WithComposeRootDir 注入）。
 	composeRoot string
+	// siteLink 是 site-mgmt 建站通道（应用建站，ADR-033 S-62-05；经
+	// WithSiteLinker 注入；nil=未装配——siteLinked 为 null、建站拒绝）。
+	siteLink SiteLinker
 }
 
 // Option 是服务可选项（构造注入，沿 panel 服务 WithAcmeWebrootDir 先例）。
@@ -421,9 +424,11 @@ func (s *Service) NetworkDelete(ctx context.Context, actor, networkID string) (*
 
 // ---------- compose（§4.3） ----------
 
-// ComposeList GET /docker/compose/list（admin+readonly）：label 聚合 + locatable。
+// ComposeList GET /docker/compose/list（admin+readonly）：容器 label 聚合 ∪ 落盘根
+// 扫描（ADR-033 D-app-07：零容器的面板项目也可见、可启动、可删除）。带应用
+// 标签的项目归「应用」页签，不进本清单。
 func (s *Service) ComposeList(ctx context.Context) (*ComposeListData, error) {
-	facts, err := s.comp.ListProjectFacts(ctx)
+	facts, err := s.listProjects(ctx)
 	if err != nil {
 		return nil, mapReadError(err)
 	}
@@ -436,6 +441,7 @@ func (s *Service) ComposeList(ctx context.Context) (*ComposeListData, error) {
 		}
 		item := ComposeItem{
 			Project: f.Project, Containers: containers, Locatable: f.Locatable,
+			PanelManaged: f.PanelManaged,
 		}
 		if f.WorkingDir != "" {
 			wd := f.WorkingDir
@@ -517,9 +523,10 @@ func (s *Service) ComposeLogs(ctx context.Context, project, tailRaw string) (*Lo
 	return &LogsData{Lines: lines, GeneratedAt: s.now()}, nil
 }
 
-// findProject 项目存在性实况复核（label 聚合寻址；不存在 DK_014）。
+// findProject 项目存在性实况复核（label 聚合 ∪ 落盘根扫描——零容器的面板项目
+// 同样可寻址；不存在 DK_014）。
 func (s *Service) findProject(ctx context.Context, project string) (*dockerx.ComposeProjectFact, error) {
-	facts, err := s.comp.ListProjectFacts(ctx)
+	facts, err := s.listProjects(ctx)
 	if err != nil {
 		return nil, mapReadError(err)
 	}

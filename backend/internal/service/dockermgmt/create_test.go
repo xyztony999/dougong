@@ -328,101 +328,23 @@ func parseDoc(t *testing.T, text string) map[string]any {
 	return doc
 }
 
-func serviceLabels(t *testing.T, doc map[string]any, svc string) []string {
-	t.Helper()
-	services, _ := doc["services"].(map[string]any)
-	node, _ := services[svc].(map[string]any)
-	raw, _ := node["labels"].([]any)
-	out := make([]string, 0, len(raw))
-	for _, v := range raw {
-		out = append(out, v.(string))
+// TestValidateComposeYAML 粘贴创建的落盘前校验（ADR-033 D-app-05：只校验、
+// 不改写——归属标签仅由「应用」通道注入，粘贴的项目原样落盘）。结构问题全部在
+// 落盘前拒绝；用户自带的 labels（列表或键值对）、别名共享的 labels 均合法。
+func TestValidateComposeYAML(t *testing.T) {
+	if err := validateComposeYAML(composeSample); err != nil {
+		t.Fatalf("合法样例应通过: %v", err)
 	}
-	return out
-}
-
-// TestPrepareComposeFile 归属标签注入服务级 labels；顶层键不变（历史缺陷：
-// 写在顶层会被 compose 拒绝）；保留注释；已声明归属键的服务不改写；共享锚点
-// 不被连带改写。
-func TestPrepareComposeFile(t *testing.T) {
-	out, err := prepareComposeFile(composeSample, "demo")
-	if err != nil {
-		t.Fatalf("prepareComposeFile: %v", err)
-	}
-	doc := parseDoc(t, out)
-	if _, hasTopLabels := doc["labels"]; hasTopLabels {
-		t.Fatalf("顶层不得出现 labels 键（compose 规范无此键，CLI 拒绝）:\n%s", out)
-	}
-	if _, hasVersion := doc["version"]; !hasVersion {
-		t.Fatalf("顶层既有键应保留:\n%s", out)
-	}
-	for _, svc := range []string{"web", "api"} {
-		labels := serviceLabels(t, doc, svc)
-		if len(labels) != 1 || labels[0] != "dougong.app=demo" {
-			t.Fatalf("服务 %s labels = %v, want [dougong.app=demo]", svc, labels)
+	for name, text := range map[string]string{
+		"列表形式 labels":  "services:\n  a:\n    image: busybox\n    labels:\n      - keep=1\n",
+		"键值对形式 labels": "services:\n  b:\n    image: busybox\n    labels:\n      keep: \"2\"\n",
+		"自带归属标签":       "services:\n  a:\n    image: busybox\n    labels:\n      dougong.app: mine\n",
+		"别名共享 labels":  "x-common: &common\n  - team=ops\nservices:\n  a:\n    image: busybox\n    labels: *common\n",
+	} {
+		if err := validateComposeYAML(text); err != nil {
+			t.Errorf("%s: 应通过，实际 %v", name, err)
 		}
 	}
-	if !strings.Contains(out, "# 我的服务") || !strings.Contains(out, "# 行内注释") {
-		t.Fatalf("注释应保留:\n%s", out)
-	}
-
-	// 既有列表/键值对形式的 labels：追加而非覆盖。
-	out, err = prepareComposeFile(
-		"services:\n  a:\n    image: busybox\n    labels:\n      - keep=1\n"+
-			"  b:\n    image: busybox\n    labels:\n      keep: \"2\"\n", "p")
-	if err != nil {
-		t.Fatalf("既有 labels: %v", err)
-	}
-	doc = parseDoc(t, out)
-	if a := serviceLabels(t, doc, "a"); len(a) != 2 || a[0] != "keep=1" || a[1] != "dougong.app=p" {
-		t.Fatalf("服务 a labels = %v, want 追加", a)
-	}
-	if b := serviceLabels(t, doc, "b"); len(b) != 0 {
-		t.Fatalf("键值对形式不应变成列表: %v", b)
-	}
-	services := doc["services"].(map[string]any)
-	bLabels := services["b"].(map[string]any)["labels"].(map[string]any)
-	if bLabels["keep"] != "2" || bLabels["dougong.app"] != "p" {
-		t.Fatalf("服务 b labels = %v, want 追加 dougong.app", bLabels)
-	}
-
-	// 已声明归属标签：不重复、不改写。
-	out, err = prepareComposeFile(
-		"services:\n  a:\n    image: busybox\n    labels:\n      dougong.app: mine\n", "p")
-	if err != nil {
-		t.Fatalf("已声明归属: %v", err)
-	}
-	doc = parseDoc(t, out)
-	got := doc["services"].(map[string]any)["a"].(map[string]any)["labels"].(map[string]any)
-	if len(got) != 1 || got["dougong.app"] != "mine" {
-		t.Fatalf("已声明归属标签应原样保留: %v", got)
-	}
-
-	// labels 经别名共享：两个服务各自得到独立的一份，被共享的锚点不改写。
-	out, err = prepareComposeFile(`x-common: &common
-  - team=ops
-services:
-  a:
-    image: busybox
-    labels: *common
-  b:
-    image: busybox
-    labels: *common
-`, "p")
-	if err != nil {
-		t.Fatalf("共享锚点: %v", err)
-	}
-	doc = parseDoc(t, out)
-	for _, svc := range []string{"a", "b"} {
-		if l := serviceLabels(t, doc, svc); len(l) != 2 || l[0] != "team=ops" || l[1] != "dougong.app=p" {
-			t.Fatalf("服务 %s labels = %v, want [team=ops dougong.app=p]", svc, l)
-		}
-	}
-	common, _ := doc["x-common"].([]any)
-	if len(common) != 1 {
-		t.Fatalf("被共享的锚点不应被改写: x-common=%v", common)
-	}
-
-	// 结构校验：全部在落盘前拒绝。
 	bad := []struct{ name, text, want string }{
 		{"空内容", "", "内容为空"},
 		{"顶层不是映射", "- a\n- b\n", "顶层"},
@@ -432,7 +354,7 @@ services:
 		{"语法错误", "services:\n  web:\n    image: [unclosed\n", "YAML 语法错误"},
 	}
 	for _, tc := range bad {
-		if _, err := prepareComposeFile(tc.text, "p"); err == nil || !strings.Contains(err.Error(), tc.want) {
+		if err := validateComposeYAML(tc.text); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s: err = %v, want 含 %q", tc.name, err, tc.want)
 		}
 	}
@@ -483,9 +405,13 @@ func TestComposeCreateUpsWithVerbConstant(t *testing.T) {
 	if err != nil {
 		t.Fatalf("compose.yml 未落盘: %v", err)
 	}
-	doc := parseDoc(t, string(raw))
-	if l := serviceLabels(t, doc, "web"); len(l) != 1 || l[0] != "dougong.app=demo" {
-		t.Fatalf("落盘文件服务级 labels = %v", l)
+	// ADR-033 D-app-05：粘贴的项目原样落盘——不注入归属标签，注释与排版保持原样
+	// （归属标签仅由「应用」通道写入）。
+	if strings.Contains(string(raw), AppOwnershipLabel) {
+		t.Fatalf("粘贴创建的项目不应被注入归属标签:\n%s", raw)
+	}
+	if norm := strings.ReplaceAll(string(raw), "\r\n", "\n"); norm != strings.ReplaceAll(composeSample, "\r\n", "\n") {
+		t.Fatalf("落盘内容应与用户原文逐字一致:\n%s", raw)
 	}
 	if data.WorkingDir != filepath.Join(root, "demo") || data.ConfigFile != file || !data.Started {
 		t.Fatalf("data = %+v", data)

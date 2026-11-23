@@ -555,7 +555,7 @@ func execLookPath(name string) (string, error) { return lookPathFor(name) }
 func TestRunRejectsNonVerb(t *testing.T) {
 	r := NewComposeRunner(&fakeLogSource{follow: map[string]*LogStream{}, followSend: map[string]chan string{}})
 	fact := ComposeProjectFact{Project: "web", WorkingDir: ".", ConfigFile: "x.yml"}
-	for _, verb := range []string{"up -d", "stop", "", "UP", "up --build"} {
+	for _, verb := range []string{"up -d", "", "UP", "up --build", "start", "logs"} {
 		err := r.Run(context.Background(), fact, verb)
 		if err == nil || !strings.Contains(err.Error(), "unknown compose verb") {
 			t.Fatalf("Run(%q) err = %v, want unknown compose verb", verb, err)

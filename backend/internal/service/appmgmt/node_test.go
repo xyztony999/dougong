@@ -47,15 +47,15 @@ func (f *fakeNode) ResolveBins(context.Context) (string, string, error) {
 // 语义记录「保存时的状态」，SavedStatus 据此回答——这样开机自启的持久语义
 // （手动启停不保存、仅三处保存）在测试里是被真实模拟的，而不是手填结果。
 type fakePM2 struct {
-	started                                []pmx.StartSpec
-	startedByName, stopped, restarted      []string
-	deleted                                []string
-	saves                                  int
-	saveErr, stopErr, startErr, listErr    error
-	status                                 map[string]bool // 进程名 → 是否运行
-	saved                                  map[string]string
-	tailLines                              []string
-	listHook                               func() ([]pmx.Proc, bool) // 非空时 List 直接采用其结果
+	started                             []pmx.StartSpec
+	startedByName, stopped, restarted   []string
+	deleted                             []string
+	saves                               int
+	saveErr, stopErr, startErr, listErr error
+	status                              map[string]bool // 进程名 → 是否运行
+	saved                               map[string]string
+	tailLines                           []string
+	listHook                            func() ([]pmx.Proc, bool) // 非空时 List 直接采用其结果
 }
 
 func newFakePM2() *fakePM2 {
@@ -298,11 +298,11 @@ func TestNodeCreateRejections(t *testing.T) {
 	}
 	// APP_016：入口越出项目目录 / 脚本名非法 / 启动方式未知
 	for name, mut := range map[string]func(*CreateRequest){
-		"入口含 ..":      func(r *CreateRequest) { r.StartSpec = StartSpec{File: "../etc/x.js"} },
+		"入口含 ..":         func(r *CreateRequest) { r.StartSpec = StartSpec{File: "../etc/x.js"} },
 		"入口为 POSIX 绝对路径": func(r *CreateRequest) { r.StartSpec = StartSpec{File: "/etc/x.js"} },
-		"入口为盘符绝对路径":    func(r *CreateRequest) { r.StartSpec = StartSpec{File: `C:\etc\x.js`} },
-		"脚本名含空格":       func(r *CreateRequest) { r.StartMode = "npm_script"; r.StartSpec = StartSpec{Script: "my script"} },
-		"未知 Node 启动方式":  func(r *CreateRequest) { r.StartMode = "preset_fastapi"; r.StartSpec = StartSpec{Module: "a", App: "b"} },
+		"入口为盘符绝对路径":      func(r *CreateRequest) { r.StartSpec = StartSpec{File: `C:\etc\x.js`} },
+		"脚本名含空格":         func(r *CreateRequest) { r.StartMode = "npm_script"; r.StartSpec = StartSpec{Script: "my script"} },
+		"未知 Node 启动方式":   func(r *CreateRequest) { r.StartMode = "preset_fastapi"; r.StartSpec = StartSpec{Module: "a", App: "b"} },
 	} {
 		rr := base
 		mut(&rr)

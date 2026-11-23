@@ -1,12 +1,11 @@
 // create.go —— docker-mgmt v1.1 创建类服务（api-docker-mgmt.md v1.1 §4.3
 // FR-19~22 / D-09~D-11）：容器创建（docker run 语义：镜像缺失自动拉取→
-// create+start）、卷创建、网络创建、Compose 项目创建（YAML 校验→落盘→up -d→
-// 归属标签 ⚠️A22）。全部 admin 专属（路由层承载）、审计 success/failure 如实
-// （I-06）、daemon 拒绝为最终权威（I-05 同构）。
+// create+start）、卷创建、网络创建、Compose 项目创建（YAML 校验→原文落盘→
+// up -d；ADR-033 D-app-05 起不注入归属标签）。全部 admin 专属（路由层承载）、
+// 审计 success/failure 如实（I-06）、daemon 拒绝为最终权威（I-05 同构）。
 package dockermgmt
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -29,8 +28,9 @@ const (
 	// 装配来自配置 docker.compose_root，默认即本值）——仅测试隔离与本机验证
 	// 需要覆盖，生产部署保持默认。
 	DefaultComposeRootDir = "/opt/dougong-compose"
-	// AppOwnershipLabel 归属标签键（⚠️A22：dougong.app={projectName}，供
-	// app-mgmt 容器化应用标记归属；全网视图经标签区分但保持可见）。
+	// AppOwnershipLabel 面板应用归属标签键（dougong.app={应用名}，ADR-033
+	// D-app-05）：仅「应用」创建通道写入，标识面板生成的单应用编排；带该标签的
+	// 项目归「应用」页签，不进 Compose 列表。
 	AppOwnershipLabel = "dougong.app"
 	// ContainerNamePattern 容器名白名单（D-09；docker 自身约束的子集）。
 	ContainerNamePattern = `^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$`
@@ -333,139 +333,41 @@ func mappingEntry(m *yaml.Node, key string) (raw *yaml.Node, ok bool) {
 	return nil, false
 }
 
-// mappingValue 取映射节点中指定键的值节点（已解引用）；不存在返回 nil。
-func mappingValue(m *yaml.Node, key string) *yaml.Node {
-	raw, ok := mappingEntry(m, key)
-	if !ok {
-		return nil
-	}
-	return dereference(raw)
-}
-
-func scalar(value string) *yaml.Node {
-	return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value}
-}
-
-// replaceMappingValue 替换映射中指定键的值节点（键须已存在）。
-func replaceMappingValue(m *yaml.Node, key string, value *yaml.Node) {
-	for i := 0; i+1 < len(m.Content); i += 2 {
-		if dereference(m.Content[i]).Value == key {
-			m.Content[i+1] = value
-			return
-		}
-	}
-}
-
-// isNullNode 判定 YAML 空值节点（`labels:` 后无内容）。
-func isNullNode(n *yaml.Node) bool {
-	return n != nil && n.Kind == yaml.ScalarNode && n.Tag == "!!null"
-}
-
-// serviceHasOwnershipLabel 服务是否已声明归属标签键（声明过则不改写用户内容）。
-func serviceHasOwnershipLabel(svc *yaml.Node) bool {
-	labels := mappingValue(svc, "labels")
-	switch {
-	case labels == nil || isNullNode(labels):
-		return false
-	case labels.Kind == yaml.SequenceNode:
-		for _, item := range labels.Content {
-			if v := dereference(item).Value; v == AppOwnershipLabel ||
-				strings.HasPrefix(v, AppOwnershipLabel+"=") {
-				return true
-			}
-		}
-		return false
-	case labels.Kind == yaml.MappingNode:
-		return mappingValue(labels, AppOwnershipLabel) != nil
-	}
-	return false
-}
-
-// appendOwnershipLabel 向单个服务追加归属标签：labels 为列表 → 追加一项；为键值对
-// → 追加一键；缺失或为空 → 新建列表。labels 经别名共享（`labels: *common`）时不
-// 改动被共享的节点——复制出该服务独立的一份再追加，避免连带改写其它服务。
-func appendOwnershipLabel(svc *yaml.Node, projectName string) error {
-	item := scalar(AppOwnershipLabel + "=" + projectName)
-	raw, ok := mappingEntry(svc, "labels")
-	if !ok || isNullNode(dereference(raw)) {
-		svc.Content = append(svc.Content, scalar("labels"), &yaml.Node{
-			Kind: yaml.SequenceNode, Tag: "!!seq", Content: []*yaml.Node{item}})
-		return nil
-	}
-	labels := dereference(raw)
-	switch labels.Kind {
-	case yaml.SequenceNode:
-		if raw.Kind == yaml.AliasNode {
-			seq := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
-			seq.Content = append(append(seq.Content, labels.Content...), item)
-			replaceMappingValue(svc, "labels", seq)
-			return nil
-		}
-		labels.Content = append(labels.Content, item)
-		return nil
-	case yaml.MappingNode:
-		if raw.Kind == yaml.AliasNode {
-			cp := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
-			cp.Content = append(cp.Content, labels.Content...)
-			labels = cp
-			replaceMappingValue(svc, "labels", cp)
-		}
-		labels.Content = append(labels.Content, scalar(AppOwnershipLabel), scalar(projectName))
-		return nil
-	}
-	return errors.New("labels 段必须是列表或键值对")
-}
-
-// prepareComposeFile 是落盘前处理：YAML 解析 → 结构校验（顶层为映射、services 为
-// 非空映射、逐服务为映射）→ 服务级归属标签注入 → 重新编码（保留注释）。全部在
-// 创建目录之前完成，任何一步失败都不留落盘产物（D-11）。
+// validateComposeYAML 是粘贴创建 Compose 项目的落盘前校验：YAML 语法（错误带
+// 行号）→ 顶层为映射 → services 为非空映射 → 逐服务为映射。全部在创建目录之前
+// 完成，失败不留落盘产物（D-11）。校验通过后用户原文落盘，不改写任何内容——
+// 注释、排版、既有 labels 全部保持原样。
 //
-// 归属标签必须落在服务级 labels（⚠️A22）：compose 规范没有顶层 labels 键，写在
-// 顶层会被 CLI 拒绝——`validating …: additional properties 'labels' not allowed`
-// （2026-11-23 以 Compose v5.5.1 实测复现；此前实现在顶层追加，导致每个新建
-// 项目在 up 阶段必失败）。服务级标签由 compose 写入该服务的容器 label，全网视图
-// 据此区分归属。
-func prepareComposeFile(composeYaml, projectName string) (string, error) {
+// 归属标签 dougong.app 不再由本通道注入（ADR-033 D-app-05）：它的语义收窄为
+// 「面板应用」，仅「应用」创建通道写入；粘贴的 yml 项目归 Compose 页签管理。
+func validateComposeYAML(composeYaml string) error {
 	var root yaml.Node
 	if err := yaml.Unmarshal([]byte(composeYaml), &root); err != nil {
-		return "", fmt.Errorf("YAML 语法错误：%w", err) // go-yaml 错误自带行号
+		return fmt.Errorf("YAML 语法错误：%w", err) // go-yaml 错误自带行号
 	}
 	if len(root.Content) == 0 {
-		return "", errors.New("内容为空")
+		return errors.New("内容为空")
 	}
 	top := dereference(root.Content[0])
 	if top.Kind != yaml.MappingNode {
-		return "", errors.New("顶层必须是键值对（需要 services 段）")
+		return errors.New("顶层必须是键值对（需要 services 段）")
 	}
 	servicesRaw, ok := mappingEntry(top, "services")
 	if !ok {
-		return "", errors.New("缺少 services 段")
+		return errors.New("缺少 services 段")
 	}
 	services := dereference(servicesRaw)
 	if services.Kind != yaml.MappingNode || len(services.Content) == 0 {
-		return "", errors.New("services 段必须包含至少一个服务")
+		return errors.New("services 段必须包含至少一个服务")
 	}
 	for i := 0; i+1 < len(services.Content); i += 2 {
 		name := dereference(services.Content[i]).Value
 		svc := dereference(services.Content[i+1])
 		if svc.Kind != yaml.MappingNode {
-			return "", fmt.Errorf("服务 %s 的定义必须是键值对", name)
-		}
-		if serviceHasOwnershipLabel(svc) {
-			continue
-		}
-		if err := appendOwnershipLabel(services.Content[i+1], projectName); err != nil {
-			return "", fmt.Errorf("服务 %s：%w", name, err)
+			return fmt.Errorf("服务 %s 的定义必须是键值对", name)
 		}
 	}
-	var buf bytes.Buffer
-	enc := yaml.NewEncoder(&buf)
-	enc.SetIndent(2)
-	if err := enc.Encode(&root); err != nil {
-		return "", fmt.Errorf("compose.yml 重新编码失败：%w", err)
-	}
-	_ = enc.Close()
-	return buf.String(), nil
+	return nil
 }
 
 // writeFileAtomic 原子写（D-11：同目录临时文件 + rename；中途失败不留半截文件，
@@ -497,14 +399,44 @@ func (s *Service) projectHasContainers(ctx context.Context, project string) bool
 	return false
 }
 
-// CreateComposeProject 新建 Compose 项目（D-11）：项目名白名单 → 解析+结构校验+
-// 归属标签注入（全部在落盘前）→ 目录创建 + 原子写 → autoUp（缺省 true）经
-// ComposeRunner up -d（互斥 DK_018）→ 审计（不含 compose 全文）。
-//
-// up 失败的落盘处置：项目已有容器 → 保留（清单可见，可在 Compose 页重试 up）；
-// 项目零容器 → 清理本次落盘。D-11「up 失败不回滚」的前提是「项目可在列表重试
-// up」，而零容器项目在列表中不可见，保留目录只会占住项目名（再建同名报 DK_027）
-// 且用户无从清理。
+// createProjectOnDisk 落盘并（可选）启动一个面板项目（粘贴创建与应用创建两条
+// 通道共用）。目录已存在 → DK_027；写入失败清理本次新建的目录；启动失败且项目
+// 零容器 → 同样清理（启动即失败的创建不留半成品；已有容器则保留，清单可见、
+// 可在 Compose 页重试）。返回工作目录、编排文件路径与是否已启动。
+func (s *Service) createProjectOnDisk(ctx context.Context, project, yamlText string, start bool) (
+	workDir, configFile string, started bool, err error) {
+	workDir = filepath.Join(s.composeRoot, project)
+	configFile = filepath.Join(workDir, ComposeFileName)
+	if _, serr := os.Stat(workDir); serr == nil {
+		return "", "", false, errcode.ErrDKComposeProjectExists.WithData(map[string]any{
+			"projectName": project})
+	}
+	if err := os.MkdirAll(workDir, 0o755); err != nil {
+		return "", "", false, fmt.Errorf("创建目录失败：%w", err)
+	}
+	if err := writeFileAtomic(configFile, []byte(yamlText), 0o644); err != nil {
+		_ = os.RemoveAll(workDir) // 本次调用新建的目录（上方已确认此前不存在）
+		return "", "", false, fmt.Errorf("写入 compose.yml 失败：%w", err)
+	}
+	if !start {
+		return workDir, configFile, false, nil
+	}
+	fact := dockerx.ComposeProjectFact{Project: project, WorkingDir: workDir, ConfigFile: configFile, Locatable: true}
+	// 动词用 VerbUp 常量：-d 由 composeArgs 追加在 up 之后（此前传字面量 "up -d"
+	// 被动词白名单拒绝，新建项目的自动启动自 v0.3.0 起必失败）。
+	if err := s.comp.Run(ctx, fact, dockerx.VerbUp); err != nil {
+		if !s.projectHasContainers(ctx, project) {
+			_ = os.RemoveAll(workDir)
+		}
+		return "", "", false, errcode.ErrDkComposeExecFailed.WithData(map[string]any{"reason": err.Error()})
+	}
+	return workDir, configFile, true, nil
+}
+
+// CreateComposeProject 新建 Compose 项目（D-11；ADR-033 D-app-05 修订）：项目名
+// 白名单 → 结构校验（全部在落盘前）→ 原文落盘（不改写用户内容、不注入归属
+// 标签）→ autoUp（缺省 true）经 ComposeRunner up -d（互斥 DK_018）→ 审计
+// （不含 compose 全文）。
 func (s *Service) CreateComposeProject(ctx context.Context, actor string, projectName, composeYaml string, autoUp *bool) (*ComposeCreateData, error) {
 	start := autoUp == nil || *autoUp
 	fail := func(err error, codeAudit string) error {
@@ -516,40 +448,14 @@ func (s *Service) CreateComposeProject(ctx context.Context, actor string, projec
 		return nil, fail(errcode.ErrDkInvalidParam.WithData(map[string]any{
 			"reason": "项目名须为小写字母/数字/连字符（不超过 64 个字符）"}), AuditComposeProjectCreated)
 	}
-	// 解析/结构校验/标签注入先于建目录：失败时磁盘上不留任何东西。
-	yamlText, err := prepareComposeFile(composeYaml, projectName)
-	if err != nil {
+	// 结构校验先于建目录：失败时磁盘上不留任何东西。
+	if err := validateComposeYAML(composeYaml); err != nil {
 		return nil, fail(errcode.ErrDKComposeYAMLInvalid.WithData(map[string]any{
 			"reason": err.Error()}), AuditComposeProjectCreated)
 	}
-	workDir := filepath.Join(s.composeRoot, projectName)
-	if _, err := os.Stat(workDir); err == nil {
-		return nil, fail(errcode.ErrDKComposeProjectExists.WithData(map[string]any{
-			"projectName": projectName}), AuditComposeProjectCreated)
-	}
-	if err := os.MkdirAll(workDir, 0o755); err != nil {
-		return nil, fail(fmt.Errorf("创建目录失败：%w", err), AuditComposeProjectCreated)
-	}
-	configFile := filepath.Join(workDir, ComposeFileName)
-	if err := writeFileAtomic(configFile, []byte(yamlText), 0o644); err != nil {
-		_ = os.RemoveAll(workDir) // 本次调用新建的目录（上方已确认此前不存在）
-		return nil, fail(fmt.Errorf("写入 compose.yml 失败：%w", err), AuditComposeProjectCreated)
-	}
-	started := false
-	if start {
-		fact := dockerx.ComposeProjectFact{
-			Project: projectName, WorkingDir: workDir, ConfigFile: configFile, Locatable: true}
-		// 动词用 VerbUp 常量：-d 由 composeArgs 追加在 up 之后。此前传字面量
-		// "up -d"，被 ComposeRunner.Run 的动词白名单直接拒绝（unknown compose verb），
-		// 新建项目的自动启动自 v0.3.0 起必失败。
-		if err := s.comp.Run(ctx, fact, dockerx.VerbUp); err != nil {
-			if !s.projectHasContainers(ctx, projectName) {
-				_ = os.RemoveAll(workDir)
-			}
-			upErr := errcode.ErrDkComposeExecFailed.WithData(map[string]any{"reason": err.Error()})
-			return nil, fail(upErr, AuditComposeProjectCreated)
-		}
-		started = true
+	workDir, configFile, started, err := s.createProjectOnDisk(ctx, projectName, composeYaml, start)
+	if err != nil {
+		return nil, fail(err, AuditComposeProjectCreated)
 	}
 	s.recordAudit(ctx, auditEntry(actor, AuditComposeProjectCreated, ObjectTypeComposeProject, projectName,
 		map[string]any{"project": projectName, "workingDir": workDir, "started": started}, audit.ResultSuccess))

@@ -159,6 +159,10 @@ type ComposeItem struct {
 	ConfigFile *string                `json:"configFile"`
 	Containers []ComposeContainerItem `json:"containers"`
 	Locatable  bool                   `json:"locatable"`
+	// PanelManaged 项目目录位于面板落盘根下（ADR-033 v1.2：删除时可连同目录
+	// 一并删除；面板外项目只停止）。零容器的面板项目 containers 为空数组、
+	// locatable 为 true——前端据此呈现「未运行」。
+	PanelManaged bool `json:"panelManaged"`
 }
 
 // ComposeListData 是 GET /docker/compose/list 载荷。

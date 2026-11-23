@@ -39,7 +39,6 @@ import (
 
 	acmegw "github.com/dougong/dougong/internal/adapter/acme"
 	"github.com/dougong/dougong/internal/adapter/appx"
-	"github.com/dougong/dougong/internal/adapter/pmx"
 	"github.com/dougong/dougong/internal/adapter/backupx"
 	"github.com/dougong/dougong/internal/adapter/cronx"
 	"github.com/dougong/dougong/internal/adapter/dbmongo"
@@ -52,6 +51,7 @@ import (
 	"github.com/dougong/dougong/internal/adapter/netlisten"
 	"github.com/dougong/dougong/internal/adapter/nginxx"
 	"github.com/dougong/dougong/internal/adapter/phpfpm"
+	"github.com/dougong/dougong/internal/adapter/pmx"
 	"github.com/dougong/dougong/internal/adapter/ptyx"
 	"github.com/dougong/dougong/internal/adapter/sysd"
 	"github.com/dougong/dougong/internal/adapter/sysuser"
@@ -403,7 +403,10 @@ func run(args []string) error {
 	// Compose 项目落盘根来自配置 docker.compose_root（默认 /opt/dougong-compose；
 	// 测试隔离/本机验证经 DOUGONG_COMPOSE_ROOT 覆盖，生产保持默认）。
 	dockerSvc := dockersvc.New(dockerGw, composeRunner, auditSvc,
-		dockersvc.WithComposeRootDir(cfg.Docker.ComposeRoot))
+		dockersvc.WithComposeRootDir(cfg.Docker.ComposeRoot),
+		// 应用建站消费 site-mgmt 反向代理建站（ADR-033 S-62-05；与 app-mgmt
+		// 建站联动同一通道）。
+		dockersvc.WithSiteLinker(dockersvc.AdaptSiteLinker(siteSvc)))
 	panelSvc.Menus().Register(
 		panelsvc.MenuItem{Key: "docker", Title: "容器管理", Path: "/docker",
 			Icon: "container", Order: 800, Visibility: []string{storeauth.RoleAdmin, storeauth.RoleReadonly}},

@@ -140,17 +140,17 @@ func TestCreateEndpointsAdminChain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("compose.yml 未落盘: %v", err)
 	}
+	// ADR-033 D-app-05：粘贴创建的项目原样落盘，不注入归属标签（标签仅由
+	// 「应用」通道写入）。
 	var doc map[string]any
 	if err := yaml.Unmarshal(raw, &doc); err != nil {
 		t.Fatalf("落盘文件不是合法 YAML: %v", err)
 	}
-	if _, topLabels := doc["labels"]; topLabels {
-		t.Fatalf("顶层不得出现 labels 键（CLI 拒绝）:\n%s", raw)
+	if strings.Contains(string(raw), "dougong.app") {
+		t.Fatalf("粘贴创建的项目不应被注入归属标签：\n%s", raw)
 	}
-	svc, _ := doc["services"].(map[string]any)["web"].(map[string]any)
-	labels, _ := svc["labels"].([]any)
-	if len(labels) != 1 || labels[0] != "dougong.app=demo" {
-		t.Fatalf("服务级归属标签缺失：labels=%v\n%s", labels, raw)
+	if norm := strings.ReplaceAll(string(raw), "\r\n", "\n"); norm != strings.ReplaceAll(composeYaml, "\r\n", "\n") {
+		t.Fatalf("落盘内容应与提交的原文逐字一致：\n%s", raw)
 	}
 
 	// YAML 错误 → DK_026 + data.reason；重名 → DK_027。
