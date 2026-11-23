@@ -55,8 +55,9 @@ const router = createRouter({
       component: () => import('@/layouts/MainLayout.vue'),
       meta: { requiresAuth: true },
       children: [
-        // 首页重定向由面板全局路由决定（PageSpec 第 7 节：非本模块范围）；本模块先落 /users
-        { path: '', redirect: '/users' },
+        // 登录后默认落地=监控概览（2026-11-23 用户拍板：原 /users 改 /monitoring，
+        // 概览页含资源计数+实时健康，作为面板首页最合适）
+        { path: '', redirect: '/monitoring' },
         {
           path: 'users',
           name: 'user-list',
