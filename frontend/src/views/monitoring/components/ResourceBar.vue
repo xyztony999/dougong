@@ -33,10 +33,11 @@ interface Cell {
 }
 
 const cells = ref<Cell[]>([
-  { key: 'sites', label: '网站', path: '/sites', icon: GlobeOutline, count: null },
+  { key: 'sites', label: '网站', path: '/sites?tab=site', icon: GlobeOutline, count: null },
   { key: 'databases', label: '数据库', path: '/databases', icon: ServerOutline, count: null },
   { key: 'containers', label: '容器', path: '/docker', icon: CubeOutline, count: null },
-  { key: 'apps', label: '应用', path: '/apps', icon: AppsOutline, count: null },
+  // 「应用管理」独立页面已并入网站管理页的项目分栏（ADR-033）：计数口径不变（Python + Node 项目总数）。
+  { key: 'apps', label: '项目', path: '/sites?tab=python', icon: AppsOutline, count: null },
   { key: 'envs', label: '环境', path: '/env', icon: CloudDownloadOutline, count: null }
 ])
 

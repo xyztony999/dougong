@@ -136,12 +136,14 @@ const router = createRouter({
           component: () => import('@/views/file-manager/edit/index.vue'),
           meta: { title: '在线编辑' }
         },
-        // ---- site-mgmt（PageSpec 第 7 节：/sites 与 /certificates 两角色同路由组件内子集渲染；
-        // site-source 路由级 roles:['admin'] 守卫——readonly 直达 → 403 边界页，ADR-018/⚠️A17）----
+        // ---- site-mgmt（PageSpec site-mgmt v1.3：/sites 为三分栏外层——「网站」（既有站点列表）
+        // /「Python 项目」/「Node 项目」（运行时项目面板，ADR-033）；分栏由 ?tab= 持久化。
+        // /certificates 两角色同路由组件内子集渲染；site-source 路由级 roles:['admin'] 守卫——
+        // readonly 直达 → 403 边界页，ADR-018/⚠️A17）----
         {
           path: 'sites',
           name: 'site-list',
-          component: () => import('@/views/site-mgmt/index.vue'),
+          component: () => import('@/views/site-mgmt/SitesHub.vue'),
           meta: { title: '网站管理' }
         },
         {
@@ -274,15 +276,12 @@ const router = createRouter({
           component: () => import('@/views/env-mgmt/index.vue'),
           meta: { title: '环境管理' }
         },
-        // ---- app-mgmt（PageSpec app-mgmt v1.0 第 7 节：admin+readonly 同路由，
-        // 组件内按角色渲染子集——readonly 操作列/参数/日志整区不渲染（13 负空间，
-        // 含 ⚠️A8 日志 admin 专属），任务 Drawer 只读可看，ADR-018；菜单「应用管理」
-        // 由后端 ModuleMenuRegistry 按角色下发（两角色可见）----
+        // ---- app-mgmt：独立页面已取消（ADR-033）——项目面板并入网站管理页的
+        // 「Python 项目」「Node 项目」分栏。旧地址 /app 保留为重定向，书签不失效。----
         {
           path: 'app',
           name: 'app-mgmt',
-          component: () => import('@/views/app-mgmt/index.vue'),
-          meta: { title: '应用管理' }
+          redirect: { path: '/sites', query: { tab: 'python' } }
         }
       ]
     },

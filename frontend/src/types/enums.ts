@@ -698,10 +698,27 @@ export const APP_TASK_STATUS: Record<AppTaskStatus, DictItem> = {
   failed: { label: '失败', tag: 'error' }
 }
 
-/** app_start_mode（app-mgmt D2 定稿 ⚠️A4）：FastAPI 预设（venv 内 uvicorn 模板）/自定义命令（venv 内相对路径白名单） */
-export type AppStartMode = 'preset_fastapi' | 'custom' | 'container'
+/** app_start_mode（ADR-033 四值）：Python=FastAPI 预设（venv 内 uvicorn 模板）/自定义命令（venv 内相对路径白名单）；
+ *  Node=启动文件（项目内相对路径）/npm 脚本（npm run <脚本名>）。容器运行已下线（归容器管理「应用」页签）。 */
+export type AppStartMode = 'preset_fastapi' | 'custom' | 'node_file' | 'npm_script'
 export const APP_START_MODE: Record<AppStartMode, DictItem> = {
   preset_fastapi: { label: 'FastAPI 预设', tag: 'info' },
   custom: { label: '自定义命令', tag: 'default' },
-  container: { label: '容器运行', tag: 'info' }
+  node_file: { label: '启动文件', tag: 'info' },
+  npm_script: { label: 'npm 脚本', tag: 'default' }
+}
+
+/** app_runtime（ADR-033）：Python 项目（venv + 系统服务）/ Node 项目（PM2 托管） */
+export type AppRuntime = 'python' | 'node'
+export const APP_RUNTIME: Record<AppRuntime, DictItem> = {
+  python: { label: 'Python', tag: 'info' },
+  node: { label: 'Node', tag: 'default' }
+}
+
+/** docker_app_state（ADR-033）：面板应用实况聚合状态（非状态机，零持久化） */
+export type DockerAppState = 'running' | 'stopped' | 'partial'
+export const DOCKER_APP_STATE: Record<DockerAppState, DictItem> = {
+  running: { label: '运行中', tag: 'success' },
+  stopped: { label: '已停止', tag: 'default' },
+  partial: { label: '部分运行', tag: 'warning' }
 }

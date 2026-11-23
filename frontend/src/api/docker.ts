@@ -7,8 +7,14 @@
  */
 import type { DockerLogEndReason } from '@/types/enums'
 import type {
+  DockerAppCreateData,
+  DockerAppCreateRequest,
+  DockerAppListData,
+  DockerAppServiceData,
+  DockerAppSiteData,
   DockerComposeActionReq,
   DockerComposeActionResult,
+  DockerComposeDeleteData,
   DockerComposeListData,
   DockerContainerActionReq,
   DockerContainerActionResult,
@@ -290,7 +296,44 @@ export interface ComposeCreateData {
   started: boolean
 }
 
-/** composeCreate：新建 Compose 项目（YAML 校验+落盘+自动 up -d；DK_026/027） */
+/** composeCreate：新建 Compose 项目（YAML 校验+原文落盘+自动 up -d；DK_026/027） */
 export function composeCreate(projectName: string, composeYaml: string, autoUp?: boolean): Promise<ComposeCreateData> {
   return request<ComposeCreateData>('/docker/compose/create', { method: 'POST', body: { projectName, composeYaml, autoUp } })
+}
+
+// ---- v1.2 面板应用与 Compose 生命周期（ADR-033，api-docker-mgmt.md v1.2）----
+
+/** appList：面板应用清单（落盘扫描 + 容器实况；两角色可看；DK_002） */
+export function appList(): Promise<DockerAppListData> {
+  return request<DockerAppListData>('/docker/app/list')
+}
+
+/** appCreate：创建应用（生成单服务编排并启动；主机端口只绑本机；DK_029/030/031、重名 DK_027） */
+export function appCreate(req: DockerAppCreateRequest): Promise<DockerAppCreateData> {
+  return request<DockerAppCreateData>('/docker/app/create', { method: 'POST', body: req })
+}
+
+/** appService：应用启停重启（start / stop / restart；DK_028/030，进行中 DK_018） */
+export function appService(name: string, op: 'start' | 'stop' | 'restart'): Promise<DockerAppServiceData> {
+  return request<DockerAppServiceData>('/docker/app/service', { method: 'POST', body: { name, op } })
+}
+
+/** appLogs：应用日志（compose logs 通道；档位 1~2000 缺省 500；DK_028） */
+export function appLogs(name: string, tail?: number): Promise<DockerLogsData> {
+  return request<DockerLogsData>('/docker/app/logs', { query: { name, tail } })
+}
+
+/** appDelete：删除应用（compose down + 删除项目目录；DK_028/030） */
+export function appDelete(name: string): Promise<{ name: string; deletedDir: boolean }> {
+  return request('/docker/app/delete', { method: 'POST', body: { name } })
+}
+
+/** appSite：应用建站（反向代理到应用本机端口；DK_028/030） */
+export function appSite(name: string, domains: string[]): Promise<DockerAppSiteData> {
+  return request<DockerAppSiteData>('/docker/app/site', { method: 'POST', body: { name, domains } })
+}
+
+/** composeDelete：删除 Compose 项目（compose down + 删除面板落盘根下的目录；DK_014/015/018/032） */
+export function composeDelete(project: string): Promise<DockerComposeDeleteData> {
+  return request<DockerComposeDeleteData>('/docker/compose/delete', { method: 'POST', body: { project } })
 }

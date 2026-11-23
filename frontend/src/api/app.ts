@@ -18,14 +18,16 @@ import type {
   AppTaskDetailData,
   AppTaskListData
 } from '@/types/app'
-import type { AppTaskAction, AppTaskStatus } from '@/types/enums'
+import type { AppRuntime, AppTaskAction, AppTaskStatus } from '@/types/enums'
 
-/** appList：应用全景（档案+实况投影；实时探测 D-01 无缓存） */
-export function appList(): Promise<AppListData> {
-  return request<AppListData>('/app/app/list')
+/** appList：应用全景（档案+实况投影；实时探测 D-01 无缓存）。runtime 可选过滤
+ *  （ADR-033：网站管理页的 Python / Node 分栏各取其一；缺省返回全部） */
+export function appList(runtime?: AppRuntime): Promise<AppListData> {
+  return request<AppListData>('/app/app/list', { query: { runtime } })
 }
 
-/** appCreate：创建应用（前置校验链 D-03 → 异步任务 D-04/D-05；APP_001~006/012） */
+/** appCreate：创建应用（前置校验链 D-03 → 异步任务 D-04/D-05；APP_001~006/012；
+ *  Node 运行时另有 APP_015 环境不完整 / APP_016 启动参数非法） */
 export function appCreate(req: AppCreateRequest): Promise<AppTaskCreated> {
   return request<AppTaskCreated>('/app/app/create', { method: 'POST', body: req })
 }

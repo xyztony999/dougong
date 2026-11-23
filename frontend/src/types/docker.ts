@@ -13,6 +13,7 @@ import type {
   ComposeAction,
   ContainerAction,
   ContainerStatus,
+  DockerAppState,
   DockerDaemonState,
   DockerLogEndReason
 } from './enums'
@@ -200,6 +201,71 @@ export interface DockerComposeItem {
   containers: DockerComposeContainerRef[]
   /** 服务端定位判定（工作目录存在且配置文件可读；false → 操作/日志端点 DK_015，D-06） */
   locatable: boolean
+  /** 项目目录位于面板落盘根下（ADR-033：删除时可连同目录一并删除；面板外项目只停止）。
+   *  零容器的面板项目 containers 为空数组、locatable 为 true——前端据此呈现「未运行」。 */
+  panelManaged: boolean
+}
+
+/** 面板应用条目（GET /docker/app/list；ADR-033）：面板生成的单服务编排 + 归属标签。
+ *  state 为 docker_app_state（running / stopped / partial）；siteLinked=null 表示
+ *  建站通道未装配。 */
+export interface DockerAppItem {
+  name: string
+  state: DockerAppState
+  containers: DockerComposeContainerRef[]
+  image: string
+  /** 应用编排里的主机端口与容器端口（0=编排里没有可识别的端口映射） */
+  hostPort: number
+  containerPort: number
+  workingDir: string
+  configFile: string
+  siteLinked: boolean | null
+}
+
+/** GET /docker/app/list 响应 data */
+export interface DockerAppListData {
+  items: DockerAppItem[]
+  total: number
+  generatedAt: string
+}
+
+/** POST /docker/app/create 请求（主机端口只绑 127.0.0.1；restartPolicy 缺省 unless-stopped） */
+export interface DockerAppCreateRequest {
+  name: string
+  image: string
+  hostPort: number
+  containerPort: number
+  env?: { key: string; value: string }[]
+  mounts?: { source: string; target: string; mode?: string }[]
+  restartPolicy?: string
+}
+
+/** POST /docker/app/create 响应 data */
+export interface DockerAppCreateData {
+  name: string
+  workingDir: string
+  configFile: string
+  hostPort: number
+  state: DockerAppState
+}
+
+/** POST /docker/compose/delete 响应 data（deletedDir=false：面板外项目只停止、目录未删） */
+export interface DockerComposeDeleteData {
+  project: string
+  deletedDir: boolean
+}
+
+/** POST /docker/app/site 响应 data（站点引用值快照） */
+export interface DockerAppSiteData {
+  name: string
+  siteId: string
+  sourceFile: string
+}
+
+/** POST /docker/app/service 响应 data */
+export interface DockerAppServiceData {
+  name: string
+  op: 'start' | 'stop' | 'restart'
 }
 
 /** GET /docker/compose/list 响应 data */
@@ -368,5 +434,10 @@ export const DK_ERROR_TEXT: Readonly<Record<string, string>> = {
   DK_024: '卷创建失败',
   DK_025: '网络创建失败',
   DK_026: 'compose.yml 校验失败',
-  DK_027: 'Compose 项目已存在（换一个项目名）'
+  DK_027: 'Compose 项目已存在：可在 Compose 列表查看或删除同名项目后重建',
+  DK_028: '应用不存在（可能已在面板外删除）',
+  DK_029: '应用名格式非法（小写字母、数字、连字符，以字母或数字开头，不超过 64 个字符）',
+  DK_030: '应用操作失败',
+  DK_031: '主机端口已被占用，请换一个端口',
+  DK_032: 'Compose 项目删除失败'
 }

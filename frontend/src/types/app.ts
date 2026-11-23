@@ -2,9 +2,9 @@
  * app-mgmt 类型层 —— DTO 与 api-app-mgmt.md §4.3 逐形状对齐（可空显式
  * |null：JSON null≠undefined；实况探测失败字段 null 如实不虚构，D-01）。
  */
-import type { AppStartMode, AppTaskAction, AppTaskStatus } from './enums'
+import type { AppRuntime, AppStartMode, AppTaskAction, AppTaskStatus } from './enums'
 
-/** Python 就绪度（GET /app/app/list 页头；venvSupport/pipAvailable 仅已装时非 null，D-08） */
+/** Python 就绪度（GET /app/app/list 响应；venvSupport/pipAvailable 仅已装时非 null，D-08） */
 export interface PythonReadiness {
   installed: boolean
   version: string | null
@@ -12,13 +12,37 @@ export interface PythonReadiness {
   pipAvailable: boolean | null
 }
 
-/** 应用列表条目（档案+实况投影合并；null=探测不可用如实，D-01/I-06） */
+/** Node 环境就绪度（ADR-033）：node / npm / PM2 三项可用性——PM2 是 Node 项目的进程托管依赖 */
+export interface NodeReadiness {
+  nodeAvailable: boolean
+  npmAvailable: boolean
+  pm2Available: boolean
+  nodeVersion: string | null
+}
+
+/** 启动方式值对象（D-06/D-16；字段按启动方式取用：preset=module+app+args；custom=command；node_file=file；npm_script=script） */
+export interface AppStartSpec {
+  module?: string
+  app?: string
+  args?: string
+  command?: string
+  file?: string
+  script?: string
+}
+
+/** 应用列表条目（档案+实况投影合并；null=探测不可用如实，D-01/I-06）。
+ *  ADR-033：runtime 区分 Python / Node；Node 条目的服务状态来自 PM2，另带 PM2
+ *  原值状态、重启次数与内存占用（Python 条目这三项为 null；Node 条目 pm2Status
+ *  为 null 表示进程未注册）。 */
 export interface AppItem {
   id: number
   name: string
   dir: string
   entry: string
+  runtime: AppRuntime
   startMode: AppStartMode
+  /** 应用实际保存的启动参数（参数编辑预填的数据源；档案损坏时 null） */
+  startSpec: AppStartSpec | null
   listenPort: number
   serviceRunning: boolean | null
   serviceEnabled: boolean | null
@@ -28,6 +52,9 @@ export interface AppItem {
   runningTaskId: number | null
   hasSite: boolean | null
   unitFailed: boolean
+  pm2Status: string | null
+  restarts: number | null
+  memoryBytes: number | null
   createdAt: string
   createdBy: string
 }
@@ -35,17 +62,19 @@ export interface AppItem {
 /** GET /app/app/list 响应 */
 export interface AppListData {
   pythonReadiness: PythonReadiness
+  nodeReadiness: NodeReadiness
   items: AppItem[]
   generatedAt: string
 }
 
-/** POST /app/app/create 请求（startSpec 按模式：preset=module+app；custom=command） */
+/** POST /app/app/create 请求（runtime 缺省 python；startMode 取值域随运行时） */
 export interface AppCreateRequest {
   name: string
   dir: string
   entry: string
+  runtime?: AppRuntime
   startMode: AppStartMode
-  startSpec: { module?: string; app?: string; args?: string; command?: string }
+  startSpec: AppStartSpec
   listenPort: number
   startNow?: boolean
 }
@@ -72,11 +101,12 @@ export interface AppEnvData {
 export interface AppParamsSaveRequest {
   appId: number
   envLines?: string[]
-  startSpec?: { module?: string; app?: string; args?: string; command?: string }
+  startSpec?: AppStartSpec
   baseMtime?: string
 }
 
-/** 参数保存响应（needRestart 恒 true——提示归前端，不自动重启 ⚠️A10） */
+/** 参数保存响应（needRestart=true 表示需手动重启生效——Python 恒为 true；Node 项目
+ *  变更启动方式时进程已重新注册，为 false） */
 export interface AppParamsSaveData {
   appId: number
   needRestart: boolean
@@ -129,7 +159,8 @@ export interface AppSiteLinkData {
   note: string
 }
 
-/** APP 错误码文案表（api §3.4 APP_001~012；UI 文案人话化——不含内部术语） */
+/** APP 错误码文案表（api §3.4 APP_001~016；UI 文案人话化——不含内部术语）。
+ *  APP_013 为已下线的容器运行形态的镜像校验码，码位保留不复用。 */
 export const APP_ERROR_TEXT: Record<string, string> = {
   APP_001: '应用名非法：请用小写字母、数字、连字符（不超过 32 个字符）',
   APP_002: '应用名已存在，请换一个名称',
@@ -142,5 +173,8 @@ export const APP_ERROR_TEXT: Record<string, string> = {
   APP_009: '运行环境（venv）缺失，请删除应用后重新创建',
   APP_010: '服务操作失败',
   APP_011: '建站失败，请到站点管理检查或手工创建',
-  APP_012: '参数校验失败'
+  APP_012: '参数校验失败',
+  APP_014: '该启动方式已下线：容器化部署请到「容器管理 › 应用」创建',
+  APP_015: 'Node 环境不完整，请到环境管理安装或升级 Node',
+  APP_016: 'Node 启动参数非法：入口文件须为项目内的相对路径；脚本名只允许字母、数字与 . _ : -'
 }

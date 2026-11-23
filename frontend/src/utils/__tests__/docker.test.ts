@@ -94,12 +94,12 @@ describe('daemonDetailText（4.0 detail 透传属性→文案）', () => {
   })
 })
 
-describe('DK_ERROR_TEXT（DK_001~027：001~018 对应 api 3.4/PageSpec 第 1 节；019~027 创建类）', () => {
-  it('27 码全覆盖', () => {
-    const codes = Array.from({ length: 27 }, (_, i) => `DK_${String(i + 1).padStart(3, '0')}`)
+describe('DK_ERROR_TEXT（DK_001~032：001~018 对应 api 3.4/PageSpec 第 1 节；019~027 创建类；028~032 面板应用与 Compose 生命周期）', () => {
+  it('32 码全覆盖', () => {
+    const codes = Array.from({ length: 32 }, (_, i) => `DK_${String(i + 1).padStart(3, '0')}`)
     for (const code of codes) {
       expect(DK_ERROR_TEXT[code], code).toBeTruthy()
     }
-    expect(Object.keys(DK_ERROR_TEXT)).toHaveLength(27)
+    expect(Object.keys(DK_ERROR_TEXT)).toHaveLength(32)
   })
 })

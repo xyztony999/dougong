@@ -17,7 +17,7 @@ import { NButton, NPopconfirm, NTag, NTooltip } from 'naive-ui'
 import type { DataTableColumns, SelectOption } from 'naive-ui'
 import type { VNode } from 'vue'
 import { ApiError } from '@/api/http'
-import { containerCreate, volumeCreate, networkCreate, composeCreate } from '@/api/docker'
+import { composeCreate, composeDelete, containerCreate, networkCreate, volumeCreate } from '@/api/docker'
 import {
   composeDown,
   composeRestart,
@@ -58,16 +58,25 @@ import { formatBytes, formatDateTime } from '@/utils/format'
 import ComposeLogsDrawer from './components/ComposeLogsDrawer.vue'
 import ContainerDetailDrawer from './components/ContainerDetailDrawer.vue'
 import PullImageModal from './components/PullImageModal.vue'
+import AppsTab from './components/AppsTab.vue'
+import { useDockerAppsStore } from '@/stores/docker-apps'
 
 const store = useDockerStore()
+const appsStore = useDockerAppsStore()
 const authStore = useAuthStore()
 const message = useMessage()
 
 /** ---- Tab 框架（懒加载：首次切 Tab 拉取对应清单，切回不重复拉取除非已标记过期） ---- */
 
-const activeTab = ref<DockerTab>('containers')
+/** 页面页签：dockerStore 的五个清单页签 + 「应用」（ADR-033；清单由 docker-apps 仓库承载） */
+type ViewTab = DockerTab | 'apps'
 
-watch(activeTab, (tab) => store.ensureTabLoaded(tab))
+const activeTab = ref<ViewTab>('containers')
+
+watch(activeTab, (tab) => {
+  // 「应用」页签的清单由 AppsTab 组件挂载时自行加载，不走 dockerStore 的清单惰性加载。
+  if (tab !== 'apps') store.ensureTabLoaded(tab)
+})
 
 /** ---- 页头（4.0 daemon 接管状态 Card） ---- */
 
@@ -93,7 +102,12 @@ const guideText = computed(() =>
 /** 页头刷新：重拉 daemonStatus + 当前 Tab 清单（loading 防抖在 store；引导态保留刷新=安装后重试入口） */
 async function refreshAll(): Promise<void> {
   await store.loadStatus()
-  if (store.daemon !== null && !store.daemonUnavailable) store.reloadTab(activeTab.value)
+  if (store.daemon === null || store.daemonUnavailable) return
+  if (activeTab.value === 'apps') {
+    void appsStore.load()
+    return
+  }
+  store.reloadTab(activeTab.value)
 }
 
 /** ---- Tab 1 容器工具条（4.1 参数变更即触发 containerList） ---- */
@@ -243,6 +257,49 @@ function handleComposeActionError(e: unknown): void {
   }
   if (e.is('DK_018')) {
     message.warning(DK_ERROR_TEXT['DK_018'])
+    return
+  }
+  handleCommonWriteError(e)
+}
+
+/** ---- Compose 项目删除（ADR-033 S-50-05：down + 删除面板落盘根下的目录） ---- */
+
+async function execComposeDelete(row: DockerComposeItem): Promise<void> {
+  const key = `compose:${row.project}`
+  store.setInFlight(key)
+  try {
+    const out = await composeDelete(row.project)
+    message.success(
+      out.deletedDir
+        ? `项目 ${row.project} 已删除（容器已移除，目录已删除）`
+        : `项目 ${row.project} 的容器已停止并移除；项目目录不在面板管理范围内，未删除`
+    )
+    await store.loadCompose()
+    await store.loadContainers() // 项目容器集合已变（第 2 节纪律）
+  } catch (e) {
+    handleComposeDeleteError(e)
+  } finally {
+    store.releaseInFlight(key)
+  }
+}
+
+function handleComposeDeleteError(e: unknown): void {
+  if (!(e instanceof ApiError)) return
+  if (e.is('DK_014')) {
+    message.warning(DK_ERROR_TEXT['DK_014'])
+    void store.loadCompose()
+    return
+  }
+  if (e.is('DK_015')) {
+    message.warning(`${DK_ERROR_TEXT['DK_015']}——可在容器页逐个操作`)
+    return
+  }
+  if (e.is('DK_018')) {
+    message.warning(DK_ERROR_TEXT['DK_018'])
+    return
+  }
+  if (e.is('DK_032')) {
+    message.error(`${DK_ERROR_TEXT['DK_032']}：${dockerErrorReason(e.data) ?? '未知原因'}`)
     return
   }
   handleCommonWriteError(e)
@@ -531,6 +588,33 @@ function renderComposeActions(row: DockerComposeItem): VNode {
     { default: () => COMPOSE_ACTION_TEXT['logs'] }
   )
   nodes.push(logsDisabled ? withTooltip(logsBtn, locateTip) : logsBtn)
+  // 删除项目（ADR-033 S-50-05；admin 专属）：强确认，文案区分是否连带删除目录。
+  const deleteBtn = h(
+    NButton,
+    {
+      size: 'small',
+      type: 'error',
+      ghost: true,
+      disabled: inFlight,
+      onClick: () => {
+        void execComposeDelete(row)
+      }
+    },
+    { default: () => '删除项目' }
+  )
+  nodes.push(
+    h(
+      NPopconfirm,
+      { onPositiveClick: () => void execComposeDelete(row) },
+      {
+        trigger: () => deleteBtn,
+        default: () =>
+          row.panelManaged
+            ? `确认删除项目 ${row.project}？将停止并移除项目全部容器，并删除项目目录 ${row.workingDir ?? ''}，不可恢复。`
+            : `确认删除项目 ${row.project}？将停止并移除项目全部容器。项目目录不在面板管理范围内，不会删除。`
+      }
+    )
+  )
   return h('div', { class: 'row-actions' }, nodes)
 }
 
@@ -566,10 +650,13 @@ const composeColumns = computed<DataTableColumns<DockerComposeItem>>(() => {
       key: 'containers',
       width: 200,
       render: (row) =>
-        withTooltip(
-          h('span', null, `${row.containers.length} 个容器`),
-          row.containers.map((c) => `${c.name}（${c.state}）`).join('\n')
-        )
+        // 零容器=项目未运行（面板项目 down/stop 后仍可见，ADR-033）；不呈现「0 个容器」这种空计数
+        row.containers.length === 0
+          ? h(NTag, { type: 'default', size: 'small', bordered: false }, { default: () => '未运行' })
+          : withTooltip(
+              h('span', null, `${row.containers.length} 个容器`),
+              row.containers.map((c) => `${c.name}（${c.state}）`).join('\n')
+            )
     },
     {
       title: '定位',
@@ -588,7 +675,7 @@ const composeColumns = computed<DataTableColumns<DockerComposeItem>>(() => {
     base.push({
       title: '操作',
       key: 'actions',
-      width: 240,
+      width: 360,
       fixed: 'right',
       render: renderComposeActions
     })
@@ -596,7 +683,7 @@ const composeColumns = computed<DataTableColumns<DockerComposeItem>>(() => {
   return base
 })
 
-const composeScrollX = computed(() => (authStore.isAdmin ? 1250 : 1010))
+const composeScrollX = computed(() => (authStore.isAdmin ? 1370 : 1010))
 
 const imageColumns = computed<DataTableColumns<DockerImageItem>>(() => {
   const base: DataTableColumns<DockerImageItem> = [
@@ -777,6 +864,7 @@ onUnmounted(() => {
     composeProjectTimer = null
   }
   store.resetView()
+  appsStore.resetView()
 })
 
 // ---- v1.1 创建类 Modal（api-docker-mgmt.md v1.1 FR-19~22；表单字段集=D0 拍板 2026-11-21 基础全集）----
@@ -1004,10 +1092,10 @@ async function doComposeCreate(): Promise<void> {
       <n-empty :description="guideText" class="empty" />
     </n-card>
 
-    <!-- 五 Tab：容器 / Compose / 镜像 / 卷 / 网络（懒加载） -->
+    <!-- 六 Tab：容器 / 应用 / Compose / 镜像 / 卷 / 网络（懒加载） -->
     <n-card v-else-if="store.daemon !== null" size="small">
       <n-tabs v-model:value="activeTab" type="line">
-        <!-- Tab 1 容器（4.1 工具条 + 表格；无新增按钮——容器创建不在面板动作集，PRD OUT-7） -->
+        <!-- Tab 1 容器（4.1 工具条 + 表单；v1.1 起含「创建容器」入口） -->
         <n-tab-pane name="containers" tab="容器">
           <div class="controls-row">
             <n-select
@@ -1043,7 +1131,14 @@ async function doComposeCreate(): Promise<void> {
           </n-data-table>
         </n-tab-pane>
 
-        <!-- Tab 2 Compose（4.3：无筛选参数全量视图；locatable 预警 + 定位失败兜底口径） -->
+        <!-- Tab 2 应用（v1.2 ADR-033 S-62：面板生成的容器化应用；清单两角色可看，
+             创建/启停/建站/删除 admin 专属——组件内按角色渲染负空间） -->
+        <n-tab-pane name="apps" tab="应用">
+          <AppsTab />
+        </n-tab-pane>
+
+        <!-- Tab 3 Compose（4.3：无筛选参数全量视图；locatable 预警 + 定位失败兜底口径；
+             v1.2 起零容器项目呈现「未运行」且可再次启动、可删除） -->
         <n-tab-pane name="compose" tab="Compose">
           <div class="controls-row">
             <n-button v-if="authStore.isAdmin" type="primary" @click="openComposeCreate()">新建项目</n-button>
