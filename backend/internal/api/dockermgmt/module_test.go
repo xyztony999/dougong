@@ -59,6 +59,17 @@ type fakeGateway struct {
 	networks     []dockerx.NetworkFact
 	actionCalls  []string
 	deleteCalls  []string
+	// v1.1 创建类可观测行为（create_test.go 断言）。
+	createSpec   dockerx.CreateContainerSpec
+	createCalls  []string
+	containerKey string // CreateContainer 返回的容器 ID（缺省 cid-new）
+}
+
+// created 返回创建类调用记录（卷/网络：kind:name:driver）。
+func (f *fakeGateway) created() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.createCalls...)
 }
 
 type followStub struct {
@@ -232,7 +243,7 @@ func sampleContainers() []dockerx.ContainerFact {
 	}
 }
 
-func newTestApp(t *testing.T) *testApp {
+func newTestApp(t *testing.T, opts ...dockersvc.Option) *testApp {
 	t.Helper()
 	db, err := store.Open(":memory:")
 	if err != nil {
@@ -268,7 +279,7 @@ func newTestApp(t *testing.T) *testApp {
 		Containers: []dockerx.ComposeContainerRef{{ContainerID: "c1", Name: "alpha", State: "running"}},
 	}}}
 	rec := &countingRecorder{inner: auditSvc}
-	dockerSvc := dockersvc.New(gw, comp, rec)
+	dockerSvc := dockersvc.New(gw, comp, rec, opts...)
 	server := api.NewServer()
 	server.RegisterModules(
 		authapi.NewModule(authSvcObj, auditSvc, false),
@@ -653,10 +664,30 @@ func TestComposeLogsFollowWSReject(t *testing.T) {
 	_ = wsURL
 }
 
-// v1.1 创建类 stub。
+// v1.1 创建类替身（记录调用供 create_test.go 断言；此前仅为满足接口的最小 stub，
+// 四个创建端点在 HTTP 层零用例）。
 func (f *fakeGateway) ImageExists(_ context.Context, _ string) bool { return true }
-func (f *fakeGateway) CreateContainer(_ context.Context, _ dockerx.CreateContainerSpec) (string, error) {
+
+func (f *fakeGateway) CreateContainer(_ context.Context, spec dockerx.CreateContainerSpec) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.createSpec = spec
+	if f.containerKey != "" {
+		return f.containerKey, nil
+	}
 	return "cid-new", nil
 }
-func (f *fakeGateway) CreateVolume(_ context.Context, _, _ string) error        { return nil }
-func (f *fakeGateway) CreateNetwork(_ context.Context, _, _, _, _ string) error { return nil }
+
+func (f *fakeGateway) CreateVolume(_ context.Context, name, driver string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.createCalls = append(f.createCalls, "volume:"+name+":"+driver)
+	return nil
+}
+
+func (f *fakeGateway) CreateNetwork(_ context.Context, name, driver, _, _ string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.createCalls = append(f.createCalls, "network:"+name+":"+driver)
+	return nil
+}

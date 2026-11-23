@@ -337,7 +337,9 @@ export function daemonDetailText(detail: string | null): string {
  * 003~005/007/009=不存在族（重拉对应清单）；004=状态不匹配（data 携权威面，视图层拼装）；
  * 006/008/010=in-use 族（+data.reason）；011=预定义网络；012=拉取 Dialog 字段错误；
  * 013/016/017=失败族（+data.reason）；014=项目不存在；015=定位失败（data 携 label 路径）；
- * 018=同项目并发互斥。
+ * 018=同项目并发互斥；019~022=创建字段格式（容器名/端口映射/环境变量/挂载）；
+ * 023~025=创建执行失败族（+data.reason）；026=compose.yml 校验失败（reason 带行号）；
+ * 027=Compose 项目已存在（目录占用）。
  */
 export const DK_ERROR_TEXT: Readonly<Record<string, string>> = {
   DK_001: '参数非法',
@@ -357,5 +359,14 @@ export const DK_ERROR_TEXT: Readonly<Record<string, string>> = {
   DK_015: '工作目录或配置文件缺失，无法执行项目级操作',
   DK_016: 'compose 命令执行失败',
   DK_017: 'Docker 操作失败',
-  DK_018: '该项目已有操作进行中，请稍候'
+  DK_018: '该项目已有操作进行中，请稍候',
+  DK_019: '容器名格式非法（小写字母/数字/连字符）',
+  DK_020: '端口映射格式非法（端口须为 1~65535 的数字）',
+  DK_021: '环境变量格式非法（键不能为空且不能含空格）',
+  DK_022: '挂载格式非法（须提供宿主机来源与容器内目标路径）',
+  DK_023: '容器创建失败',
+  DK_024: '卷创建失败',
+  DK_025: '网络创建失败',
+  DK_026: 'compose.yml 校验失败',
+  DK_027: 'Compose 项目已存在（换一个项目名）'
 }

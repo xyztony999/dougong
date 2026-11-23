@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path"
+	"path/filepath"
 	"strconv"
 	"time"
 )
@@ -30,6 +32,16 @@ type Config struct {
 	Cron Cron `json:"cron"`
 	// Tools 数据库工具集成（db-tools）下载镜像参数（api-db-tools §3.4 配置项）。
 	Tools Tools `json:"tools"`
+	// Docker 容器管理（docker-mgmt）参数（api-docker-mgmt.md D-11）。
+	Docker Docker `json:"docker"`
+}
+
+// Docker 是 docker-mgmt 模块参数。Compose 项目落盘根生产默认 /opt/dougong-compose
+// （服务内 DefaultComposeRootDir 同值）；开放为配置键只为测试隔离与本机验证——
+// 防逃逸依赖「根为部署方控制的固定目录」，生产部署保持默认即可。
+type Docker struct {
+	// ComposeRoot Compose 项目落盘根（默认 /opt/dougong-compose；须为绝对路径）。
+	ComposeRoot string `json:"compose_root"`
 }
 
 // Tools 是 db-tools 模块的下载分发镜像参数（默认空=官方源；其余编译期
@@ -98,6 +110,8 @@ func Defaults() Config {
 		ACME:    ACME{DirectoryURL: "https://acme-v02.api.letsencrypt.org/directory"},
 		DB:      DB{MySQLBin: "mysql", MysqldumpBin: "mysqldump", RedisCliBin: "redis-cli"},
 		Cron:    Cron{CrontabBin: "crontab", JournalctlBin: "journalctl", RsyncBin: "rsync", ShellBin: "/bin/sh"},
+		// 与 service/dockermgmt.DefaultComposeRootDir 同值（create_test.go 锁定两处一致）。
+		Docker: Docker{ComposeRoot: "/opt/dougong-compose"},
 	}
 }
 
@@ -185,6 +199,9 @@ func overrideByEnv(cfg *Config) {
 	if v := os.Getenv("DOUGONG_TOOLS_NPM_REGISTRY"); v != "" {
 		cfg.Tools.NpmRegistry = v
 	}
+	if v := os.Getenv("DOUGONG_COMPOSE_ROOT"); v != "" {
+		cfg.Docker.ComposeRoot = v
+	}
 }
 
 func (c *Config) validate() error {
@@ -216,6 +233,26 @@ func (c *Config) validate() error {
 	}
 	if c.DB.MySQLBin == "" || c.DB.MysqldumpBin == "" || c.DB.RedisCliBin == "" {
 		return fmt.Errorf("db.* binary names must not be empty")
+	}
+	// 落盘根必须是「非文件系统根」的绝对路径：根下按项目名建目录，根为 / 时等于
+	// 放弃根前缀约束。校验须同时容忍两种绝对路径形态——POSIX（/opt/dougong-compose
+	// 是生产默认，Windows 上 filepath.IsAbs 不认「/…」，a56e054 同类跨平台坑：
+	// 2026-11-23 Windows -race 全量 TestCLIRenameUser/TestCLIUnbindDomain/TestCLIStatus
+	// 全挂即此因）与平台原生（Windows 开发机测试经 t.TempDir=C:\… 注入）。
+	// 两种形态各自的文件系统根（POSIX / 与 Windows 卷根）均拒绝。
+	root := c.Docker.ComposeRoot
+	validComposeRoot := false
+	switch {
+	case path.IsAbs(root):
+		validComposeRoot = path.Clean(root) != "/"
+	case filepath.IsAbs(root):
+		cleanRoot := filepath.Clean(root)
+		validComposeRoot = cleanRoot != string(filepath.Separator) &&
+			cleanRoot != filepath.VolumeName(cleanRoot)+string(filepath.Separator)
+	}
+	if !validComposeRoot {
+		return fmt.Errorf("docker.compose_root %q must be an absolute path other than the filesystem root",
+			root)
 	}
 	if c.Cron.CrontabBin == "" || c.Cron.JournalctlBin == "" ||
 		c.Cron.RsyncBin == "" || c.Cron.ShellBin == "" {

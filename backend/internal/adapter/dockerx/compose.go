@@ -172,16 +172,21 @@ func (r *ComposeRunner) Run(ctx context.Context, fact ComposeProjectFact, verb s
 // composeArgs 组装 CLI 参数数组（纯函数；config_files 逗号多文件逐个 -f，
 // A-D9；up 补 -d，A-D8）。fact 值均来自 daemon label（非用户输入），且各
 // 自作为独立 argv 元素——无 shell 语义（R-08）。
+//
+// -d（--detach）是 up 子命令的选项，不是 docker compose 的全局选项：必须排在
+// up 之后。此前写成 `… -d up`，CLI 直接拒绝（unknown shorthand flag: 'd' in -d），
+// Compose「启动」自 v0.1.0 起必失败（2026-11-23 以 Compose v5.5.1 实测复现）。
 func composeArgs(fact ComposeProjectFact, verb string) []string {
 	args := []string{"compose", "--project-name", fact.Project,
 		"--project-directory", fact.WorkingDir}
 	for _, f := range splitConfigFiles(fact.ConfigFile) {
 		args = append(args, "-f", f)
 	}
+	args = append(args, verb)
 	if verb == VerbUp {
 		args = append(args, "-d")
 	}
-	return append(args, verb)
+	return args
 }
 
 // splitConfigFiles 拆分 config_files label（逗号分隔多文件；空白容忍）。

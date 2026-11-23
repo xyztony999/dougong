@@ -399,7 +399,10 @@ func run(args []string) error {
 		return errors.Join(fmt.Errorf("docker gateway: %w", err), closeErr)
 	}
 	composeRunner := dockerx.NewComposeRunner(dockerGw)
-	dockerSvc := dockersvc.New(dockerGw, composeRunner, auditSvc)
+	// Compose 项目落盘根来自配置 docker.compose_root（默认 /opt/dougong-compose；
+	// 测试隔离/本机验证经 DOUGONG_COMPOSE_ROOT 覆盖，生产保持默认）。
+	dockerSvc := dockersvc.New(dockerGw, composeRunner, auditSvc,
+		dockersvc.WithComposeRootDir(cfg.Docker.ComposeRoot))
 	panelSvc.Menus().Register(
 		panelsvc.MenuItem{Key: "docker", Title: "容器管理", Path: "/docker",
 			Icon: "container", Order: 800, Visibility: []string{storeauth.RoleAdmin, storeauth.RoleReadonly}},

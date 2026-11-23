@@ -162,10 +162,25 @@ func TestComposeArgs(t *testing.T) {
 	fact := ComposeProjectFact{Project: "web", WorkingDir: "/srv/web",
 		ConfigFile: "/srv/web/docker-compose.yml"}
 	got := composeArgs(fact, VerbUp)
+	// -d 必须在 up 之后（up 子命令的选项；放在子命令前 CLI 拒绝：
+	// unknown shorthand flag: 'd' in -d——2026-11-23 Compose v5.5.1 实测）。
 	want := []string{"compose", "--project-name", "web", "--project-directory", "/srv/web",
-		"-f", "/srv/web/docker-compose.yml", "-d", "up"}
+		"-f", "/srv/web/docker-compose.yml", "up", "-d"}
 	if !equalStrings(got, want) {
-		t.Fatalf("composeArgs(up) = %v, want %v（A-D8：up 补 -d）", got, want)
+		t.Fatalf("composeArgs(up) = %v, want %v（A-D8：up 补 -d，-d 位于 up 之后）", got, want)
+	}
+	// 回归锁定：-d 不得出现在 up 之前（历史缺陷 `… -d up`）。
+	upIdx, dIdx := -1, -1
+	for i, a := range got {
+		if a == VerbUp && upIdx < 0 {
+			upIdx = i
+		}
+		if a == "-d" && dIdx < 0 {
+			dIdx = i
+		}
+	}
+	if upIdx < 0 || dIdx < 0 || dIdx < upIdx {
+		t.Fatalf("composeArgs(up) 中 -d 必须位于 up 之后：up@%d -d@%d，args=%v", upIdx, dIdx, got)
 	}
 	got = composeArgs(fact, VerbDown)
 	want = []string{"compose", "--project-name", "web", "--project-directory", "/srv/web",
@@ -531,6 +546,24 @@ func TestRunNoBinary(t *testing.T) {
 
 // execLookPath 测试别名（避免测试直接引 os/exec 与生产 import 重复）。
 func execLookPath(name string) (string, error) { return lookPathFor(name) }
+
+// TestRunRejectsNonVerb 动词白名单只接受 up/down/restart 常量本身，拒绝发生在
+// 互斥登记与外部命令之前（无副作用）。调用方若把「动词 + 选项」拼成一个字符串
+// 传入（历史缺陷：新建编排项目传 "up -d"）会在这里被拒——选项由 composeArgs
+// 追加，调用方只传动词常量。
+func TestRunRejectsNonVerb(t *testing.T) {
+	r := NewComposeRunner(&fakeLogSource{follow: map[string]*LogStream{}, followSend: map[string]chan string{}})
+	fact := ComposeProjectFact{Project: "web", WorkingDir: ".", ConfigFile: "x.yml"}
+	for _, verb := range []string{"up -d", "stop", "", "UP", "up --build"} {
+		err := r.Run(context.Background(), fact, verb)
+		if err == nil || !strings.Contains(err.Error(), "unknown compose verb") {
+			t.Fatalf("Run(%q) err = %v, want unknown compose verb", verb, err)
+		}
+		if r.busy[fact.Project] {
+			t.Fatalf("Run(%q) 被拒后不应登记互斥", verb)
+		}
+	}
+}
 
 // ---------- ExecError（reason 透传形状） ----------
 

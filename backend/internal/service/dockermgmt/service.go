@@ -24,11 +24,28 @@ type Service struct {
 	comp  ComposeRunner
 	audit AuditRecorder
 	clock func() time.Time
+	// composeRoot 是 Compose 项目落盘根（默认 DefaultComposeRootDir；经
+	// WithComposeRootDir 注入）。
+	composeRoot string
+}
+
+// Option 是服务可选项（构造注入，沿 panel 服务 WithAcmeWebrootDir 先例）。
+type Option func(*Service)
+
+// WithComposeRootDir 覆盖 Compose 项目落盘根——测试隔离/本机验证用（生产由 main
+// 装配传入配置值，默认 /opt/dougong-compose）。
+func WithComposeRootDir(dir string) Option {
+	return func(s *Service) { s.composeRoot = dir }
 }
 
 // New 构造服务（gw=SDK 通道、comp=CLI 通道、rec=审计 OHS R-03）。
-func New(gw DockerGateway, comp ComposeRunner, rec AuditRecorder) *Service {
-	return &Service{gw: gw, comp: comp, audit: rec, clock: time.Now}
+func New(gw DockerGateway, comp ComposeRunner, rec AuditRecorder, opts ...Option) *Service {
+	s := &Service{gw: gw, comp: comp, audit: rec, clock: time.Now,
+		composeRoot: DefaultComposeRootDir}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 // now 输出 RFC3339 UTC 时间戳（api §3.1 时间格式）。
