@@ -125,4 +125,49 @@ describe('appStore', () => {
     // 同一运行时复用同一实例
     expect(useAppStore('node')).toBe(nd)
   })
+
+  it('加载中如实呈现：返回前 loading，首次成功后才 loaded（初始值不当成「没有项目」「环境缺失」）', async () => {
+    const st = useAppStore('node')
+    expect(st.loading).toBe(false)
+    expect(st.loaded).toBe(false)
+    let resolve!: (v: AppListData) => void
+    mockList.mockReturnValueOnce(new Promise<AppListData>((r) => { resolve = r }))
+    const pending = st.loadList()
+    expect(st.loading).toBe(true)
+    expect(st.loaded).toBe(false)
+    resolve(listFixture)
+    await pending
+    expect(st.loading).toBe(false)
+    expect(st.loaded).toBe(true)
+  })
+
+  it('首次加载失败不算已加载；成功过一次后再失败仍保留已加载与上一投影', async () => {
+    const st = useAppStore('python')
+    mockList.mockRejectedValueOnce(new Error('boom'))
+    await st.loadList()
+    expect(st.loading).toBe(false)
+    expect(st.loaded).toBe(false)
+    expect(st.loadError).toBe('boom')
+    mockList.mockResolvedValueOnce(listFixture).mockRejectedValueOnce(new Error('boom again'))
+    await st.loadList()
+    await st.loadList()
+    expect(st.loaded).toBe(true)
+    expect(st.items).toHaveLength(1)
+  })
+
+  it('两个清单请求同时在途时，全部返回前都是加载中', async () => {
+    const st = useAppStore('python')
+    const resolvers: Array<(v: AppListData) => void> = []
+    mockList.mockImplementation(
+      () => new Promise<AppListData>((r) => { resolvers.push(r) })
+    )
+    const a = st.loadList()
+    const b = st.loadList()
+    resolvers[0](listFixture)
+    await a
+    expect(st.loading).toBe(true)
+    resolvers[1](listFixture)
+    await b
+    expect(st.loading).toBe(false)
+  })
 })

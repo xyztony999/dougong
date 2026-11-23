@@ -1,3 +1,4 @@
+/// <reference types="vitest" />
 import { fileURLToPath, URL } from 'node:url'
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
@@ -95,5 +96,13 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist'
+  },
+  // vitest（npm test）：只列与默认不同的项
+  test: {
+    // 挂载测试要用客户端方式编译 .vue——默认的 node 环境按 SSR 编译，组件只有 ssrRender、
+    // 挂不起来。只给它换一个「按 web 方式编译、不提供 DOM」的环境，其余测试不受影响。
+    environmentMatchGlobs: [
+      ['**/sites-hub-mount.test.ts', './src/views/site-mgmt/__tests__/env-web-without-dom.ts']
+    ]
   }
 })

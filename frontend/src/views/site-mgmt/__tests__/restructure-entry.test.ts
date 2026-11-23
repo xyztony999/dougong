@@ -7,7 +7,9 @@
  *
  * 背景：v0.3.0 出现过「弹窗、处理函数、API、后端端点全在，但没有一个按钮能打开弹窗」
  * 的交付断裂（show*Create 从未被置真），当时所有门控都是绿的。挂载级组件测试沿全仓
- * 先例不引入，以源码断言承载。
+ * 先例不引入，以源码断言承载；唯一例外是 sites-hub-mount.test.ts——「切换分栏时组件
+ * 实例被原地复用」这类问题只有真实挂载才看得见，它用真实 Vue 运行时 + 极简宿主（不
+ * 依赖 DOM）专门守这一处。
  */
 import { readFileSync, readdirSync } from 'node:fs'
 import path from 'node:path'
@@ -78,11 +80,15 @@ function expectApiRoute(apiRoutes: Set<string>, apiSrc: string, fnName: string):
 describe('网站管理页三分栏（网站 / Python 项目 / Node 项目）', () => {
   it('三个分栏齐全，且两个项目分栏按运行时各挂一份面板', () => {
     for (const [name, label] of [['site', '网站'], ['python', 'Python 项目'], ['node', 'Node 项目']] as const) {
-      expect(hubSource, `缺少「${label}」分栏`).toMatch(new RegExp(`<NTabPane name="${name}" tab="${label}"`))
+      expect(hubSource, `缺少「${label}」分栏`).toMatch(new RegExp(`<NTabPane key="${name}" name="${name}" tab="${label}"`))
     }
     expect(hubSource).toContain('<AppProjectsPane runtime="python" />')
     expect(hubSource).toContain('<AppProjectsPane runtime="node" />')
     expect(hubSource).toContain('<SiteListPane />') // 既有站点列表原样作为「网站」分栏
+    // 分栏必须带 key：不带 key 时切换分栏是原地改属性，面板的 setup 不会重跑
+    // （行为层面的验证见 sites-hub-mount.test.ts）
+    expect(Array.from(hubSource.matchAll(/<NTabPane\s/g))).toHaveLength(3)
+    for (const m of hubSource.matchAll(/<NTabPane key="([^"]+)" name="([^"]+)"/g)) expect(m[1]).toBe(m[2])
   })
 
   it('分栏由地址栏参数 tab 持久化；路由指向三分栏外层，旧地址 /app 重定向', () => {
@@ -127,6 +133,14 @@ describe('项目面板：创建入口与操作链路（Python / Node 同一面�
     const direct = bodyOf(paneSource, handler).includes(`${callee}`)
     const viaModal = callee !== 'appServiceOp(' && callee !== 'appDepsReinstall(' && bodyOf(paneSource, callee).includes('app')
     expect(direct || viaModal, `「${_name}」链路未连通到接口调用（${handler} → ${callee}）`).toBe(true)
+  })
+
+  it('加载中如实呈现：清单返回前表格转加载态，就绪度与空状态不拿初始值充数', () => {
+    // Node 清单要等 PM2 回话；返回前不能说「还没有项目」「环境缺失」
+    expect(paneSource).toContain(':data="items" :loading="loading"')
+    expect(bodyOf(paneSource, 'readyTag')).toContain('if (!loaded.value)')
+    expect(bodyOf(paneSource, 'needEnvGuide')).toContain('loaded.value &&')
+    expect(paneSource).toContain(":description=\"loaded ? `还没有${runtimeLabel}项目` : '未能读取项目列表'\"")
   })
 })
 
@@ -251,5 +265,4 @@ describe('Compose 页签：零容器项目可见、可删除', () => {
     expect(del).toContain('composeDelete(')
     expect(dockerViewSource).toContain('项目目录不在面板管理范围内，不会删除')
     expect(dockerViewSource).toContain('不可恢复')
-  })
-})
+  }))

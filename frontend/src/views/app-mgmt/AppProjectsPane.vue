@@ -27,7 +27,7 @@ const props = defineProps<{ runtime: AppRuntime }>()
 const appStore = useAppStore(props.runtime)
 const auth = useAuthStore()
 const message = useMessage()
-const { items, ready, nodeReady, generatedAt, loadError, tasks, currentTask } = storeToRefs(appStore)
+const { items, ready, nodeReady, generatedAt, loading, loaded, loadError, tasks, currentTask } = storeToRefs(appStore)
 
 const isNode = computed(() => props.runtime === 'node')
 const isAdmin = computed(() => auth.isAdmin)
@@ -418,6 +418,8 @@ const nodeMissing = computed(() => {
 })
 
 const readyTag = computed(() => {
+  // 首次加载完成前就绪度只是初始值——显示「检测中」，不说环境缺失。
+  if (!loaded.value) return { type: 'default' as const, text: '检测中' }
   if (isNode.value) {
     if (nodeMissing.value.length > 0) return { type: 'warning' as const, text: `Node 环境不完整：缺 ${nodeMissing.value.join('、')}` }
     return { type: 'success' as const, text: `Node 环境就绪${nodeReady.value.nodeVersion ? '（' + nodeReady.value.nodeVersion + '）' : ''}` }
@@ -430,9 +432,10 @@ const readyTag = computed(() => {
 })
 
 const needEnvGuide = computed(() =>
-  isNode.value
+  loaded.value &&
+  (isNode.value
     ? nodeMissing.value.length > 0
-    : !ready.value.installed || ready.value.venvSupport === false || ready.value.pipAvailable === false
+    : !ready.value.installed || ready.value.venvSupport === false || ready.value.pipAvailable === false)
 )
 
 const runtimeLabel = computed(() => APP_RUNTIME[props.runtime].label)
@@ -452,8 +455,8 @@ onUnmounted(() => {
       <NTag v-if="needEnvGuide" type="warning" :bordered="false">
         <router-link to="/env">{{ isNode ? '到环境管理安装或升级' : '到环境管理安装' }}</router-link>
       </NTag>
-      <span class="gen">探测于 {{ generatedAt }}</span>
-      <NButton size="small" @click="refresh">刷新</NButton>
+      <span v-if="generatedAt" class="gen">探测于 {{ generatedAt }}</span>
+      <NButton size="small" :loading="loading" @click="refresh">刷新</NButton>
       <NButton v-if="isAdmin" size="small" type="primary" @click="createShow = true">创建{{ runtimeLabel }}项目</NButton>
     </div>
 
@@ -463,10 +466,10 @@ onUnmounted(() => {
 
     <NAlert v-if="loadError" type="error" class="load-err">{{ loadError }} <NButton size="tiny" @click="refresh">重试</NButton></NAlert>
 
-    <NDataTable :columns="columns" :data="items" :row-key="(r: AppItem) => r.id">
+    <NDataTable :columns="columns" :data="items" :loading="loading" :row-key="(r: AppItem) => r.id">
       <template #empty>
         <div class="tbl-empty">
-          <NEmpty :description="`还没有${runtimeLabel}项目`" />
+          <NEmpty :description="loaded ? `还没有${runtimeLabel}项目` : '未能读取项目列表'" />
           <NButton v-if="isAdmin && !loadError" size="small" type="primary" @click="createShow = true">创建{{ runtimeLabel }}项目</NButton>
         </div>
       </template>

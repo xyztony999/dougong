@@ -17,6 +17,10 @@ interface AppState {
   nodeReady: NodeReadiness
   items: AppItem[]
   generatedAt: string
+  /** 在途清单请求数（>0 即加载中） */
+  loadingCount: number
+  /** 是否完成过一次成功加载——在此之前就绪度与清单都只是初始值 */
+  loaded: boolean
   loadError: string | null
   tasks: AppTaskItem[]
   tasksTotal: number
@@ -34,6 +38,8 @@ function build(runtime: AppRuntime) {
       nodeReady: { nodeAvailable: false, npmAvailable: false, pm2Available: false, nodeVersion: null },
       items: [],
       generatedAt: '',
+      loadingCount: 0,
+      loaded: false,
       loadError: null,
       tasks: [],
       tasksTotal: 0,
@@ -41,20 +47,29 @@ function build(runtime: AppRuntime) {
       currentTask: null
     }),
     getters: {
-      byId: (state) => (id: number) => state.items.find((i) => i.id === id) ?? null
+      byId: (state) => (id: number) => state.items.find((i) => i.id === id) ?? null,
+      loading: (state) => state.loadingCount > 0
     },
     actions: {
-      /** loadList 全景成败流：成功覆盖投影；失败保留上一投影（I-04 env 先例）+错误态 */
+      /**
+       * loadList 全景成败流：成功覆盖投影；失败保留上一投影（I-04 env 先例）+错误态。
+       * 加载中要如实呈现：Node 清单要等 PM2 回话，返回前不呈现「还没有项目」
+       * 「环境缺失」。
+       */
       async loadList() {
+        this.loadingCount += 1
         try {
           const data: AppListData = await api.appList(this.runtime)
           this.ready = data.pythonReadiness
           this.nodeReady = data.nodeReadiness
           this.items = data.items
           this.generatedAt = data.generatedAt
+          this.loaded = true
           this.loadError = null
         } catch (e) {
           this.loadError = e instanceof Error ? e.message : String(e)
+        } finally {
+          this.loadingCount -= 1
         }
       },
       /** loadTasks 任务清单（筛选） */

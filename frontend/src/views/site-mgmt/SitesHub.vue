@@ -44,14 +44,19 @@ function onTabChange(name: string) {
 
 <template>
   <div class="sites-hub">
-    <NTabs v-model:value="active" type="line" animated @update:value="onTabChange">
-      <NTabPane name="site" tab="网站" display-directive="if">
+    <!-- 不加分栏切换动画：与面板其它页签页面（如容器管理）保持一致，切换即时；
+         动画会依赖过渡结束事件，在未被绘制的页面（后台标签页）里会停在第一帧。 -->
+    <!-- 分栏必须带 key：display-directive="if" 下 NTabs 每次只渲染当前分栏这一个子节点，
+         不带 key 时切换分栏会被当成同一个组件原地改属性——面板的 setup 不会重跑，后切的
+         分栏会沿用先挂载的那个运行时的仓库与表单初始值，轮询也不会随卸载清理。 -->
+    <NTabs v-model:value="active" type="line" @update:value="onTabChange">
+      <NTabPane key="site" name="site" tab="网站" display-directive="if">
         <SiteListPane />
       </NTabPane>
-      <NTabPane name="python" tab="Python 项目" display-directive="if">
+      <NTabPane key="python" name="python" tab="Python 项目" display-directive="if">
         <AppProjectsPane runtime="python" />
       </NTabPane>
-      <NTabPane name="node" tab="Node 项目" display-directive="if">
+      <NTabPane key="node" name="node" tab="Node 项目" display-directive="if">
         <AppProjectsPane runtime="node" />
       </NTabPane>
     </NTabs>
