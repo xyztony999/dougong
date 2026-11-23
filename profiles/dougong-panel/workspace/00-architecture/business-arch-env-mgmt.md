@@ -2,9 +2,9 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v1.3 |
+| 版本 | v1.4 |
 | 状态 | 稳定 |
-| 最后更新 | 2026-11-20（Python 环境增量轮，app-mgmt 集成联动，d0-clarification-app-mgmt-2026-11-20.md） |
+| 最后更新 | 2026-11-23（宝塔式重组增量轮，ADR-033：Node 环境随装 PM2 与 Node 就绪度读契约；2026-11-20 v1.3 Python 环境增量轮，app-mgmt 集成联动，d0-clarification-app-mgmt-2026-11-20.md） |
 
 ## 第一部分：文档概述
 
@@ -39,6 +39,7 @@
 > - ⚠️A16 Node 环境供给口径（v1.2 本轮新增，db-tools D0 拍板 Q1）：Node.js 经 NodeSource 官方源安装——三系均需代配（apt keyring HTTPS 下载 / yum repo 文件，⚠️A10 同构，写入审计 env_repo_configured）；LTS 大版本轨道钉死（NodeSource 仓库轨道为面板编译期选定，具体 LTS 版本号归 D3 定稿；⚠️A4 升级语义不变=轨道内仓库最新版）；包名 nodejs（三系同），npm 随 Node 包供给不单独安装；版本查询经 node --version（R-08 参数数组）；Python 环境本轮不做（OUT，归未来）。
 > - ⚠️A17 运行时型环境无服务口径（v1.2 本轮新增）：Node.js 为运行时型环境（无常驻 systemd 服务单元）——目录条目单元映射为空，服务运行/自启状态字段不适用（null 如实呈现，不虚构），服务启停/自启入口对 Node 条目禁用（呈现「运行时环境无常驻服务」说明）；⚠️A5/A11 服务联动与安装后引导对 Node 不适用（Node 装完即用，无引导，同 PHP/nginx/Apache/Docker 判）。
 > - ⚠️A18 Python 环境供给口径（v1.3 本轮新增，app-mgmt D0 拍板 Q2）：Python 经发行版仓库安装（无第三方源代配需求——发行版源自带，区别于 Node/MongoDB；⚠️A7 有序候选数组：apt 系 python3/python3-venv/python3-pip 三包候选〔Debian 系 venv 支撑需 python3-venv 单独包〕、rpm 系 python3〔venv/pip 自含〕）；版本查询经 python3 --version（R-08 参数数组）；Python 为运行时型环境（⚠️A17 同构：单元映射空/服务态 null/服务操作入口禁用/装完即用无引导）；venv 与 pip 能力位纳入依赖就绪度读契约（app-mgmt 创建前置消费，⚠️A2）；具体候选包名矩阵归 D3 定稿。
+> - ⚠️A19 Node 环境随装 PM2（v1.4 本轮新增，ADR-033，d0-clarification-baota-restructure-2026-11-23.md，Gate 1 用户拍板「Node 项目像宝塔那样用 PM2 托管」）：安装或升级 Node 环境时，连带用 npm 全局安装 PM2 并注册 PM2 开机自启（Linux 上由 PM2 生成启动单元，开机恢复已保存的进程列表）。两步都是尽力而为：失败只记入任务输出，不改变 Node 环境安装的终态——Node 项目创建时会因缺 PM2 被拒并引导回环境管理升级补装（与 v1.3 的 pip 补装同一机制）。卸载 Node 不动 PM2 进程列表（面板无法判断是否仍有项目依赖），仅如实提示。PM2 是 Node 环境的随装件，不是新的环境条目：目录范围仍为九环境，L2/L3/L4 集合不变。Node 就绪度读契约相应扩展（node / npm / PM2 是否可用 + node 版本），供 app-mgmt 创建 Node 项目做前置校验。
 
 ### 1.2 文档定位
 
@@ -168,6 +169,8 @@
 | 环境安装与变更 | → | db-tools（他域，v1.2 新增供给） | Node 环境供给（NodeSource 三系代配 + LTS 轨道钉死，⚠️A16）为 db-tools mongo-express 集成的运行前置；db-tools 不代装环境，依赖缺失经软引导回本模块 |
 | 环境目录与实况 | → | app-mgmt（他域，v1.3 新增被消费） | 应用依赖就绪度数据源：Python 运行环境就绪度（python3/venv/pip 已装态与能力位，进程内读契约，单向）；Python 未装实况为 app-mgmt 创建拒绝引导提供数据 |
 | 环境安装与变更 | → | app-mgmt（他域，v1.3 新增供给） | Python 环境供给（发行版仓库包，⚠️A18）为 app-mgmt 应用创建的运行前置；app-mgmt 不代装环境，依赖缺失经软引导回本模块 |
+| 环境目录与实况 | → | app-mgmt（他域，v1.4 新增被消费） | Node 项目依赖就绪度数据源：Node 运行环境就绪度（node / npm / PM2 是否可用 + node 版本，进程内读契约，单向）；缺项时 app-mgmt 创建 Node 项目拒绝并引导回本模块 |
+| 环境安装与变更 | → | app-mgmt（他域，v1.4 新增供给） | Node 环境连带 PM2 的供给（⚠️A19）为 app-mgmt Node 项目托管的运行前置；app-mgmt 不代装，依赖缺失经软引导回本模块 |
 | 环境安装与变更 | → | database-mgmt（他域） | **安装后配置就绪（v1.1，⚠️A11/A12）**：数据库类环境安装成功后经进程内 OHS（BootstrapAfterInstall）触发实例与凭据注册——建账户/设密码/注册归 database-mgmt 实例层，本模块消费其 OHS（单向依赖，与 cron-backup 消费 DumpStream 同构）；引导结果回传任务台账呈现 |
 
 ### 附录B：业务术语表
@@ -195,6 +198,7 @@
 
 | 版本 | 日期 | 更新说明 |
 |------|------|---------|
+| v1.4 | 2026-11-23 | 宝塔式重组增量轮（ADR-033，d0-clarification-baota-restructure-2026-11-23.md；设计依据 baota-restructure-design-2026-11-23.md 第三章 3.4）：①目录范围九环境不变，3 阶段 / 3 关键业务 / 7 业务活动不变（PM2 是 Node 环境的随装件，不是环境条目，L2/L3/L4 集合零变化）；②新增 ⚠️A19 Node 环境随装 PM2 口径（安装 / 升级 Node 时连带全局安装 PM2 并注册开机自启，尽力而为不阻断安装终态；卸载不触碰 PM2 进程列表）；③Node 就绪度读契约扩展 node / npm / PM2 可用性与版本；④附录A +app-mgmt 被消费一行（Node 就绪度）与供给一行（Node 连带 PM2）。本行为已于同轮落码，文档在 Gate 2 核对时补登 |
 | v1.3 | 2026-11-20 | Python 环境增量轮（app-mgmt 集成联动，d0-clarification-app-mgmt-2026-11-20.md Q2 拍板）：①目录范围八→九环境（+Python，⚠️A1）——L2/L3/L4 集合零变化（Python 为目录条目非新业务活动，沿 Node 先例），3 阶段 / 3 关键业务 / 7 业务活动不变；②新增 ⚠️A18 Python 供给口径（发行版仓库包无第三方源代配〔apt python3/python3-venv/python3-pip 三包候选·rpm python3〕+ python3 --version 查询 + venv/pip 能力位探测 + 运行时型 ⚠️A17 同构；候选包名矩阵归 D3）；③2.1 概览/2.1.1/2.1.1.1/2.1.1.2 同步九环境与 Python 语义；④OUT 修订：Python 本体由 OUT 转为本轮供给，Python 多版本共存（pyenv/自选版本）登记 OUT；⑤附录A +app-mgmt 被消费两行（环境实况读契约/Python 供给）；附录B 术语环境九值、运行时型环境 +Python；⑥业务架构树零变化（L4 集合未变，核验一致） |
 | v1.2 | 2026-11-19 | Node 环境增量轮（db-tools 集成联动，d0-clarification-db-tools-integration-2026-11-19.md Q1 拍板）：①目录范围七→八环境（+Node.js，⚠️A1）——L2/L3/L4 集合零变化（Node 为目录条目非新业务活动），3 阶段 / 3 关键业务 / 7 业务活动不变；②新增 ⚠️A16 Node 供给口径（NodeSource 三系代配 ⚠️A10 同构 + LTS 大版本轨道钉死〔版本号归 D3〕+ 包名 nodejs 三系同 + npm 随包 + node --version 查询）与 ⚠️A17 运行时型环境无服务口径（单元映射空/服务态 null/启停自启入口禁用/装完即用无引导）；③2.1/2.1.1.1/2.1.1.2/2.3.1/2.3.1.1/2.2.1.4 同步八环境与 Node 语义（含订正 v1.1 遗留「六环境」滞后两处）；④OUT +Python 环境（归未来）；⑤附录A +db-tools 被消费两行（环境实况读契约/Node 供给）；附录B 术语环境八值 +运行时型环境/NodeSource 源两术语、官方仓库源例补 NodeSource；⑥业务架构树零变化（L4 集合未变，核验一致） |
 | v1.1 | 2026-11-17 | 安装后配置就绪增量轮（d0-clarification-2026-11-17-bootstrap.md，D0 拍板 Q1~Q4）：①新增 L4 2.2.1.4 安装后配置就绪（3 阶段 / 3 关键业务 / 6→7 业务活动）——数据库类环境安装成功后自动建管理账户/设随机强密码 + 注册实例与凭据到 database-mgmt（装完即可管）；②新增 ⚠️A11~A15 五项口径（引导范围/引导通道与账户〔dougong@localhost ALL WITH GRANT OPTION、Redis CONFIG SET+REWRITE、MongoDB localhost exception〕/幂等保守/引导失败独立维度/引导服务联动细化）；③补录 ⚠️A8~A10（W1 修复轮单元全名/探测三态/代配补真，此前 BA 滞后于 api/prd v1.1，本轮同步）；④目录范围六→七环境同步（+MongoDB，⚠️A1）；⑤OUT 登记二期方向（PHP 多版本 sury 源 / MySQL 版本升级 mysql-apt-config）；⑥附录A 新增 env-mgmt→database-mgmt 进程内 OHS 硬依赖（BootstrapAfterInstall，单向）；附录B 术语表 +4（安装后配置就绪/引导通道/管理账户/引导结果）；业务架构树同步 |

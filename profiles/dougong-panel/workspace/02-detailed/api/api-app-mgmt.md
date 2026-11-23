@@ -4,7 +4,7 @@
 |------|-----|
 | 版本 | v1.2 |
 | 状态 | 稳定 |
-| 最后更新 | 2026-11-23（v1.2 宝塔式重组 D3：create 增 runtime 与 Node 启动方式（PM2 托管）、容器形态下线（APP_014）；list 增运行时与 Node 就绪度；迁移 018） |
+| 最后更新 | 2026-11-23（v1.2 宝塔式重组 D3：create 增 runtime 与 Node 启动方式（PM2 托管）、容器形态下线（APP_014）；list 增运行时与 Node 就绪度；迁移 018。同日按实现核对更正：就绪度字段名 nodeReadiness、迁移 018 为表重建） |
 | 输入 | prd-app-mgmt.md v1.0（FR-01~12；完备性检查通过：G 5/5、T 适用 8/8、N 4/4）、domain-model.md v1.27（app+app_task 双聚合根+启动方式值对象）、D1 三文档（BA/AA/FL v1.0，⚠️A1~A12+安全四道防线 BA 2.4/AA 附录C）、api-env-mgmt.md v1.4（Python 环境供给 FR-09+就绪度读契约）、api-site-mgmt.md v2.8（ConfigWritePipeline OHS D-21）、prd-env-mgmt.md 待对齐承接（能力位字段/候选包名） |
 | 接口规约 | 栈规约 backend-02-api-conventions.md（go-vue3）；认证=HttpOnly Cookie 会话 + CSRF token（R-02，复用 account-auth）；鉴权=RBAC 两角色边界矩阵（ADR-018；日志 admin 专属 ⚠️A8）；外部命令一律字面量参数数组（R-08） |
 
@@ -446,7 +446,7 @@ CREATE INDEX IF NOT EXISTS idx_app_task_created ON app_task(created_at);
 | 版本 | 日期 | 变更类型 | 变更摘要 | 目标节号 |
 |------|------|---------|---------|---------|
 | v1.0 | 2026-11-20 | initial | 首次生成：16 个 HTTP 接口（/app/{app,task,service,log,site}/*——GET 5〔app/list、app/env、task/list、task/detail、log〕/ POST 11〔app/create·delete·params·deps、task/retry、service/{start,stop,restart,enable,disable}×5、site/link〕）+ 2 表 DDL（app 档案〔UNIQUE name+unit 唯一索引〕+ app_task 四态任务台账〔app_id/app_name 快照+purge_dir 删除范围〕，迁移 015_app_mgmt.sql）+ 5 网关契约（AppPyGateway/AppUnitWriter/LogGateway/SiteLinkGateway〔site-mgmt OHS 消费，跨模块待同步项〕/EnvReadySource〔env-mgmt 读契约 v1.4〕）+ SysdGateway 复用 + 12 错误码（APP_001~012 + 复用 AUTH 族）+ 3 枚举引用（app_task_action/app_task_status/app_start_mode 本域 D2 定稿入池）+ 9 审计动作常量 + 15 项设计决策（D-01 实时探测/D-02 双聚合落库/D-03 创建校验链/D-04 异步任务互斥+重启恢复/D-05 创建执行链+半档案不残留/D-06 单元生成安全写入/D-07 删除保守执行链/D-08 就绪度读契约/D-09 参数安全写回+基线比对/D-10 服务操作瞬时通道/D-11 日志 admin 专属/D-12 建站联动 OHS/D-13 失败重试语义/D-14 混合模式/D-15 台账全量保留）；第 2 章跨聚合设计（I-C01~C04：终态档案同事务/半档案不残留/互斥跨聚合/删除范围显式）；关闭 prd-app-mgmt.md 待对齐-3（就绪度能力位字段=venvSupport/pipAvailable）/待对齐-4 部分（日志档位 200/500/1000、超时 10s、PY_OP_TIMEOUT=600s、APP_UNIT_PREFIX）/待对齐-5（应用名 Pattern）/待对齐-6（服务操作瞬时通道不占任务互斥）/待对齐-7（.env 整文件替换+基线比对）；待对齐-1（迁移编号=015 落定关闭）；待对齐-2（建站 OHS 消费方定义落定，提供方登记归 site-mgmt 联动轮）；无旧版对比 | — |
-| v1.2 | 2026-11-23 | 增量 | 宝塔式重组 D3（ADR-033）：POST /app/app/create 增 runtime 与 Node 启动方式（node_file / npm_script，PM2 托管），startMode=container 拒绝 APP_014；GET /app/app/list 条目增 runtime 与 PM2 观测字段、响应增 nodeReady；service/enable 与 service/disable 对 Node 的语义；log 对 Node 返回 PM2 日志；新增 APP_014~016；迁移 018_app_runtime.sql；D-16~D-18 | 文末「增量 v1.2」节 A~E |
+| v1.2 | 2026-11-23 | 增量 | 宝塔式重组 D3（ADR-033）：POST /app/app/create 增 runtime 与 Node 启动方式（node_file / npm_script，PM2 托管），startMode=container 拒绝 APP_014；GET /app/app/list 条目增 runtime、startSpec 与 PM2 观测字段、响应增 nodeReadiness；service/enable 与 service/disable 对 Node 的语义；log 对 Node 返回 PM2 日志；新增 APP_014~016；迁移 018_app_runtime.sql（表重建）；D-16~D-18。同日实现核对更正两处初版笔误：就绪度字段名 nodeReady → nodeReadiness、迁移方式「仅加列」→ 表重建 | 文末「增量 v1.2」节 A~E |
 
 ### 6.2 变更类型词汇表
 
@@ -488,7 +488,7 @@ CREATE INDEX IF NOT EXISTS idx_app_task_created ON app_task(created_at);
 | 接口 | 变更 |
 |------|------|
 | POST /app/app/create | 请求体增 runtime?: string（python \| node，缺省 python）。startMode 取值域按运行时：python → preset_fastapi \| custom；node → node_file \| npm_script。startSpec 增 file?: string（node_file：项目内入口文件相对路径）、script?: string（npm_script：npm 脚本名，缺省 start）。startMode=container → APP_014 |
-| GET /app/app/list | 条目增 runtime: string；runtime=node 的条目增 pm2Status: string（online / stopped / errored 等原值）、restarts: number、memoryBytes: number；响应增 nodeReady: NodeReady；query 增 runtime?: string（可选过滤，缺省返回全部） |
+| GET /app/app/list | 条目增 runtime: string、startSpec（应用实际保存的启动参数，对象形状同 create；参数页签据此预填）；runtime=node 的条目增 pm2Status: string（online / stopped / errored 等原值）、restarts: number、memoryBytes: number；响应增 nodeReadiness: NodeReadiness（与既有 pythonReadiness 并列）；query 增 runtime?: string（可选过滤，缺省返回全部） |
 | POST /app/app/service/start、stop、restart | 对 Node 项目经 PM2 执行；请求与响应形状不变 |
 | POST /app/app/service/enable、disable | 对 Node 项目：enable=启动应用并保存 PM2 进程列表；disable=停止应用并保存 PM2 进程列表（与 systemd 的 enable / disable 不同——会改变当前运行状态）；请求与响应形状不变 |
 | GET /app/app/log | 对 Node 项目返回 PM2 日志文件尾部：标准输出与错误输出合并，错误输出行以「[错误]」开头；响应形状不变 |
@@ -498,7 +498,7 @@ CREATE INDEX IF NOT EXISTS idx_app_task_created ON app_task(created_at);
 
 | 结构 | 字段 | 说明 |
 |------|------|------|
-| NodeReady | nodeAvailable: boolean；npmAvailable: boolean；pm2Available: boolean；nodeVersion: string \| null | Node 环境就绪度（来源 env-mgmt NodeReadiness 探测；版本不可知时为 null 不虚构）；与 pythonReady 并列 |
+| NodeReadiness | nodeAvailable: boolean；npmAvailable: boolean；pm2Available: boolean；nodeVersion: string \| null | Node 环境就绪度（来源 env-mgmt NodeReadiness 探测；版本不可知时为 null 不虚构）；在 list 响应里的字段名是 nodeReadiness，与既有 pythonReadiness 并列 |
 
 ### C. 新增错误码
 
@@ -518,5 +518,10 @@ CREATE INDEX IF NOT EXISTS idx_app_task_created ON app_task(created_at);
 
 ### E. DDL（迁移 018_app_runtime.sql）
 
-ALTER TABLE app ADD COLUMN runtime TEXT NOT NULL DEFAULT 'python';
-——仅加列，不重建表；既有行缺省即 Python 项目。start_mode 列的 CHECK 约束保留历史值 container（该形态已下线，由服务层拒绝，APP_014）。
+app 表增列 runtime TEXT NOT NULL DEFAULT 'python' CHECK (runtime IN ('python','node'))，start_mode 的 CHECK 扩为五值（preset_fastapi / custom / container / node_file / npm_script）；container 为历史值保留在约束里（该形态已下线，由服务层拒绝，APP_014）。
+
+实现方式是**表重建**，不是一条 ALTER：SQLite 的 CHECK 约束不能 ALTER，而 start_mode 的约束必须扩值。迁移在单事务内完成——建新表 → 全量拷贝（既有行 runtime 取缺省 python）→ 把旧表的自增序号带到新表 → 弃旧表 → 改名 → 重建唯一索引 idx_app_unit；沿 010 / 014 / 016 / 017 先例，既有档案零丢失。
+
+自增序号那一步是必要的：只拷贝行时新表的序号只会到现存最大 id，升级前已删除项目的 id 会被重新发放（项目全部删除过则从 1 重新开始），而 app_task 永久保留，新项目会挂上旧项目的历史任务。带数据升级测试（store 包 TestMigrate018*）覆盖三种情形：有既有项目且删除过更大的 id / 项目全部删除 / 从未建过项目。
+
+> ⚠️ 2026-11-23 更正（实现核对）：本节与 D-app-08 初版写作「仅加列，不重建表」，与实现不符——扩 CHECK 必须重建表；同日 list 响应的就绪度字段名由 nodeReady 更正为 nodeReadiness（与 pythonReadiness 同构）。

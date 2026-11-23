@@ -2,9 +2,9 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v1.4 |
+| 版本 | v1.5 |
 | 状态 | 稳定 |
-| 最后更新 | 2026-11-20（v1.4 Python 环境增量同步轮——app-mgmt D0 Q2 一步到位，prd-env-mgmt v1.4 FR-09 ⚠️A18） |
+| 最后更新 | 2026-11-23（v1.5 宝塔式重组增量同步轮——ADR-033，prd-env-mgmt v1.5 FR-08 ⑥⑦ ⚠️A19：Node 环境随装 PM2、Node 就绪度读契约；零 HTTP / 零 DDL 变更。2026-11-20 v1.4 Python 环境增量同步轮） |
 | 输入 | prd-env-mgmt.md v1.4（FR-09 Python 增量 ⚠️A18；v1.2 完备性检查通过：G 5/5、T 适用 6/6、N 4/4；FR-07 安装后配置就绪、FR-08 Node）、domain-model.md v1.27（env_type 九值同步，v1.27 +python；app-mgmt 域追加）、D1 三文档（BA/AA/FL v1.3，⚠️A1~A18）、d0-clarification-2026-11-17-bootstrap.md（拍板 Q1~Q4）、d0-clarification-db-tools-integration-2026-11-19.md（Q1 一步到位 Node 环境）、d0-clarification-app-mgmt-2026-11-20.md（Q2 env-mgmt 扩 Python） |
 | 接口规约 | 栈规约 backend-02-api-conventions.md（go-vue3）；认证=HttpOnly Cookie 会话 + CSRF token（R-02，复用 account-auth）；鉴权=RBAC 两角色边界矩阵（ADR-018）；外部命令一律字面量参数数组（R-08） |
 
@@ -45,6 +45,7 @@
 | D-17 | **引导幂等保守**（⚠️A13，v1.2）：db-mgmt BootstrapAfterInstall 前置——目标本机默认 identity 已配置凭据（credentialsSet）→ skipped；引擎侧已存在配置（MySQL dougong 账户已存在 / Redis requirepass 已设 / MongoDB 已有用户或已开鉴权）→ skipped（不覆盖用户已有配置、不重置密码，conffile 保守先例）；skipped 携带 Note 说明。已装/已配置环境重复安装/升级不重复引导（重跑终态一致）。引导动作审计 env_bootstrap（env-mgmt 侧）+ instance_bootstrapped（db-mgmt 侧，脱敏） | D0 拍板；用户已有配置不覆盖；与 D-05 升级幂等同哲学 |
 | D-18 | **引导失败独立维度**（⚠️A14，v1.2，D0 拍板 Q3）：env_install_task **+bootstrap_status TEXT NULL CHECK(in succeeded,failed,skipped) + bootstrap_note TEXT NULL**（NULL=无引导步骤）；任务 status 仍为包操作四态结果——安装成功但引导失败 → status=succeeded + bootstrap_status=failed + note 原因；引导结果与任务终态**同事务定格**（Finish 扩展，SQL #7/#10）；task/list·detail 响应 +bootstrapStatus/bootstrapNote（interface_changed，无新接口）；前端任务详情引导结果横幅（succeeded=已就绪可到数据库管理治理 / failed=已安装·引导失败+原因+「重新安装/升级以重试引导」/ skipped=保守跳过说明）；恢复路径=重新安装/升级（幂等重跑引导，无新重试接口） | D0 拍板 Q3；不混淆「已装」与「可治理」；引导结果非新状态机（domain-model v1.22 辨析） |
 | D-19 | **引导服务就绪与超时**（⚠️A15，v1.2）：bootstrap 前 env-mgmt 经 SysdGateway 幂等 start 目录 DB 单元（start 对已运行无副作用；enable 不强制，沿 ⚠️A5）；db-mgmt 引导建连有界重试等待引擎就绪（**BOOTSTRAP_READY_TIMEOUT=60s**，间隔 2s 重试，超时→bootstrap_status=failed note=引擎未就绪）；引导各步受 ctx 超时约束（包操作链路上界外另计，单引擎引导 ≤BOOTSTRAP_READY_TIMEOUT+建连/命令超时）；**全注入化**——MySQL socket 建连/Redis CONFIG/MongoDB 建用户/凭据注册均经网关接口注入替身，零 runner 实况引擎依赖（CI 环境耦合第 7 起预防；引擎实联归 Linux 冒烟） | D0 拍板（⚠️A5 细化）；MySQL 首装初始化数据目录可达数十秒，有界重试承载；CI 预防沿 v0.1.2 教训 |
+| D-20 | **Node 环境随装 PM2**（⚠️A19，v1.5，ADR-033）：Node 的 install / upgrade 任务在 nodejs 主包成功后追加两步——NpmInstallGlobal(pm2) → Pm2Startup（pm2 startup systemd，仅 Linux）；**两步均尽力而为**：失败写警告日志并往任务输出环追加 [warn] 注记，不改变任务终态、不触发重试语义（Node 环境本身已装好）；已装 Node 但缺 PM2 的存量主机经「升级」动作补装（与 v1.4 pip 补装同一机制）；uninstall 不执行任何 PM2 命令（面板无法判断是否仍有项目依赖 PM2 里保存的进程列表）；PM2 就绪度探测只查可执行文件、不执行 pm2 命令（实测任何 pm2 命令都会自动拉起守护进程，就绪度探测不应有此副作用） | 用户拍板 Node 项目由 PM2 托管（Gate 1）；PM2 是 Node 的随装件而非环境条目，故不新增 env_type、不建表；尽力而为是为了不让一个辅助组件的安装失败把 Node 环境标成失败；pm2 startup systemd 仅 Linux 可用，本机 Windows 无法验证（归服务器实机） |
 
 ### 1.4 领域对象总览
 
@@ -252,6 +253,11 @@ EnvPackGateway {
   BinaryVersion(ctx, bin) (version string, err)            // v1.3：node --version；v1.4：python3 --version 参数数组（FR-08②/FR-09②）；二进制不存在=错误如实，调用方 version=null
   ProbeVenvSupport(ctx) (bool, err)                        // v1.4：python3 -m venv --help 判定 venv 支撑（FR-09②；R-08 参数数组）
   ProbePipAvailable(ctx) (bool, err)                       // v1.4：pip3/pip 可执行判定（FR-09②）
+  ProbeNpmAvailable(ctx) (bool, err)                       // v1.5：npm --version 可执行判定（R-08 参数数组；缺席或不可执行=false 非错误）
+  ProbePm2Available(ctx) (bool, err)                       // v1.5：PM2 可执行文件存在性判定——只查文件、不执行 pm2 命令（任何 pm2 命令都会拉起守护进程）；DOUGONG_PM2_BIN 可覆盖判定路径（开发机隔离验证）
+  NpmInstallGlobal(ctx, pkg) (outputTail string, err)      // v1.5：npm install -g <pkg> --no-audit --no-fund [--registry 配置 tools.npm_registry]（D-20）
+  Pm2Startup(ctx) (outputTail string, err)                 // v1.5：pm2 startup systemd 注册开机自启；非 Linux / 无 systemd 如实失败（D-20）
+  SetNpmRegistry(registry string)                          // v1.5：装配期注入 npm 源镜像（空=官方源）
 }
 SysdGateway（复用 service-mgmt 适配器，D-09）{ UnitState(unit) / Start / Stop / Restart / Enable / Disable / ListUnits }
 约束：全部命令字面量参数数组（R-08）；超时 PKG_OP_TIMEOUT；TaskWorker 组合 EnsureVendorRepo→RefreshIndex→Install/Remove 完成命令链（D-04/D-05/D-06 v1.1 次序）；单元名一律规范全名（⚠️A8/D-13）
@@ -334,7 +340,7 @@ SysdGateway（复用 service-mgmt 适配器，D-09）{ UnitState(unit) / Start /
 | AuditService.Record | （出站调用） | 操作审计（R-03，I-03 同事务） |
 | **db-mgmt BootstrapAfterInstall（v1.2 消费）** | **（出站调用，进程内 OHS）** | **安装后配置就绪：建账户/设密码/注册实例与凭据（D-15/D-16）；BootstrapOutcome 回传引导结果；契约见 api-database-mgmt.md §5.1** |
 
-本模块对外提供的 OHS 服务契约（进程内读契约，非 HTTP）：**环境实况读契约**——db-tools 消费 PHP-FPM/Node/nginx 依赖就绪度（v1.3，api-db-tools D-18）+ **app-mgmt 消费 Python 就绪度 PythonReadiness（v1.4：Installed/Version/VenvSupport/PipAvailable，api-app-mgmt D-08 消费方定义；能力位探测经 EnvPackGateway ProbeVenvSupport/ProbePipAvailable）**；**v1.2 起消费 db-mgmt BootstrapAfterInstall OHS（单向硬依赖，安装后配置就绪）**。
+本模块对外提供的 OHS 服务契约（进程内读契约，非 HTTP）：**环境实况读契约**——db-tools 消费 PHP-FPM/Node/nginx 依赖就绪度（v1.3，api-db-tools D-18）+ **app-mgmt 消费 Python 就绪度 PythonReadiness（v1.4：Installed/Version/VenvSupport/PipAvailable，api-app-mgmt D-08 消费方定义；能力位探测经 EnvPackGateway ProbeVenvSupport/ProbePipAvailable）** + **app-mgmt 消费 Node 就绪度 NodeReadiness（v1.5：NodeAvailable/NpmAvailable/Pm2Available/NodeVersion，api-app-mgmt v1.2 D-16 消费方定义；探测经 BinaryVersion + ProbeNpmAvailable + ProbePm2Available，不执行 pm2 命令）**；**v1.2 起消费 db-mgmt BootstrapAfterInstall OHS（单向硬依赖，安装后配置就绪）**。
 
 ### 5.2 SQL 清单
 
@@ -386,6 +392,7 @@ CREATE INDEX IF NOT EXISTS idx_env_task_created ON env_install_task(created_at);
 | v1.2 | 2026-11-17 | rule_added×5 + field_added×2 + enum_added + interface_changed×2 + table_changed | 安装后配置就绪增量轮（d0-clarification-2026-11-17-bootstrap.md，D0 拍板 Q1~Q4）：①rule_added D-15~D-19（触发与归属〔worker 后置步骤+db-mgmt BootstrapAfterInstall OHS 单向消费〕/引导通道与账户〔MySQL socket root auth_socket→dougong@localhost ALL WITH GRANT OPTION、Redis CONFIG SET+REWRITE、MongoDB localhost exception admin root、随机强密码密文零回显〕/幂等保守〔已配置跳过〕/引导失败独立维度〔bootstrap_status/note，任务 status 仍包操作结果〕/服务就绪与超时〔幂等 start+BOOTSTRAP_READY_TIMEOUT=60s 有界重试+全注入化 CI 预防〕）；②field_added：env_install_task +bootstrap_status(CHECK 三值可空)/bootstrap_note（迁移 012 ADD COLUMN，011 已占用）；③enum_added：bootstrap_status{succeeded,failed,skipped} 入池（NULL=无引导步骤非值）；④interface_changed：task/list·task/detail 响应 +bootstrapStatus/bootstrapNote（无新接口，S7 Action 数不变 10）；install 执行链 +引导步骤；⑤table_changed：DDL +两列；⑥业务常量 +env_bootstrap 审计动作 +BOOTSTRAP_READY_TIMEOUT/BOOTSTRAP_PASSWORD_BYTES/BOOTSTRAP_ENV_TYPES；⑦仓储契约 Finish 扩展 +BootstrapGateway OHS 消费契约；⑧I-09 引导结果与终态同事务；1.5/3.2/5.1 +db-mgmt OHS 消费登记；关闭 prd 待对齐-4 | 1.3（D-15~D-19）、1.5、3.4（枚举/常量/审计）、4.1.1（字段/I-09/领域服务）、4.1.4（install·task/list·task/detail）、4.1.5、5.1、5.2（SQL#7）、5.3（DDL+迁移 012） |
 | v1.3 | 2026-11-19 | enum_value_added + rule_changed×4 + table_changed | Node 环境增量同步轮（db-tools Gate 2 W2 闭环，D0 Q1 一步到位；prd-env-mgmt v1.3 FR-08 ⚠️A16/A17）：①enum_value_added：env_type +node（八值；ENV_002 取值域八值；4.1.1 字段约束/I-08 目录八条目）；②rule_changed：D-01 八环境探测+Node 版本经 node --version/服务态 null、D-02 八值目录+4.2.1 Node 目录条目（Node.js LTS 22.x/NodeSource 三系源/nodejs 包三系同/npm 随包/单元映射空）、D-06 代配清单 +Node 三系（nodesource.list/nodesource-nodejs.repo，nodistro 统一代际，apt 限 debian/ubuntu+amd64/arm64，rpm 限 RHEL 8/9）、D-09 运行时型排除（ServiceOp 对 node 前置拒绝 ENV_006 不发起 systemd 调用）；③table_changed：env_type CHECK 七值→八值（014_env_mgmt_node.sql 表重建沿 010 先例，013 已占用，含 012 引导两列全量拷贝）；④业务常量 +NODE_LTS_TRACK=22；⑤4.1.5 契约 +BinaryVersion（node --version 参数数组 R-08）；⑥env/list Node 特化（unitName=""/serviceRunning/serviceEnabled=null）；无新接口（S7 Action 数不变 10）；db-tools 侧经 EnvStatus OHS 消费（api-db-tools D-18 跨模块待同步项本轮落定）；关闭 prd 待对齐-5（LTS 版本号=22/NodeSource 源落点/CHECK 迁移 014/node 拒绝码 ENV_006/PageSpec v1.4 呈现） | 1.1、1.3（D-01/D-02/D-06/D-09）、3.4（ENV_002/ENV_006/枚举/常量）、4.1.1（字段约束）、4.1.4（env/list·service/*）、4.1.5、4.2.1（Node 目录条目/I-08）、5.3（DDL+迁移 014） |
 | v1.4 | 2026-11-20 | enum_value_added + field_added + rule_changed×3 + table_changed | Python 环境增量同步轮（app-mgmt D0 Q2 一步到位；prd-env-mgmt v1.4 FR-09 ⚠️A18）：①enum_value_added：env_type +python（九值；ENV_002 取值域九值；4.1.1 字段约束/I-08 目录九条目）；②field_added：env/list 响应 python 条目 +venvSupport/pipAvailable（additive 可空，仅 python 条目非 null——app-mgmt 就绪度消费数据源）；③rule_changed：D-01 九环境探测+Python 版本经 python3 --version+能力位探测/服务态 null、D-02 九值目录+4.2.1 Python 目录条目（发行版仓库包/apt python3·python3-venv·python3-pip 三包候选·rpm python3/单元映射空/能力位探测/无代配）、D-09 运行时型排除 +python（ServiceOp 对 python 前置拒绝 ENV_006）；④table_changed：env_type CHECK 八值→九值（016_env_mgmt_python.sql 表重建沿 010/014 先例，015 已被 app-mgmt 两表占用，含 012 引导两列全量拷贝）；⑤4.1.5 契约 +ProbeVenvSupport/ProbePipAvailable（BinaryVersion 扩 python3）；⑥5.1 OHS 提供方 +app-mgmt PythonReadiness 登记（消费方 api-app-mgmt D-08）；无新接口（S7 Action 数不变 10）；无代配步骤（needsVendorRepo=false×3，无 env_repo_configured） | 1.1、1.3（D-01/D-02/D-09）、3.4（ENV_002/枚举）、4.1.1（字段约束）、4.1.4（env/list）、4.1.5、4.2.1（Python 目录条目/I-08）、5.1、5.3（DDL+迁移 016） |
+| v1.5 | 2026-11-23 | rule_added | 宝塔式重组增量同步轮（ADR-033，prd-env-mgmt v1.5 FR-08 ⑥⑦ ⚠️A19；零 HTTP 接口变更、零 DDL、零枚举变更）：①rule_added D-20 Node 环境随装 PM2（NpmInstallGlobal + Pm2Startup 尽力而为）；②网关接口 +ProbeNpmAvailable / ProbePm2Available / NpmInstallGlobal / Pm2Startup / SetNpmRegistry；③进程内读契约 +NodeReadiness（供 app-mgmt 创建 Node 项目前置校验）；④安装执行链 install/upgrade × node 追加随装两步，uninstall 不变。本行为已于同轮落码，文档在 Gate 2 核对时补登 | 1.3 设计决策表（D-20）、第 3 章网关接口清单、5.1 跨模块契约、第 4 章安装执行链 |
 
 ### 6.2 变更类型词汇表
 

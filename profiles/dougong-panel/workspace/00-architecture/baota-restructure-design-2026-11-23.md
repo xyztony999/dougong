@@ -2,9 +2,9 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v1.1 |
-| 状态 | Gate 1 已确认（2026-11-23）；本版按用户拍板把 Node 托管修订为 PM2 |
-| 最后更新 | 2026-11-23（v1.1：Node 项目改用 PM2 托管，第四章与相关小节修订；v1.0 为 systemd 托管方案，已被取代） |
+| 版本 | v1.2 |
+| 状态 | Gate 1 已确认（2026-11-23）；v1.2 为实现与真实浏览器核对后的更正与补充，随 Gate 2 提交确认 |
+| 最后更新 | 2026-11-23（v1.2：迁移 018 的表述按实现更正为表重建，列表响应字段名按实现更正，新增 9.4 前端实现约束；v1.1：Node 项目改用 PM2 托管；v1.0 为 systemd 托管方案，已被取代） |
 | 决策来源 | d0-clarification-baota-restructure-2026-11-23.md（用户六项拍板） |
 | 涉及模块 | app-mgmt（运行时项目托管）/ site-mgmt（网站管理页承载）/ docker-mgmt（容器管理）/ env-mgmt（Node 环境含 PM2 安装与就绪度） |
 | 新增编码 | S-62 面板应用、S-62-01~05、S-50-05；错误码 DK_028~032、APP_014~016；迁移 018 |
@@ -203,7 +203,7 @@ services:
 
 ## 七、数据与枚举
 
-- **迁移 018**：`app` 表新增列 `runtime TEXT NOT NULL DEFAULT 'python'`（取值 python / node）。仅加列，不重建表；`start_mode` 的 DDL CHECK 保留历史值 `container`（服务层拒绝，APP_014）。
+- **迁移 018**：`app` 表新增列 `runtime TEXT NOT NULL DEFAULT 'python'`（取值 python / node），`start_mode` 的 CHECK 扩为五值（新增 `node_file`、`npm_script`，保留历史值 `container`——服务层拒绝，APP_014）。SQLite 的 CHECK 约束不能 ALTER，所以迁移内做**表重建**（单事务：建新表 → 全量拷贝、既有行 `runtime` 取缺省值 → 弃旧表 → 改名 → 重建唯一索引；沿 010 / 014 / 016 / 017 先例，既有档案不丢）。自增高水位由迁移显式带到新表——只拷贝行的话新表的序号只会到现存最大 id，已删除项目的 id 会被重新发放（任务台账永久保留，新项目会挂上旧项目的历史任务）；这一点由带数据升级测试发现并修复，010 / 014 / 016 / 017 没有做这一步（已发布，不回改）。
 - **枚举池**：新增 `app_runtime`（python / node）；`app_start_mode` 增 `node_file`、`npm_script`，`container` 标注「已下线（DDL CHECK 历史值）」；`docker_app_state`（running / stopped / partial）。
 - app 档案扩展：`startSpec` 对 Node 承载 `{file}` 或 `{script}`，另记 `nodeBin` / `npmBin` 解析结果（供启动器使用）。PM2 进程名由应用名派生（`dougong-app-{名称}`），不单独存储；PM2 进程列表与开机恢复状态由 PM2 自持，面板不建表。
 
@@ -214,7 +214,7 @@ services:
 | 接口 | 变更 |
 |------|------|
 | POST /app/app/create | 请求体 +`runtime`（python \| node，缺省 python）；`startMode` 取值域按运行时区分：python → preset_fastapi \| custom；node → node_file \| npm_script；`container` → APP_014。`startSpec`：node_file=`{file}`、npm_script=`{script}` |
-| GET /app/app/list | 条目 +`runtime`；响应 +`pythonReady` / `nodeReady`（nodeReady 含 nodeAvailable / npmAvailable / pm2Available / nodeVersion）；Node 条目另带重启次数与内存占用；可选 query `runtime` 过滤 |
+| GET /app/app/list | 条目 +`runtime`、+`startSpec`（应用实际保存的启动参数）；响应 +`pythonReadiness` / `nodeReadiness`（后者含 nodeAvailable / npmAvailable / pm2Available / nodeVersion）；Node 条目另带 `pm2Status`（状态）、`restarts`（重启次数）、`memoryBytes`（内存占用）；可选 query `runtime` 过滤 |
 | GET /app/app/task/list、task/detail、service/*、log、params、env、deps、delete、site/link | 不变（对 Node 项目同等适用） |
 | 新增错误码 | APP_014 容器运行形态已下线（指引到容器管理）/ APP_015 Node 环境不完整（缺 node、npm 或 PM2）/ APP_016 Node 启动参数非法 |
 
@@ -229,7 +229,7 @@ services:
 | /docker/app/delete | POST | admin+CSRF | `{name}`：down + 删除目录 |
 | /docker/app/site | POST | admin+CSRF | `{name, domains[]}`：反向代理建站到 127.0.0.1:主机端口 |
 | /docker/compose/delete | POST | admin+CSRF | `{project}`：第六章删除入口 |
-| /docker/compose/list | GET | admin+readonly | 响应不变，数据源并入落盘扫描（零容器项目） |
+| /docker/compose/list | GET | admin+readonly | 数据源并入落盘扫描（零容器项目）；条目 +`panelManaged`（是否由面板创建、目录在落盘根下） |
 
 新增错误码：DK_028 应用不存在 / DK_029 应用名格式非法 / DK_030 应用操作失败（+data.reason）/ DK_031 主机端口已被占用 / DK_032 Compose 项目删除失败（+data.reason）。应用重名复用 DK_027。
 新增审计动作：`app_created` / `app_service` / `app_deleted` / `app_site_linked` / `compose_project_deleted`。
@@ -243,20 +243,34 @@ services:
 
 ### 9.1 网站管理（PageSpec site-mgmt v1.2 → v1.3）
 
-- 页面顶部三级分栏：「网站」（默认）/「Python 项目」/「Node 项目」。
+- 页面顶部三级分栏：「网站」（默认）/「Python 项目」/「Node 项目」。不加切换动画（与面板其它页签页一致）。
 - 「网站」分栏：既有站点列表与全部交互原样迁入，零行为变化。
 - 「Python 项目」「Node 项目」分栏：原应用管理页按运行时过滤后的同一面板（列表、创建、任务、运维抽屉），创建表单随运行时呈现对应字段。
+- 两个项目分栏是同一个组件按运行时各挂一份，分栏节点必须各自带 `key`（见 9.4）：切换分栏是「卸载旧的 + 挂载新的」，面板里的轮询定时器随卸载清理。
 
 ### 9.2 应用管理（PageSpec app-mgmt v1.0 → v1.1）
 
 - 不再是独立页面，改为网站管理页内嵌面板（按 `runtime` 属性实例化两次）。Node 项目分栏是 PM2 进程视角：状态列呈现 PM2 状态（运行中 / 已停止 / 异常）并附重启次数与内存占用；开机自启开关带说明「开启会同时启动应用，关闭会同时停止应用」。
 - 创建表单：去掉「容器运行」选项；Node 运行时下启动方式为「启动文件 / npm 脚本」；表单内说明「由 PM2 托管进程，可在服务器上用 pm2 list 查看」。
 - 就绪度提示随运行时：Node 缺 node / npm 时给环境管理引导。
+- 清单首次返回之前不呈现结论：状态条显示「检测中」、不出现「到环境管理安装」入口、表格处于加载态而不显示「还没有项目」（Node 清单要等 PM2 回话，这段时间不短）；首次加载失败时表格写「未能读取项目列表」，不写「还没有项目」。
 
 ### 9.3 容器管理（PageSpec docker-mgmt v1.1 → v1.2）
 
 - 新增「应用」页签（位于「容器」之后）：列表 + 「创建应用」+ 行内 启动/停止/重启/日志/建站/删除；创建弹窗字段：名称、镜像、主机端口、容器端口、环境变量（多组）、挂载（多组）、重启策略。
 - Compose 页签：零容器项目呈现「未运行」；新增行内「删除项目」（强确认，明示是否删除目录）；DK_027 提示更新。
+
+### 9.4 前端实现约束（真实浏览器核对后补充）
+
+本节三条来自 v0.4.0 开发中在真实浏览器里逐个点击入口时发现的问题。它们不改变上面的设计，而是设计成立所依赖的实现前提，现均由测试把关：
+
+| 约束 | 违反时的表现 | 把关 |
+|------|-------------|------|
+| 同一组件按属性挂在多个分栏时，分栏节点各自带 `key`。NTabs 在 `display-directive="if"` 下每次只渲染当前分栏这一个子节点；节点不带 `key` 时切换分栏会被当成同一个节点改了属性，组件的 `setup` 不会重跑 | 从监控页「项目」入口先进 Python 再切 Node，Node 分栏沿用 Python 的仓库和表单默认值，永远显示「还没有Node项目」；直接打开 `?tab=node` 却一切正常 | sites-hub-mount.test.ts（真实 Vue 运行时挂载）；去掉 `key` 即失败 |
+| 二次确认的触发按钮只负责弹出确认，执行只放在 `onPositiveClick`；触发按钮上不得再绑定 `onClick` | 点一下就直接执行，确认气泡事后才出现，点「确认」还会再执行一遍。容器行的停止 / 重启 / 暂停 / 删除和 Compose 行的 up / restart / down 自上线起就是这样；本轮新增的「删除项目」曾沿用同一写法（删除目录、不可恢复） | __tests__/confirm-trigger.test.ts（全仓扫描每个二次确认的触发按钮） |
+| 清单首次返回之前不呈现结论（空状态、环境缺失） | 监控页写「1 项目」，点进去先看到「还没有项目」「环境不完整」，数据到了才变 | 仓库层加载态测试 + 入口测试中的加载态断言 |
+
+教训：入口可达性测试核对的是「按钮 → 处理函数 → 接口」是否连通，错误接法（按钮自己直接执行）同样满足连通条件；实例复用更是源码断言看不见的。两者都是在真实页面里点过之后才暴露的。
 
 ## 十、readonly 负空间（ADR-018）
 
@@ -299,4 +313,4 @@ services:
 | D-app-05 | `dougong.app` 归属标签仅由「应用」创建通道注入 | 标签语义收窄为「面板应用」，与手写 Compose 项目可区分 |
 | D-app-06 | 应用清单零持久化（落盘扫描 + 容器实况） | 沿 docker-mgmt D-10 无表无 SQL；事实源在文件系统与 daemon |
 | D-app-07 | Compose 列表并入落盘根目录扫描 | 修复零容器不可见；面板外项目仍仅经 label 发现，行为不变 |
-| D-app-08 | 迁移 018 仅加 `runtime` 列，不重建 app 表 | 最小改动；`container` 历史值由服务层拒绝 |
+| D-app-08 | 迁移 018 给 `app` 表加 `runtime` 列并把 `start_mode` 的 CHECK 扩为五值；因 SQLite 不能 ALTER CHECK，迁移内做表重建（v1.2 更正：原记为「仅加列，不重建表」，与实现不符） | `container` 历史值保留在 CHECK 里、由服务层拒绝；重建沿既有迁移先例，单事务、既有档案不丢 |
