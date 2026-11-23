@@ -37,10 +37,10 @@
 - **配套**：`DK_ERROR_TEXT` 18→27 码；失败保留弹窗内联 `data.reason`；`docker.compose_root` 配置键（POSIX / 平台原生双形态绝对路径校验——修复 Windows 下 `filepath.IsAbs` 不认默认值致 CLI 测试全挂）；service 与 HTTP 两层创建流程测试（此前零覆盖）
 - **防回归**：`frontend/src/views/docker/__tests__/create-entry.test.ts` 8 用例——以视图源码断言每个创建动作「按钮 → open 函数 → show 置真 → 弹窗」全链连通
 
-未完成（本节待办）：
+后续完成（2026-11-23）：
 
-- 真实 Docker 端到端验证（创建 → 运行 → 停启 → 删除全链 + 既有写操作逐项）
-- Gate 2 重检：新增硬性检查项「入口可达性」，每个交付动作给出 触发按钮 → 弹窗 → Action → 后端端点 的 file:line 证据，缺一环即 FAIL
+- 真实 Docker 端到端：在本机 Docker Desktop（daemon 29.8.1）上以真实二进制 + 真实 HTTP 会话实跑，94 项全过（详见 05-reports/gate2-docker-create-2026-11-22.md 第七节）；过程中额外查出并修复两处问题——网络删除拒绝归类错误（v0.1.0 起既有：被接入的网络误报为预定义）、容器名提示文案与契约不符（本轮重做表单时引入）
+- Gate 2 重检：入口可达性逐动作证据已出（触发按钮 → open 函数 → show 置真 → 弹窗 → Action → 端点），待用户确认后记 pass 并发版 v0.3.1
 
 ## 三、重组范围（D1-D4 待做）
 
