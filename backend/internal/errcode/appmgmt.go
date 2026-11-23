@@ -29,6 +29,19 @@ var (
 	ErrAppParamsInvalid = New("APP_012", "参数校验失败")
 )
 
-// ErrAppImageInvalid APP_013 镜像引用格式非法（容器化形态校验，R-14；
-// 复用 DK_012 同规则——名称[:tag] 服务端格式校验）。
+// ErrAppImageInvalid APP_013 镜像引用格式非法（v1.1 容器化形态校验；该形态
+// 已随 ADR-033 下线，码位保留不复用——容器化部署的镜像校验归 docker-mgmt）。
 var ErrAppImageInvalid = New("APP_013", "镜像引用格式非法")
+
+// ADR-033 宝塔式重组（api-app-mgmt.md v1.2）：容器形态下线与 Node 运行时。
+var (
+	// ErrAppStartModeRetired APP_014 启动方式已下线（container）：容器化部署
+	// 请到「容器管理 › 应用」创建（D-app-04）。
+	ErrAppStartModeRetired = New("APP_014", "该启动方式已下线：容器化部署请到「容器管理 › 应用」创建")
+	// ErrAppNodeEnvIncomplete APP_015 Node 环境不完整（缺 node/npm/PM2）；
+	// data.missing 逐项列出，引导环境管理安装或升级 Node（D-16）。
+	ErrAppNodeEnvIncomplete = New("APP_015", "Node 环境不完整，请到环境管理安装或升级 Node")
+	// ErrAppNodeStartSpecInvalid APP_016 Node 启动参数非法（入口文件须项目内
+	// 相对路径；脚本名白名单）；data.reason（D-16）。
+	ErrAppNodeStartSpecInvalid = New("APP_016", "Node 启动参数非法")
+)

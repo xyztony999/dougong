@@ -51,7 +51,14 @@ type Gateway struct {
 	writeFile func(string, []byte, fs.FileMode) error
 	mkdirAll  func(string, fs.FileMode) error
 	httpGet   func(ctx context.Context, url string) ([]byte, error)
+
+	// npmRegistry npm 源镜像（ADR-033：Node 环境随装 PM2 用；main 装配注入
+	// cfg.Tools.NpmRegistry，空=npm 默认源）。
+	npmRegistry string
 }
+
+// SetNpmRegistry 设置 npm 源镜像（空=官方源）。
+func (g *Gateway) SetNpmRegistry(r string) { g.npmRegistry = r }
 
 // NewGateway 构造适配器（生产探测与执行）。
 func NewGateway() *Gateway { return newGateway() }
@@ -237,6 +244,53 @@ func (g *Gateway) ProbePipAvailable(ctx context.Context) (bool, error) {
 		return false, nil // pip 不可用=能力位 false（非通道错误）
 	}
 	return true, nil
+}
+
+// ProbeNpmAvailable 探测 npm 可用性（ADR-033：Node 项目依赖安装通道）。
+// npm 缺席或不可执行=能力位 false（非通道错误）。
+func (g *Gateway) ProbeNpmAvailable(ctx context.Context) (bool, error) {
+	if _, err := g.lookPath("npm"); err != nil {
+		return false, nil
+	}
+	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	if _, err := g.runCmd(cctx, nil, "npm", []string{"--version"}); err != nil {
+		return false, nil
+	}
+	return true, nil
+}
+
+// ProbePm2Available 探测 PM2 可用性（ADR-033 D-16）。仅做存在性探测，不执行
+// pm2 命令——实测任何 pm2 命令在守护进程缺席时都会自动拉起守护进程，就绪度
+// 探测不应有此副作用。DOUGONG_PM2_BIN 覆盖时以该路径判定（开发机隔离验证）。
+func (g *Gateway) ProbePm2Available(ctx context.Context) (bool, error) {
+	if b := os.Getenv("DOUGONG_PM2_BIN"); b != "" {
+		if _, err := os.Stat(b); err == nil {
+			return true, nil
+		}
+		return false, nil
+	}
+	if _, err := g.lookPath("pm2"); err != nil {
+		return false, nil
+	}
+	return true, nil
+}
+
+// NpmInstallGlobal 全局安装 npm 包（ADR-033：Node 环境随装 PM2；R-08 参数
+// 数组；源镜像经 SetNpmRegistry 注入）。
+func (g *Gateway) NpmInstallGlobal(ctx context.Context, pkg string) (string, error) {
+	args := []string{"install", "-g", pkg, "--no-audit", "--no-fund"}
+	if g.npmRegistry != "" {
+		args = append(args, "--registry", g.npmRegistry)
+	}
+	return g.run(ctx, "npm", args...)
+}
+
+// Pm2Startup 注册 PM2 开机自启（ADR-033：Linux systemd 生成 pm2 启动单元，
+// 开机时恢复已保存的进程列表）。非 Linux / 无 systemd 如实失败，调用方
+// best-effort 记录不阻断环境安装终态。
+func (g *Gateway) Pm2Startup(ctx context.Context) (string, error) {
+	return g.run(ctx, "pm2", "startup", "systemd")
 }
 
 // RefreshIndex 刷新包索引（D-05：apt-get update / dnf makecache / yum makecache；

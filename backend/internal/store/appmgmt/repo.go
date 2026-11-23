@@ -12,7 +12,7 @@ import (
 
 // ---- app（应用档案仓储，api §5.2 SQL #8/#9 + 查询通道）----
 
-const appCols = `id, name, dir, entry, start_mode, start_spec, listen_port,
+const appCols = `id, name, dir, entry, runtime, start_mode, start_spec, listen_port,
 	unit_name, created_by, created_at, updated_at`
 
 // AppRepo 实现 app 表访问（全参数化；SQL 仅本包）。
@@ -55,15 +55,17 @@ func (r *AppRepo) List(ctx context.Context) ([]App, error) {
 // Create 插入档案（create 任务 succeeded 终态同事务 I-C01；唯一性由 UNIQUE
 // name 约束兜底 I-02——预查已在创建校验链 APP_002 承载）。
 func (r *AppRepo) Create(ctx context.Context, a App) (int64, error) {
-	fmt.Println("[dbg] AppRepo.Create enter", a.Name, a.UnitName)
 	now := formatTime(time.Now().UTC())
+	runtime := a.Runtime
+	if runtime == "" {
+		runtime = RuntimePython
+	}
 	res, err := r.x.ExecContext(ctx,
-		`INSERT INTO app (name, dir, entry, start_mode, start_spec, listen_port,
+		`INSERT INTO app (name, dir, entry, runtime, start_mode, start_spec, listen_port,
 		  unit_name, created_by, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		a.Name, a.Dir, a.Entry, a.StartMode, a.StartSpec, a.ListenPort,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		a.Name, a.Dir, a.Entry, runtime, a.StartMode, a.StartSpec, a.ListenPort,
 		a.UnitName, a.CreatedBy, now, now)
-	fmt.Println("[dbg] AppRepo.Create done", err)
 	if err != nil {
 		return 0, wrapErr("app create", err)
 	}
@@ -91,7 +93,7 @@ func (r *AppRepo) UpdateStartSpec(ctx context.Context, id int64, spec string) er
 func scanApp(row interface{ Scan(...any) error }) (App, error) {
 	var a App
 	var createdAt, updatedAt any
-	if err := row.Scan(&a.ID, &a.Name, &a.Dir, &a.Entry, &a.StartMode, &a.StartSpec,
+	if err := row.Scan(&a.ID, &a.Name, &a.Dir, &a.Entry, &a.Runtime, &a.StartMode, &a.StartSpec,
 		&a.ListenPort, &a.UnitName, &a.CreatedBy, &createdAt, &updatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return App{}, ErrAppNotFound

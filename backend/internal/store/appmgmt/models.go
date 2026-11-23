@@ -17,15 +17,23 @@ import (
 // Executor 是 store.Executor 的别名（*sql.DB 与 *sql.Tx 共同满足）。
 type Executor = store.Executor
 
-// app_start_mode / app_task_action / app_task_status 取值域（DDL CHECK 兜底）。
+// app_runtime / app_start_mode / app_task_action / app_task_status 取值域
+// （DDL CHECK 兜底；ADR-033 宝塔式重组）。
 const (
+	RuntimePython = "python" // Python 项目（venv + systemd，既有）
+	RuntimeNode   = "node"   // Node 项目（PM2 托管进程，ADR-033 D-16）
+
 	StartModePresetFastAPI = "preset_fastapi" // FastAPI 预设（venv 内 uvicorn 模板，D-06）
 	StartModeCustom        = "custom"         // 自定义命令（venv 内相对路径白名单，D-06）
-	StartModeContainer     = "container"      // 容器化形态（v1.1 ⚠️A13：面板生成单应用 compose + 归属标签，经 docker-mgmt 通道；无 unit/D-06 venv 链）
+	StartModeNodeFile      = "node_file"      // Node 启动文件（项目内相对路径，启动器加载，D-16）
+	StartModeNpmScript     = "npm_script"     // Node npm 脚本（npm run <脚本名>，D-16）
+	// StartModeContainer 容器化形态——已下线（ADR-033 D-app-04）：DDL CHECK 保留
+	// 历史值，服务层拒绝（APP_014）；容器化部署归 docker-mgmt「应用」页签。
+	StartModeContainer = "container"
 
-	ActionCreate      = "create"       // 创建应用（venv→依赖→单元→可选启动）
-	ActionDepsInstall = "deps_install" // 依赖重装（requirements.txt）
-	ActionDelete      = "delete"       // 删除应用（停服务撤单元撤档案）
+	ActionCreate      = "create"       // 创建应用（Python：venv→依赖→单元；Node：依赖→PM2 注册）
+	ActionDepsInstall = "deps_install" // 依赖重装（Python：requirements.txt；Node：npm install）
+	ActionDelete      = "delete"       // 删除应用（停进程撤托管撤档案）
 
 	TaskPending   = "pending"
 	TaskRunning   = "running"
@@ -39,16 +47,17 @@ var (
 	ErrTaskNotFound = errors.New("store/appmgmt: task not found")
 )
 
-// App 对应 app 表一行（聚合根：应用档案，api §4.1.1）。
+// App 对应 app 表一行（聚合根：运行时项目档案，api §4.1.1；ADR-033 扩 runtime）。
 type App struct {
 	ID         int64
 	Name       string
 	Dir        string
 	Entry      string
+	Runtime    string // python | node（迁移 018；缺省 python）
 	StartMode  string
-	StartSpec  string // 启动方式值对象 JSON（D-06；整列替换式更新）
+	StartSpec  string // 启动方式值对象 JSON（D-06/D-16；整列替换式更新）
 	ListenPort int
-	UnitName   string
+	UnitName   string // Python：systemd 单元名；Node：PM2 进程名（dougong-app-{名称}）
 	CreatedBy  string
 	CreatedAt  time.Time
 	UpdatedAt  time.Time

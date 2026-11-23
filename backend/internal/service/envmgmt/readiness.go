@@ -59,3 +59,31 @@ func (s *Service) PythonReadiness(ctx context.Context) (PythonReadiness, error) 
 	}
 	return rd, nil
 }
+
+// NodeReadiness Node 运行环境就绪度（ADR-033 宝塔式重组，api-app-mgmt v1.2
+// D-16；消费方 app-mgmt——进程内单向读，无 HTTP 绕行）。分层字段：
+// NodeAvailable（node 可执行）/ NpmAvailable（npm 可执行）/ Pm2Available
+// （PM2 可执行，Node 项目进程托管依赖）/ NodeVersion（node --version，
+// 缺席空串如实）。Node 可能系统预装，故不依赖包通道判定。
+type NodeReadiness struct {
+	NodeAvailable bool
+	NpmAvailable  bool
+	Pm2Available  bool
+	NodeVersion   string
+}
+
+// NodeReadiness 探测 Node 运行环境就绪度。探测失败逐项 false 如实（不虚构）。
+func (s *Service) NodeReadiness(ctx context.Context) (NodeReadiness, error) {
+	rd := NodeReadiness{}
+	if bv, err := s.pack.BinaryVersion(ctx, "node"); err == nil {
+		rd.NodeAvailable = true
+		rd.NodeVersion = strings.TrimPrefix(strings.TrimSpace(bv), "v")
+	}
+	if ok, err := s.pack.ProbeNpmAvailable(ctx); err == nil {
+		rd.NpmAvailable = ok
+	}
+	if ok, err := s.pack.ProbePm2Available(ctx); err == nil {
+		rd.Pm2Available = ok
+	}
+	return rd, nil
+}

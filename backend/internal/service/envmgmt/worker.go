@@ -143,6 +143,25 @@ func (s *Service) runTask(taskID int64) {
 			}
 		}
 	}
+	// Node 环境随装 PM2 并注册开机自启（ADR-033 D-16：Node 项目由 PM2 托管进程）。
+	// best-effort：失败记日志+输出环注记，不阻断 Node 主包终态——就绪度探测会
+	// 如实呈现缺 PM2，创建 Node 项目时拒绝并引导回环境管理升级补装（与 v0.3.0
+	// pip 补装同一机制）。卸载不触碰 PM2 进程列表（面板无法判断是否仍有项目依赖）。
+	if task.Action != storeenv.ActionUninstall && entry.Type == storeenv.EnvNode {
+		pout, perr := s.pack.NpmInstallGlobal(ctx, "pm2")
+		ring.append(pout)
+		if perr != nil {
+			slog.WarnContext(ctx, "envmgmt: pm2 install failed (best-effort)", "err", perr)
+			ring.append("[warn] PM2 安装失败（不阻断 Node 安装；Node 项目需要 PM2，可稍后升级补装）: " + perr.Error())
+		} else {
+			sout, serr := s.pack.Pm2Startup(ctx)
+			ring.append(sout)
+			if serr != nil {
+				slog.WarnContext(ctx, "envmgmt: pm2 startup registration failed (best-effort)", "err", serr)
+				ring.append("[warn] PM2 开机自启注册失败（不阻断；开机后需手动 pm2 resurrect）: " + serr.Error())
+			}
+		}
+	}
 	// 安装后配置就绪引导（v1.2，D-15~D-19）：仅数据库类 install/upgrade 成功后
 	// 执行（runBootstrap 内部按 bootstrapEnvTypes 判定，非数据库返回 nil）；引导
 	// 失败不改包安装 succeeded（独立维度，⚠️A14），结果随终态同事务定格（I-09）。
