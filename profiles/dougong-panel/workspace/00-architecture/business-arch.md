@@ -6,9 +6,9 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v2.8 |
+| 版本 | v2.9 |
 | 状态 | 稳定 |
-| 最后更新 | 2026-11-21 |
+| 最后更新 | 2026-11-23（v2.9 宝塔式重组 D1 同步核验：docker-mgmt 支撑业务域追加 S-62 面板应用；app-mgmt 范围修订；L2/L3 集合零变化） |
 
 ## 第一部分：文档概述
 
@@ -492,3 +492,8 @@
 | v2.6 | 2026-11-19 | db-tools 自动 nginx 落地增量 D1 同步核验（权威文档 business-arch-db-tools.md v1.0→v1.1，d0-clarification-dbtools-auto-landing-2026-11-19.md）：新增 L4 业务活动工具落地自动供给（2.2.1.5，工具部署与变更 L3 下，机制型）低于本视图三秩截断（L4 见权威文档），另 ⚠️A14~A17 口径与既有 L4 修订均在 L4/口径层——db-tools 子树 L2/L3 集合无变化，第二部分与第三部分内容零改动，仅登记核验结论 |
 | v2.7 | 2026-11-20 | 追加应用管理业务域子树（3 阶段 / 3 关键业务：应用清单与实况/应用部署与变更/应用运行与暴露），权威文档 business-arch-app-mgmt.md v1.0（D0 用户四拍板 2026-11-20，d0-clarification-app-mgmt-2026-11-20.md，编码 C-16/S-60/S-61）；第三部分树同步重排 db-tools 分支连接符（仅格式，内容未变）；同轮 env-mgmt Python 增量核验（权威文档 v1.2→v1.3）：+Python 为目录条目扩展（⚠️A18，九环境），L2/L3 集合无变化——env-mgmt 子树零改动，仅登记核验结论 |
 | v2.8 | 2026-11-21 | docker-mgmt 创建类增量 D1 同步核验（权威文档 business-arch-docker-mgmt.md v1.0→v1.1，d0-clarification-docker-mgmt-create-2026-11-21.md 五项拍板）：新增 L4 业务活动 ×4（容器创建 2.2.2.4/卷创建 2.3.2.3/网络创建 2.3.3.3/Compose 项目创建 2.4.1.4）均低于本视图三秩截断（L4 见权威文档），docker-mgmt 子树 L2/L3 集合无变化——第二部分与第三部分内容零改动，仅登记核验结论；同轮 app-mgmt 容器化应用增量核验（权威文档 business-arch-app-mgmt.md v1.0→v1.1）：应用形态二选一（容器化并入既有 2.2.1.1 创建 L4 形态分支）——app-mgmt 子树 L2/L3 集合无变化，零改动仅登记 |
+| v2.9 | 2026-11-23 | 宝塔式重组 D1 同步核验（权威文档 business-arch-app-mgmt.md v2.0 / site-mgmt v1.3 / docker-mgmt v1.2）：docker-mgmt 支撑业务域追加 S-62 面板应用（5 业务活动）；app-mgmt 范围修订（OUT 容器形态、IN Node 托管，业务活动数不变）；L2/L3 集合零变化 |
+
+## 增量 v2.9（2026-11-23）：宝塔式重组 D1 同步核验
+
+- docker-mgmt 支撑业务域追加 S-62 面板应用（5 业务活动，见 business-arch-docker-mgmt.md v1.2）；app-mgmt 范围修订（OUT 容器形态、IN Node 托管，业务活动数不变，见 business-arch-app-mgmt.md v2.0）；site-mgmt 页面承载分栏（零业务活动变化）。L2 / L3 集合零变化。

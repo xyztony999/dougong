@@ -6,9 +6,9 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v2.9 |
+| 版本 | v2.10 |
 | 状态 | 稳定 |
-| 最后更新 | 2026-11-21 |
+| 最后更新 | 2026-11-23（v2.10 宝塔式重组 D1 同步：docker-mgmt admin +7 / readonly +2 读；app-mgmt 菜单行归属迁入网站管理分栏；site-mgmt 新增两个承载分栏） |
 
 ## 第一部分：文档概述
 
@@ -1075,3 +1075,10 @@
 | v2.7 | 2026-11-19 | db-tools 自动 nginx 落地增量 D1 同步核验（权威文档 function-list-db-tools.md v1.0→v1.1，AA v1.2）：新增功能子模块工具落地自动供给（C-15-05）为机制型（无独立菜单，经安装/卸载/打开/任务详情功能点覆盖，同 v2.2 CLI 机制型家族口径不入本聚合三秩）；既有菜单行功能点描述扩展（自动建块/清块/reason 可见/URL 端口分支）本聚合不载文案——第二部分与第三部分内容零改动，菜单行数不变（db-tools admin 8 / readonly 2），仅登记核验结论 |
 | v2.8 | 2026-11-20 | 追加 app-mgmt 子树（D0 用户四拍板 2026-11-20，d0-clarification-app-mgmt-2026-11-20.md，编码 C-16/S-60/S-61）：管理员章并入 C-16/S-60/S-61 三模块 9 个 UI 型功能子模块（S-60-02 应用实况探测机制型经权威文档附录覆盖），只读用户章并入 C-16/S-60 两模块 2 个功能子模块（日志 admin 专属 ⚠️A8，S-61 readonly 零可达），权威文档 function-list-app-mgmt.md v1.0；第三部分两树同步重排连接符（仅格式，内容未变）；同轮 env-mgmt Python 增量核验（权威文档 v1.2→v1.3）：+Python 为目录条目扩展非新子模块，菜单行数不变（admin 6 / readonly 2）——env-mgmt 子树零改动，仅登记核验结论 |
 | v2.9 | 2026-11-21 | docker-mgmt 创建类增量 D1 同步（权威文档 function-list-docker-mgmt.md v1.0→v1.1）：admin 菜单行 +4（容器创建/卷创建/网络创建/项目创建，均 admin 专属、readonly 负空间 +4）——本聚合为三秩视图，菜单行在权威文档表格承载、本视图子树到功能子模块层零改动仅登记；同轮 app-mgmt 容器化增量核验（权威文档 v1.0→v1.1）：创建表单双形态为既有菜单行口径修订非新菜单行——菜单行数不变，零改动仅登记 |
+| v2.10 | 2026-11-23 | 宝塔式重组 D1 同步（权威文档 function-list-*.md）：docker-mgmt admin +7 菜单行、readonly +2 读 +7 负空间；app-mgmt 菜单行归属迁入网站管理分栏；site-mgmt 新增两个承载分栏 |
+
+## 增量 v2.10（2026-11-23）：宝塔式重组 D1 同步
+
+- docker-mgmt：admin +7 菜单行（应用清单 / 创建应用 / 应用服务操作 / 应用日志 / 删除应用 / 应用建站 / Compose 删除项目）、readonly +2 读 +7 负空间（见 function-list-docker-mgmt.md v1.2）。
+- app-mgmt：菜单行归属由独立「应用管理」迁入「网站管理 › Python 项目 / Node 项目」分栏，计数不变（见 function-list-app-mgmt.md v2.0）。
+- site-mgmt：新增两个承载分栏，站点菜单行零变化（见 function-list-site-mgmt.md v1.3）。

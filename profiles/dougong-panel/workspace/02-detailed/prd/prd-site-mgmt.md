@@ -2,9 +2,9 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v1.2 |
+| 版本 | v1.3 |
 | 状态 | 稳定 |
-| 最后更新 | 2026-11-16 |
+| 最后更新 | 2026-11-23（v1.3 宝塔式重组 D2：网站管理页改三分栏承载 Python / Node 项目面板；功能需求零变化） |
 | 输入 | D0 澄清报告（00-architecture/d0-clarification-site-mgmt.md）、D1 三文档（business-arch/application-arch/function-list-site-mgmt.md v1.0）、idea.md §4.1 M4/§3/§5.4/§6 M3、knowledge（ADR-010/018/024、R-03/R-06/R-07/R-09/R-14/R-15/R-16、kb 对象表 site/certificate 与状态机表）、⚠️A13~A17（D1 新增，本 PRD 沿用） |
 | 下游 | D3 API 设计（02-detailed/api）、D4 交互设计（02-detailed/interaction） |
 
@@ -390,3 +390,10 @@ acme_challenge 取值含 dns_01（v1.2，⚠️A20）——dns_01 证书同沿�
 | v1.0 | 2026-11-12 | 初始生成：基于 D0 澄清报告与 D1 三文档（BA/AA/FL v1.0）成文；完备性检查通过（G 5/5、T 适用 7/7、N 4/4）；领域建模落盘 domain-model.md（核心域判定 + 1 聚合根 certificate + 4 域内/值对象 site/upstream/Raw 块/写回落点映射 + 1 子流程自动续期任务，零站点台账 D2 判定、无关联领域对象，判定论证见各部分）；枚举 5 项既有 draft 定稿（cert_status 随 ADR-024 关闭 ⚠️A2）+ 新增 site_log_type；沿用 D1 假设 ⚠️A13~A17；待对齐 10 项移交 D3/D4 |
 | v1.1 | 2026-11-16 | 增量（v0.1.2 用户反馈三项，输入 D1 三文档 v1.1，⚠️A18/A19）：①FR-08 站点列表聚合口径（同源文件同域名多 server 块合并呈现、监听合并、siteId 寻址不变，仅展示层）；②新增 FR-28 证书手动更新（acme 立即续期 valid/expiring_soon/renew_failed 可发起+失败分流口径；imported 粘贴 PEM 备份原子写回 origin_path，私钥不在范围如实声明）；③FR-20 称谓对齐「文件验证（HTTP-01）」+自动落点策略显性化（root 直写优先/复用 location/临时注入兜底）；OUT-2 扩充手动文件验证二期；第六部分状态机增补手动更新迁移口径；N2 +3 场景；零新对象零新枚举（domain-model.md v1.18 注记）；完备性增量复核通过（G 5/5 维持、T 适用 7/7 维持、N 4/4 维持——FR-28 为台账型变更操作，T2 状态迁移口径已覆盖） |
 | v1.2 | 2026-11-16 | 增量（Gate 1 改判：P2 DNS-01 纳入，DNS API 自动化口径 ⚠️A20）：新增 FR-29 ACME 证书申请 DNS-01（自动 TXT/泛域名/凭证引用续期/R-09 例外语义同判）与 FR-30 DNS 凭证管理（三服务商/密文存储沿 CredentialVault 先例/永不回显/删除引用警示/readonly 全负空间）；OUT-2 更新（DNS-01 移入 IN，手动 TXT OUT 及理由）；IN +2（#29/#30）；第六部分 acme_challenge=dns_01 注记；N2 +3 场景（TXT 清理失败/凭证缺失续期/服务商 API 失败）；第九部分 +DNS 服务商 ACL 行；枚举 acme_challenge +dns_01（池同步）+ dns_provider 新增（domain-model.md v1.20 +dns_credential 聚合根）；完备性增量复核通过（G/T/N 维持） |
+| v1.3 | 2026-11-23 | 宝塔式重组 D2（ADR-033）：网站管理页改三分栏承载 Python / Node 项目面板（页面承载，功能需求零变化） |
+
+## 增量 v1.3（2026-11-23）：宝塔式重组 D2
+
+> 依据 baota-restructure-design-2026-11-23.md 第二、三章。本节是权威增量。
+
+- 站点相关功能需求零变化；网站管理页新增「Python 项目」「Node 项目」两个承载分栏，其需求归 prd-app-mgmt.md v1.2。
