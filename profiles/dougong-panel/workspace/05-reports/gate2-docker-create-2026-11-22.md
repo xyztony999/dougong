@@ -96,3 +96,24 @@
 **未覆盖**：真实镜像拉取（本机已有基础镜像，未联网拉取）；WS 日志跟随；readonly 角色界面。
 
 **过程记录（如实）**：端到端脚本前两次运行因脚本自身缺陷失败（cookie 文件路径未转换、JSON 解析函数竞态），其间一个负向用例创建了不带前缀的容器 `Bad_Name` 未被清理脚本覆盖，已手工删除并清除其悬空镜像层，机器恢复基线；脚本已修正并增加「基线之外有无新增」的全面比对。
+
+## 八、入口可达性硬性检查（2026-11-23，Gate 2 重检——缺任一环即 FAIL）
+
+规则：每个交付的可见动作，核验 触发按钮 → 打开函数置真 → 弹窗 → 提交调用前端 Action → 路由 → HTTP 处理器 → 服务方法 全链在代码中真实连通，并给出 file:line。**结果：4/4 动作全链连通，PASS。**
+
+| 动作 | 触发按钮 | 打开函数 / show 置真 | 弹窗 v-model | 提交 → 前端 Action | 路由（写组：admin+CSRF） | HTTP 处理器 | 服务方法 |
+|------|----------|----------------------|--------------|--------------------|--------------------------|------------|----------|
+| 创建容器 | `views/docker/index.vue:1027` | `:829` / `:832` | `:1161` | `:862` → `api/docker.ts:271` | `api/dockermgmt/routes.go:92` | `api/dockermgmt/create.go:23` | `service/dockermgmt/create.go:229` |
+| 新建 Compose 项目 | `views/docker/index.vue:1049` | `:842` / `:844` | `:1231` | `:951` → `api/docker.ts:294` | `routes.go:95` | `create.go:88` | `create.go:508` |
+| 创建卷 | `views/docker/index.vue:1104` | `:834` / `:836` | `:1207` | `:897` → `api/docker.ts:276` | `routes.go:93` | `create.go:50` | `create.go:267` |
+| 创建网络 | `views/docker/index.vue:1126` | `:838` / `:840` | `:1218` | `:923` → `api/docker.ts:281` | `routes.go:94` | `create.go:69` | `create.go:289` |
+
+页面级登记：菜单 `cmd/dougong/main.go:407`；路由 `frontend/src/router/index.ts:246`（path）与 `:248`（组件）。
+
+交叉印证（三重独立证据）：
+
+1. 源码断言：`views/docker/__tests__/create-entry.test.ts` 8 用例——逐动作断言「admin 专属按钮 → open 函数 → show 置真 → 弹窗标题与 v-model」，另断言 readonly 负空间、表单字段集、失败不关弹窗、DK_019~027 文案齐全。
+2. 产物核对：对编译出的二进制做字节级搜索，四个创建入口文案与新文案在位、旧文案为零。
+3. 真实链路：第七节端到端经真实 HTTP 打通四个路由 → 处理器 → 服务 → 真实 daemon。
+
+未在本次硬性检查范围内的既有动作（非本轮交付）：容器六动作、镜像拉取/删除、卷/网络删除、Compose up/down/restart/日志——其入口在 v1.0 即在位，端到端已逐项实测后端链路可用（第七节），前端入口未逐个取证据（沿 v1.0 PageSpec，readonly 负空间 13 项登记在册）。
