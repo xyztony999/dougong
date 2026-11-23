@@ -47,9 +47,16 @@
 3. **写 CHANGELOG 小节**：正式 `## vX.Y.Z - YYYY-MM-DD`，含「变更内容」（分组列点）+「安装与升级」+「升级注意」（迁移号/破坏性）。
    —— `release.yml` 用 awk 提取 `## <tag>` 到下一个 `## ` 之间正文，**无小节即拒发**；小节标题须与 tag 名逐字一致。
 4. **编译门控全绿**：`go build/vet/test -race`（backend）+ 前端 `build`（vue-tsc+vite）+ `vitest`。
-5. **打 tag 推送**：`git tag vX.Y.Z && git push origin vX.Y.Z` → `release.yml` 构建 linux amd64/arm64 + sha256sums + GitHub Release（ldflags 注版本）。
-6. **验证**：Release 产物齐全 + CI 绿。
-7. **通知升级**：提示用户服务器重跑 `install.sh` 升级（数据目录不动）+ 列出实机验证项。
+5. **推送 main，等 CI 变绿再打 tag**：`release.yml` 不依赖 CI，tag 一推就直接构建发布。
+   开发机是 Windows、CI 与服务器是 Linux，路径、权限这类平台差异只有 CI 能发现——本地全绿不代表 Linux 上全绿。
+   需要时可在本机验证：`CGO_ENABLED=0 GOOS=linux go test -c -o x.test <包>`，再把 `x.test` 放进一次性容器运行
+   （`docker run --rm --network none --read-only --user 65534:65534 --tmpfs /tmp --entrypoint /t -v <x.test>:/t:ro ubuntu:24.04 -test.v`）。
+6. **打 tag 推送**：`git tag vX.Y.Z && git push origin vX.Y.Z` → `release.yml` 构建 linux amd64/arm64 + sha256sums + GitHub Release（ldflags 注版本）。
+7. **验证**：Release 产物齐全 + CI 绿。
+8. **通知升级**：提示用户服务器重跑 `install.sh` 升级（数据目录不动）+ 列出实机验证项。
+
+> 2026-11-23 的教训（v0.4.0）：推送 main 后立即打了 tag，Release 成功，而 main 的 CI 在 Linux 上挂了一个路径判定测试
+> （Windows 上恒绿）。修复只能发布后补（fe035d9）。自此打 tag 前必须先看到 main 的 CI 为绿。
 
 ### 漏节恢复
 

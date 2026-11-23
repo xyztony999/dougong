@@ -202,3 +202,13 @@ readonly 负空间（ADR-018）：创建、启停、删除、建站等入口均�
 - **代码提交（本地，未推送）**：edbbcc7、4c3bc78、5a2849c、8319c7c（重组主体）；0a13e70（界面三分栏）；868e3f9（分栏 key、加载态）；c077fb9（二次确认）；46dd540（迁移 018 序号）。
 - **设计产物**：跨模块设计 v1.2（含 9.4 前端实现约束）；ADR-033；BA/AA/FL、prd、api、PageSpec 各模块增量；domain-model v1.29、business-arch、function-list、枚举池；本报告；INDEX 登记。
 - **发版**：用户确认 Gate 2 后推送，按 docs/RELEASING.md 发 **v0.4.0**（minor：新功能 Node 项目托管、容器应用、Compose 删除、信息架构重组）。CHANGELOG 需写入：W2 行为变更、W3 旧版本风险、W4 升级提示、W1 服务器冒烟清单。
+
+## 十三、发布后记录（2026-11-23，主会话追加——如实留痕）
+
+- **已发布**：v0.4.0（tag = 5a6a128，2026-11-23 14:54Z）。用户确认 Gate 2 后推送 main（16 个提交），Release 流程成功，标记为 Latest；产物 amd64 14.5MB / arm64 13.5MB / sha256sums.txt。经 GitHub 接口核对，服务端记录的两个附件 sha256 摘要与 sha256sums.txt 一致。CHANGELOG 已写入上文四项（5a6a128）。
+- **发布后 main 的 CI 在 Linux 上失败 1 个测试**。main 的 CI 与 Release 是两个独立流程，Release 不等 CI，tag 一推就构建发布了。失败的是 `TestNodeCreateRejections` 的「入口为盘符绝对路径」：`isAbsAny` 用了平台相关的 `filepath.IsAbs`，Windows 上 `C:\x` 是绝对路径、Linux 上不是，于是在 Linux 上盘符路径被当成项目内的相对路径放行。本机是 Windows，此前所有本地验证都看不到这个差异；本报告第一至九节「全绿」的表述因此只对 Windows 成立，Linux 上的结果以 CI 为准。
+- **已修复（fe035d9，不单独发版）**：`isAbsAny` 改为纯字面规则——以 `/` 或 `\` 开头，或第二个字符是冒号且其后紧跟 `/` 或 `\`——不再调用 `filepath.IsAbs`；新增 `TestIsAbsAny`。修复的第一版仍把剩余情况交给 `filepath.IsAbs`，这个新测试立刻在 Windows 上抓到第二处差异（`1:/x`），于是改成完全不依赖它。
+- **在 Linux 上的验证**：把该包的测试交叉编译为 Linux 静态二进制，放进一次性容器（本机已有的 ubuntu:24.04，断网、只读、非特权、用完即删）运行。旧代码：`TestNodeCreateRejections` 的报错与 CI 一致，`TestIsAbsAny` 5 个用例失败；新代码：两者通过。修复推送后 main 的 CI 已变绿。
+- **对已发布的 v0.4.0 的影响**：仅 Linux 上少一项前置校验——把 `C:\x` 这类盘符路径填作 Node 入口文件时，不会被「须为项目内相对路径」当场拒绝，而是走到后面的入口文件存在性检查（文件不存在，仍然创建失败）。不影响正常使用；按发版规定随下一批发布。
+- **没做成的核对**：原计划在本机下载发布包、校验 sha256 并在 Linux 容器里运行 `version`，但本机到 GitHub 附件服务器的连接反复中断（14.5MB 的包两次都下载到几 MB 被截断），没有完成。完整性只核对到上一条所述的摘要一致；二进制的版本号注入依赖 Release 流程日志（「Build binaries (version stamped)」成功），未实跑确认。
+- **流程改进**：docs/RELEASING.md 的 checklist 增加「推送 main 后先等 CI 变绿，再打 tag」。
