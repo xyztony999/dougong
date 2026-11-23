@@ -2,9 +2,9 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v1.2 |
+| 版本 | v1.3 |
 | 状态 | 稳定 |
-| 最后更新 | 2026-11-16 |
+| 最后更新 | 2026-11-23（v1.3 宝塔式重组 D4：网站管理页改三分栏（网站 / Python 项目 / Node 项目），站点部分零行为变化） |
 | 用户类型 | admin |
 | 唯一数据源 | 02-detailed/api/api-site-mgmt.md v2.0 |
 | 组件体系 | Vue 3 + Naive UI（knowledge/architecture-choices 栈版本表；无激活栈 profile，不使用 vue3-engine 栈 Scm* 组件）；Monaco Editor（nginx 语法高亮，idea.md §5.3 选型） |
@@ -283,5 +283,15 @@
 | v1.0 | 2026-11-12 | initial | 首次生成：3 页面（site-list hybrid + cert-list config + site-source code）+ 1 详情 Drawer（6 Card）+ 18 Action、7 字典 Key、2 列表页/5 弹窗表单/0 独立表单路由/0 独立详情路由 |
 | v1.1 | 2026-11-16 | interface_added / interface_changed | 增量 D4（v0.1.2 用户反馈三项，数据源 api-site-mgmt.md v1.2）：**Action 18→20**（+certRenew 更新证书〔acme 行，D-18 失败分流呈现〕/+certReplace 替换证书文件〔imported 行，PEM 粘贴〕；certRetryRenewal 保留兼容不渲染独立按钮）；**site-list 聚合条目**（⚠️A18/D-17：同源文件同域名多块合并行、监听列合并 80/443、行展开 blocks 块清单、组级启停顺序逐块、证书列组内最优）；**详情 Drawer 块清单区**（多块条目块级切换详情）；**申请弹窗挑战文案对齐「文件验证 HTTP-01」+自动落点说明**（⚠️A19/D-19）；错误处理 +CERT_008；字典 Key 零变化（7 项） |
 | v1.2 | 2026-11-16 | interface_added / enum_value_added / enum_added | DNS-01 增量 D4（Gate 1 改判 P2，数据源 api-site-mgmt.md v2.0 ⚠️A20/D-20）：**Action 20→23**（+dnsCredList/dnsCredCreate/dnsCredDelete，admin 专属）；申请弹窗挑战方式 +「DNS-01（自动 TXT，泛域名，需 DNS 凭证）」+ 域名来源二选一（站点/手动输入含泛域名）+ 凭证选择（清单空引导配置）；**DNS 凭证管理弹窗**（列表零回显+新建 provider 驱动表单+删除引用警示）；证书挑战列 dns_01 呈现；字典 +dns_provider（8 Key，acme_challenge 扩值）；S7 23/23 |
+| v1.3 | 2026-11-23 | 增量 | 宝塔式重组 D4（ADR-033）：/sites 由单页站点列表改为三分栏——「网站」（既有内容原样迁入）/「Python 项目」/「Node 项目」（嵌入 app-mgmt 项目面板）；分栏由地址栏参数 tab 持久化；Action 与既有交互零变化 |
 
 > FX 质量清单说明：FX-001~FX-141 逐条清单文件未随引擎 0.5.2 payload 发布（find 验证仅命中无关的 java-microservice 后端清单；分册仅列编号范围），本节按分册 9 节结构逐节落实，并以第 8 节 12 项全局一致性自查替代可机械执行部分（account-auth/monitoring/service-mgmt/file-manager 四模块同先例）；全量 141 项留待 Gate 1 validation 执行。
+
+## 增量 v1.3（2026-11-23）：宝塔式重组 D4——网站管理页三分栏
+
+> 依据 baota-restructure-design-2026-11-23.md 第二、九章。本节是权威增量。
+
+- **页面结构**：/sites 改为 NTabs 三分栏，顺序与标识：「网站」site（默认）/「Python 项目」python /「Node 项目」node。当前分栏写入地址栏参数 tab（/sites?tab=node 可直达；刷新与分享后保持）。
+- **「网站」分栏**：第 4 节既有全部内容与交互原样迁入，零行为变化。
+- **「Python 项目」「Node 项目」分栏**：嵌入 app-mgmt 项目面板——规格见 ../app-mgmt/app-mgmt.md v1.1（同一面板组件按运行时属性分别实例化），Action 属 app-mgmt。
+- **不变**：SSL 证书独立页、站点源码页 /sites/:siteId/source、第 2 节 Action 定义、第 8 节全局一致性各项。

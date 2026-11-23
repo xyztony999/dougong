@@ -2,9 +2,9 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v1.2 |
+| 版本 | v1.3 |
 | 状态 | 稳定 |
-| 最后更新 | 2026-11-16 |
+| 最后更新 | 2026-11-23（v1.3 宝塔式重组 D4：网站管理页三分栏，只读用户可进入全部分栏查看；项目分栏负空间见 app-mgmt 只读文档） |
 | 用户类型 | readonly |
 | 唯一数据源 | 02-detailed/api/api-site-mgmt.md v1.2 |
 | 边界依据 | D0 口径（readonly 查看站点列表/详情/证书状态/日志尾部）+ ADR-018：全可看 + 禁一切变更 |
@@ -85,5 +85,12 @@
 | v1.0 | 2026-11-12 | initial | 首次生成：只读视角 2 列表页（site-list 含只读 Drawer+日志 Tab / cert-list）+ 4 只读 Action + 14 负空间标注 |
 | v1.1 | 2026-11-16 | interface_changed | 增量 D4（数据源 api-site-mgmt.md v1.2）：负空间 14→16（+certRenew/certReplace 证书手动更新，admin 专属）；site-list 聚合条目只读呈现（⚠️A18/D-17 同 admin 视角，展开仅查看）；只读 Action 4 项与字典 Key 零变化 |
 | v1.2 | 2026-11-16 | interface_changed | DNS-01 增量 D4（数据源 api v2.0 ⚠️A20）：负空间 16→19（+dnsCredList/dnsCredCreate/dnsCredDelete——DNS 凭证管理 admin 专属，敏感配置最小暴露）；证书 challenge 列 dns_01 值只读呈现；只读 Action 4 项零变化 |
+| v1.3 | 2026-11-23 | 增量 | 宝塔式重组 D4（ADR-033）：网站管理页三分栏对只读用户全可进入查看；「Python 项目」「Node 项目」分栏的可看项与负空间沿 app-mgmt 只读文档 v1.1；站点部分零变化 |
 
 > FX 清单执行方式同 admin 文档第 9 节注记（清单文件未随 payload 发布，按 9 节结构落实 + 第 8 节自查；全量留待 Gate 1）。
+
+## 增量 v1.3（2026-11-23）：宝塔式重组 D4
+
+- 网站管理页三分栏（「网站」/「Python 项目」/「Node 项目」）对只读用户均可进入查看。
+- 「Python 项目」「Node 项目」分栏：项目列表与任务状态可看；创建、删除、启停、重装依赖、建站等变更入口与日志内容为负空间——规格见 ../app-mgmt/app-mgmt.md v1.1。
+- 站点部分：零变化。

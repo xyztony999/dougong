@@ -2,9 +2,9 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v1.1 |
+| 版本 | v1.2 |
 | 状态 | 稳定 |
-| 最后更新 | 2026-11-22（v1.1 创建类增量 D1：+4 端点 container/create·volume/create·network/create·compose/create + DK_019~027 + D-09~D-12，d0-clarification-docker-mgmt-create-2026-11-21.md 五项拍板） |
+| 最后更新 | 2026-11-23（v1.2 宝塔式重组 D3：+6 个 /docker/app/* 接口与 /docker/compose/delete；DK_028~032；Compose 列表并入落盘扫描；归属标签注入收窄） |
 | 输入 | prd-docker-mgmt.md v1.0（完备性检查通过：G 5/5、T 适用 6/6、N 4/4）、domain-model.md v1.13（docker-mgmt 域：5 实体 container/image/volume/network/compose_project，无聚合根）、d0-clarification-docker-mgmt.md、D1 三文档（BA/AA/FL v1.0，BA 附录B 状态映射与动作矩阵） |
 | 接口规约 | 无激活技术栈（ACTIVE_STACKS 为空）——按通用 REST/JSON 契约设计；认证=HttpOnly Cookie 会话（R-02）；鉴权=RBAC 两角色边界矩阵（ADR-018）；**零持久化**（kb 拍板：无表、无 DDL、无 SQL；容器/镜像/卷/网络经官方 Go SDK、Compose 经 `docker compose` CLI 参数数组，R-08/ADR-013） |
 
@@ -464,6 +464,7 @@ ComposeRunner {
 | 版本 | 日期 | 变更类型 | 变更摘要 | 目标节号 |
 |------|------|---------|---------|---------|
 | v1.0 | 2026-11-14 | initial | 首次生成：24 个端点（22 HTTP：GET /docker/{daemon/status, container/{list,logs,stats}, image/list, volume/list, network/list, compose/{list,logs}} 9 查询 + POST /docker/{container/{start,stop,restart,pause,unpause,delete}, image/{pull,delete}, volume/delete, network/delete, compose/{up,down,restart}} 13 写；2 WS：/docker/{container,compose}/logs-follow——读=admin+readonly / 写=admin+CSRF）+ 2 个进程内网关契约（DockerGateway SDK 通道 / ComposeRunner CLI 参数数组通道；零持久化：无表/无 DDL/无 SQL）+ 18 错误码（DK_001~018）+ 复用 account-auth 码族（AUTH_001/002/003/008）+ 6 枚举引用（三个容器枚举 D2 已定稿，无新增；compose_action 池行依据补注承载形态）+ 13 个审计动作常量 + 11 项设计决策（D-01 即时探测+细节透传、D-02 全量筛选+权威动作面、D-03 日志双通道+WS 帧协议、D-04 矩阵服务端守卫、D-05 拉取同步终态、D-06 Compose 动词端点+locatable+并发互斥、D-07 单次快照、D-08 daemon 拒绝归一、D-09 审计非同事务、D-10 零持久化、D-11 不透明引用寻址）；关闭 prd-docker-mgmt.md 待对齐-1~-8 全部八项；无旧版对比 | — |
+| v1.2 | 2026-11-23 | 增量 | 宝塔式重组 D3（ADR-033）：新增 /docker/app/{list,create,service,logs,delete,site} 与 /docker/compose/delete 共 7 个接口（24→31 端点）；DK_028~032；compose/list 条目增 panelManaged 并纳入零容器项目；dougong.app 标签仅「应用」创建通道注入（修订 D-11）；D-13~D-17；审计动作 +5 | 文末「增量 v1.2」节 A~E |
 
 ### 6.2 变更类型词汇表
 
@@ -483,3 +484,61 @@ ComposeRunner {
 
 语义化版本：vMAJOR.MINOR——结构/接口增删改升 MAJOR；字段/枚举/规则微调升 MINOR；本文档随模块迭代在 6.1 追加行。
 | v1.1 | 2026-11-22 | 创建类能力增量 D1（BA/AA/FL v1.1 级联，d0-clarification-docker-mgmt-create-2026-11-21.md 五项拍板）：①interface_added ×4：POST /docker/container/create（D-09：逐项校验 DK_019~022+镜像缺失自动拉取复用 pull 通道+SDK Create+Start+创建后即读实况）、POST /docker/volume/create（D-10：名称/驱动，daemon 拒绝透传 DK_024）、POST /docker/network/create（D-10：名称/驱动/子网网关可选，透传 DK_025）、POST /docker/compose/create（D-11：YAML 校验 DK_026 带行号+项目名白名单+落盘根 /opt/dougong-compose/ 防逃逸+目录已存在 DK_027+autoUp 复用项目级互斥+up 失败不回滚落盘+⚠️A22 归属标签注入）；端点 22→26（GET 9/POST 15/WS 2）；②enum_value_added/rule_added：DK_019~027 九码接力（D-12）；D-09~D-12 四项设计决策；审计动作常量 +4（container_created/volume_created/network_created/compose_project_created）；③零台账投影哲学不变（新建对象即时进实况清单）；⚠️A22 归属标签预埋供 app-mgmt 容器化应用（跨模块消费方登记见 api-app-mgmt.md v1.1）；④关闭 prd v1.1 待对齐（校验器选型 go-yaml/落盘根常量/容器创建校验细则均 D-09~D-11 落定）；无旧版 DDL 变更（零持久化不变） |
+
+## 增量 v1.2（2026-11-23）：宝塔式重组 D3——面板应用与 Compose 生命周期
+
+> 依据 baota-restructure-design-2026-11-23.md 第五、六、八章。本节是权威增量。
+
+### A. 新增接口（7 个；模块端点 24 → 31）
+
+| 接口 | 方法 | 权限 | 说明 |
+|------|------|------|------|
+| /docker/app/list | GET | admin+readonly | 面板应用清单：落盘根扫描（编排文件解析）与容器实况合并；零持久化 |
+| /docker/app/create | POST | admin | 创建应用：名称 / 端口前置校验 → 渲染单服务编排 → 落盘 /opt/dougong-compose/{名称}/docker-compose.yml → compose up -d |
+| /docker/app/service | POST | admin | 应用启停重启：start=compose up -d、stop=compose stop、restart=compose restart |
+| /docker/app/logs | GET | admin+readonly | 应用日志（compose logs 通道）；query name、tail（缺省 500，取值域 1~2000） |
+| /docker/app/delete | POST | admin | 删除应用：compose down + 删除项目目录 |
+| /docker/app/site | POST | admin | 应用建站：为应用创建反向代理站点，上游 127.0.0.1:{主机端口}（消费 site-mgmt 建站能力） |
+| /docker/compose/delete | POST | admin | 删除 Compose 项目：compose down + 删除面板落盘根下的项目目录 |
+
+### B. 请求与响应
+
+| 接口 | 请求 | 响应 data |
+|------|------|-----------|
+| app/create | name（必填，匹配 ^[a-z0-9][a-z0-9-]{0,63}$）、image（必填）、hostPort（必填，1~65535）、containerPort（必填，1~65535）、env?（[{key, value}]）、mounts?（[{source, target}]）、restartPolicy?（no / always / unless-stopped / on-failure，缺省 unless-stopped） | { name, workingDir, configFile, hostPort, state } |
+| app/list | 无 | { items: [{ name, state, containers: [{containerId, name, state}], image, hostPort, containerPort, workingDir, configFile, siteLinked }], total, generatedAt }；state 取 docker_app_state（running / stopped / partial） |
+| app/service | name（必填）、op（必填，start / stop / restart） | { name, op } |
+| app/logs | query name（必填）、tail? | { project, lines }（沿 compose/logs 形状，project=应用名） |
+| app/delete | name（必填） | { name, deletedDir: true } |
+| app/site | name（必填）、domains（必填，非空数组） | 沿 app-mgmt 建站联动的响应形状（siteId 等） |
+| compose/delete | project（必填） | { project, deletedDir: boolean }——目录位于面板落盘根下为 true；面板外项目只停止、不删目录，为 false |
+
+**compose/list（修订，响应形状向后兼容）**：条目增 panelManaged: boolean（项目目录位于面板落盘根下）；落盘存在但无容器的项目并入清单——containers 为空数组、workingDir 与 configFile 非空、locatable 为 true（可直接启动）。
+
+**应用编排模板（面板生成，单服务）**：服务名 app；ports 绑定 127.0.0.1:{主机端口}:{容器端口}；environment / volumes 按请求；restart 按请求；labels 含 dougong.app={名称}。
+
+### C. 新增错误码
+
+| code | 标识 | HTTP 语义 | 说明 |
+|------|------|---------|------|
+| DK_028 | APP_NOT_FOUND | 不存在 | 应用不存在（可能已在面板外删除） |
+| DK_029 | APP_NAME_INVALID | 参数错误 | 应用名格式非法（小写字母、数字、连字符，以字母或数字开头） |
+| DK_030 | APP_OP_FAILED | 操作失败 | 应用操作失败（创建 / 启停 / 删除；data.reason 透传） |
+| DK_031 | APP_PORT_IN_USE | 前置条件不满足 | 主机端口已被占用 |
+| DK_032 | COMPOSE_DELETE_FAILED | 操作失败 | Compose 项目删除失败（data.reason 透传） |
+
+应用重名复用 DK_027（项目已存在）。
+
+### D. 审计动作（+5）
+
+app_created / app_service_op / app_deleted / app_site_linked / compose_project_deleted（detail 不含环境变量值，脱敏口径沿 app-mgmt ⚠️A9）。
+
+### E. 设计决策（增补）
+
+| 编号 | 决策 | 理由 |
+|------|------|------|
+| D-13 | 面板应用零持久化：清单由落盘根扫描与容器实况合并而成，不建表 | 沿 D-10；事实源在文件系统与 daemon |
+| D-14 | 应用的主机端口只绑 127.0.0.1，经建站对外暴露 | 与 Python / Node 项目「只监听本机、经建站对外」口径一致；直接对外暴露走创建容器或手写 Compose |
+| D-15 | dougong.app 归属标签仅由「应用」创建通道注入；「新建 Compose 项目」不再注入（修订 D-11） | 标签语义收窄为「面板应用」，与手写 Compose 项目可区分 |
+| D-16 | compose/list 并入落盘根目录扫描；compose/delete 仅删除落盘根下的项目目录 | 修复零容器项目不可见；不触碰面板管理范围外的目录 |
+| D-17 | 应用「停止」用 compose stop（保留容器），「删除」用 compose down 并删目录 | 停止后可快速再启动；删除才做清理。ComposeRunner 动词白名单相应新增 stop |

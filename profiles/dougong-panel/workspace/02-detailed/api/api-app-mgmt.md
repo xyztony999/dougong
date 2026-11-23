@@ -2,9 +2,9 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v1.1 |
+| 版本 | v1.2 |
 | 状态 | 稳定 |
-| 最后更新 | 2026-11-22（v1.1 容器化应用增量 D1：create 双形态 + APP_013 镜像校验 + start_mode 扩 container + 迁移 017，d0-clarification-docker-mgmt-create-2026-11-21.md Q5） |
+| 最后更新 | 2026-11-23（v1.2 宝塔式重组 D3：create 增 runtime 与 Node 启动方式、容器形态下线（APP_014）；list 增运行时与 Node 就绪度；迁移 018） |
 | 输入 | prd-app-mgmt.md v1.0（FR-01~12；完备性检查通过：G 5/5、T 适用 8/8、N 4/4）、domain-model.md v1.27（app+app_task 双聚合根+启动方式值对象）、D1 三文档（BA/AA/FL v1.0，⚠️A1~A12+安全四道防线 BA 2.4/AA 附录C）、api-env-mgmt.md v1.4（Python 环境供给 FR-09+就绪度读契约）、api-site-mgmt.md v2.8（ConfigWritePipeline OHS D-21）、prd-env-mgmt.md 待对齐承接（能力位字段/候选包名） |
 | 接口规约 | 栈规约 backend-02-api-conventions.md（go-vue3）；认证=HttpOnly Cookie 会话 + CSRF token（R-02，复用 account-auth）；鉴权=RBAC 两角色边界矩阵（ADR-018；日志 admin 专属 ⚠️A8）；外部命令一律字面量参数数组（R-08） |
 
@@ -446,6 +446,7 @@ CREATE INDEX IF NOT EXISTS idx_app_task_created ON app_task(created_at);
 | 版本 | 日期 | 变更类型 | 变更摘要 | 目标节号 |
 |------|------|---------|---------|---------|
 | v1.0 | 2026-11-20 | initial | 首次生成：16 个 HTTP 接口（/app/{app,task,service,log,site}/*——GET 5〔app/list、app/env、task/list、task/detail、log〕/ POST 11〔app/create·delete·params·deps、task/retry、service/{start,stop,restart,enable,disable}×5、site/link〕）+ 2 表 DDL（app 档案〔UNIQUE name+unit 唯一索引〕+ app_task 四态任务台账〔app_id/app_name 快照+purge_dir 删除范围〕，迁移 015_app_mgmt.sql）+ 5 网关契约（AppPyGateway/AppUnitWriter/LogGateway/SiteLinkGateway〔site-mgmt OHS 消费，跨模块待同步项〕/EnvReadySource〔env-mgmt 读契约 v1.4〕）+ SysdGateway 复用 + 12 错误码（APP_001~012 + 复用 AUTH 族）+ 3 枚举引用（app_task_action/app_task_status/app_start_mode 本域 D2 定稿入池）+ 9 审计动作常量 + 15 项设计决策（D-01 实时探测/D-02 双聚合落库/D-03 创建校验链/D-04 异步任务互斥+重启恢复/D-05 创建执行链+半档案不残留/D-06 单元生成安全写入/D-07 删除保守执行链/D-08 就绪度读契约/D-09 参数安全写回+基线比对/D-10 服务操作瞬时通道/D-11 日志 admin 专属/D-12 建站联动 OHS/D-13 失败重试语义/D-14 混合模式/D-15 台账全量保留）；第 2 章跨聚合设计（I-C01~C04：终态档案同事务/半档案不残留/互斥跨聚合/删除范围显式）；关闭 prd-app-mgmt.md 待对齐-3（就绪度能力位字段=venvSupport/pipAvailable）/待对齐-4 部分（日志档位 200/500/1000、超时 10s、PY_OP_TIMEOUT=600s、APP_UNIT_PREFIX）/待对齐-5（应用名 Pattern）/待对齐-6（服务操作瞬时通道不占任务互斥）/待对齐-7（.env 整文件替换+基线比对）；待对齐-1（迁移编号=015 落定关闭）；待对齐-2（建站 OHS 消费方定义落定，提供方登记归 site-mgmt 联动轮）；无旧版对比 | — |
+| v1.2 | 2026-11-23 | 增量 | 宝塔式重组 D3（ADR-033）：POST /app/app/create 增 runtime 与 Node 启动方式（node_file / npm_script），startMode=container 拒绝 APP_014；GET /app/app/list 条目增 runtime、响应增 nodeReady、可选 runtime 过滤；新增 APP_014~016；迁移 018_app_runtime.sql；D-16 / D-17 | 文末「增量 v1.2」节 A~E |
 
 ### 6.2 变更类型词汇表
 
@@ -477,3 +478,41 @@ CREATE INDEX IF NOT EXISTS idx_app_task_created ON app_task(created_at);
 | M4 | 占位符残留（🔒 章节无 {按需填写}/TODO） | ✅ |
 | M5 | 变更记录（6.1 含 v1.0 initial 行；6.2/6.3 在位） | ✅ |
 | v1.1 | 2026-11-22 | 容器化应用增量 D1（BA/AA/FL v1.1 级联，d0-clarification-docker-mgmt-create-2026-11-21.md Q5「本轮一起做」）：①enum_value_added：app_start_mode +container（DDL CHECK 迁移 017_app_container.sql 表重建沿 015 先例）；②rule_changed：POST /app/app/create 请求扩 container 形态分支（image 必填 APP_013/端口映射/环境变量/挂载/重启策略；无 dir/entry/Python 就绪度校验）；③跨模块消费 +docker-mgmt Compose 项目创建通道（api-docker-mgmt.md v1.1 S-50-04/D-11 提供方在位——归属标签 dougong.app 注入；消费方契约本侧登记）；④field_changed：app 档案 unit_name 对容器化形态为空、改持 compose 项目名引用（start_spec JSON 承载容器化参数）；⑤错误码 +APP_013 IMAGE_INVALID（镜像格式校验，复用 DK_012 规则）；⑥建站联动（FR-10/S-61-04）对容器化形态同等适用（反代到容器映射端口）；⑦app_start_mode 枚举池 +container 值（D2 确认，四方同值归 D4 前端 enums 同步） |
+
+## 增量 v1.2（2026-11-23）：宝塔式重组 D3——Node 运行时与容器形态下线
+
+> 依据 baota-restructure-design-2026-11-23.md 第三、四、八章。本节是权威增量；上文 v1.1 中「容器运行」形态相关字段与校验以本节为准（下线）。
+
+### A. 接口变更
+
+| 接口 | 变更 |
+|------|------|
+| POST /app/app/create | 请求体增 runtime?: string（python \| node，缺省 python）。startMode 取值域按运行时：python → preset_fastapi \| custom；node → node_file \| npm_script。startSpec 增 file?: string（node_file：项目内入口文件相对路径）、script?: string（npm_script：npm 脚本名，缺省 start）。startMode=container → APP_014 |
+| GET /app/app/list | 条目增 runtime: string；响应增 nodeReady: NodeReady；query 增 runtime?: string（可选过滤，缺省返回全部） |
+| 其余 14 个接口 | 不变——删除 / 依赖重装 / 参数 / 服务操作 / 日志 / 任务 / 建站对 Node 项目同等适用（依赖重装对 Node 执行 npm install） |
+
+### B. 新增结构
+
+| 结构 | 字段 | 说明 |
+|------|------|------|
+| NodeReady | nodeAvailable: boolean；npmAvailable: boolean；nodeVersion: string \| null | Node 就绪度（来源 env-mgmt NodeReadiness 探测；版本不可知时为 null 不虚构）；与 pythonReady 并列 |
+
+### C. 新增错误码
+
+| code | 标识 | HTTP 语义 | 说明 |
+|------|------|---------|------|
+| APP_014 | START_MODE_RETIRED | 参数错误 | 该启动方式已下线：容器化部署请到「容器管理 › 应用」创建 |
+| APP_015 | NODE_ENV_INCOMPLETE | 前置条件不满足 | Node 环境不完整（缺 node 或 npm），请到环境管理安装或修复 Node |
+| APP_016 | NODE_START_SPEC_INVALID | 参数错误 | Node 启动参数非法：入口文件须为项目内的相对路径；脚本名只允许字母、数字与 . _ : - |
+
+### D. 设计决策（增补）
+
+| 编号 | 决策 | 理由 |
+|------|------|------|
+| D-16 | Node 进程托管用 systemd 原生（不引入 PM2）；服务单元的 ExecStart 使用创建时解析到的 node / npm 绝对路径，并记入应用档案 | systemd 不做 PATH 查找；与 Python 项目先例一致（R-08 参数数组、单元安全写入与回滚） |
+| D-17 | Node 依赖安装为 npm install（存在 package.json 时执行，不存在则跳过），复用 deps_install 任务动作与状态机；不建隔离环境，依赖落在项目目录 | Node 依赖天然属于项目目录；任务观测面复用，不新增动作 |
+
+### E. DDL（迁移 018_app_runtime.sql）
+
+ALTER TABLE app ADD COLUMN runtime TEXT NOT NULL DEFAULT 'python';
+——仅加列，不重建表；既有行缺省即 Python 项目。start_mode 列的 CHECK 约束保留历史值 container（该形态已下线，由服务层拒绝，APP_014）。

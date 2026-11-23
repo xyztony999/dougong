@@ -2,9 +2,9 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v1.1 |
+| 版本 | v1.2 |
 | 状态 | 稳定 |
-| 最后更新 | 2026-11-23 |
+| 最后更新 | 2026-11-23（v1.2 宝塔式重组 D4：「应用」页签可看（清单与日志）；负空间 +7；Compose 列表可见未运行项目） |
 | 用户类型 | readonly |
 | 唯一数据源 | 02-detailed/api/api-docker-mgmt.md v1.1 |
 | 公共页定义 | **以 admin 文档（../admin/docker-mgmt/docker-mgmt.md）为单一事实源**——页头 daemon 状态 Card/引导态/五 Tab/表格列/Drawer/错误处理/刷新纪律逐字复用；本文档仅声明子集差异与负空间（本模块存在 13 个写接口，readonly 为子集视角，对照 firewall/service-mgmt 模式而非 monitoring 全等模式） |
@@ -116,5 +116,12 @@ containerCreate / volumeCreate / networkCreate / composeCreate 四 Action readon
 |------|------|---------|------|
 | v1.0 | 2026-11-14 | initial | 首次生成：只读视角为 admin 子集（11 Action=9 GET+2 WS、同页面、五 Tab 操作列整列不渲染 + 无拉取按钮）；api 3.3 权限矩阵 13 个 ✗ 项逐项负空间对应；引导态/locatable 预警/观测 Drawer（含 WS 跟随）同 admin 全等；公共页定义单一事实源 = admin 文档 |
 | v1.1 | 2026-11-23 | increment | 创建类四 Action 负空间补充登记（2a 节既有声明落进 4.x 逐 Tab 表）：Tab 1/2 工具栏无「创建容器」「新建项目」按钮、Tab 4/5 无「创建卷」「创建网络」按钮——与 admin v1.1 四创建入口逐项对应 |
+| v1.2 | 2026-11-23 | 增量 | 宝塔式重组 D4（ADR-033）：「应用」页签对只读用户可看（应用清单、应用日志，2 读 Action）；负空间 +7（创建应用、应用操作列五项、Compose 删除项目）；Compose 列表可见「未运行」项目 |
 
 > FX 清单执行方式同 admin 文档第 9 节注记（清单文件未随 payload 发布，按 9 节结构落实 + 第 8 节自查；全量留待 Gate 1）。
+
+## 增量 v1.2（2026-11-23）：宝塔式重组 D4
+
+- **「应用」页签**：应用清单与状态可看；项目名可打开应用日志 Drawer（观测类，2 读 Action：appList / appLogs）。
+- **负空间（+7）**：工具栏无「创建应用」按钮；应用操作列（启动 / 停止 / 重启 / 建站 / 删除）整列不渲染；Compose 页签无「删除项目」。
+- **Compose 页签**：列表可见「未运行」项目（落盘存在但无容器）。

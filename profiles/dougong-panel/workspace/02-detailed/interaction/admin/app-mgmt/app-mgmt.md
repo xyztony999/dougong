@@ -2,9 +2,9 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v1.0 |
+| 版本 | v1.1 |
 | 状态 | 稳定 |
-| 最后更新 | 2026-11-20（初始生成） |
+| 最后更新 | 2026-11-23（v1.1 宝塔式重组 D4：独立页面改为网站管理页内嵌面板（按运行时实例化）；创建表单去掉容器运行、增 Node 启动方式；Node 就绪度提示） |
 | 用户类型 | admin |
 | 唯一数据源 | 02-detailed/api/api-app-mgmt.md v1.0 |
 | 组件体系 | Vue 3 + Naive UI（NGrid/NCard/NTag/NButton/NModal/NPopconfirm/NDrawer/NAlert/NSwitch/NSpin/NInputNumber/NSelect/NDataTable） |
@@ -70,7 +70,8 @@
 | app_task_status::running | blue（执行中，Spin 伴随） |
 | app_task_status::succeeded | green |
 | app_task_status::failed | red |
-| 服务运行 running | green；已停止/failed | gray/orange（failed=服务异常橙底+查看日志引导） |
+| 服务运行 running | green |
+| 服务运行 已停止/failed | gray/orange（failed=服务异常橙底+查看日志引导） |
 | 自启 on/off | green / gray |
 | 就绪度 installed+venvSupport+pipAvailable 全 true | green「Python 环境就绪」 |
 | 任一 false | orange「Python 环境不完整」+缺失项明细 |
@@ -208,5 +209,19 @@
 | 版本 | 日期 | 变更类型 | 说明 |
 |------|------|---------|------|
 | v1.0 | 2026-11-20 | initial | 首次生成：1 hybrid 页面（应用表格 + 创建向导 Modal + 应用运维 Drawer 三 Tab〔概要/参数/日志〕+ 任务 Drawer 双区）+ 16 Action（13 admin/3 两角色）、5 字典 Key、0 独立表单路由/0 独立详情路由；创建向导两分组（基本信息/启动配置，mode 条件显隐）；删除强确认 NModal（两段警示+范围开关默认保留+输入锁定）；服务操作组实况驱动；任务 retry 按钮态（retryable）；详情 running 5s 轮询终态即停+终态跃迁重拉（env-mgmt 先例）；UI 文案人话化（「创建应用/重装依赖/开机自启/建站暴露」，无内部术语） |
+| v1.1 | 2026-11-23 | 增量 | 宝塔式重组 D4（ADR-033）：应用管理不再独立成页——原页面改为可嵌入面板，由网站管理页「Python 项目」「Node 项目」分栏各实例化一次；路由 /app 重定向 /sites?tab=python，侧栏菜单项移除；创建表单去掉「容器运行」，Node 运行时下启动方式为启动文件 / npm 脚本；Action 无新增（appCreate 请求增 runtime、appList 可按运行时过滤） |
 
 > FX 质量清单说明：FX-001~FX-141 逐条清单文件未随引擎 payload 发布，本节按分册 9 节结构逐节落实，并以第 8 节 10 项全局一致性自查替代可机械执行部分（全仓先例）；全量 141 项留待 Gate 1 validation 执行。
+
+## 增量 v1.1（2026-11-23）：宝塔式重组 D4——项目面板
+
+> 依据 baota-restructure-design-2026-11-23.md 第二、三、四、九章。本节是权威增量。
+
+- **不再是独立页面**：原页面改为可嵌入的面板组件（属性 runtime：python 或 node），由网站管理页的两个分栏各实例化一次；路由 /app 重定向到 /sites?tab=python；侧栏「应用管理」菜单项移除。
+- **列表**：仅呈现当前运行时的项目；列与第 4 节既有相同。「启动方式」列取值随运行时——Python：FastAPI 预设 / 自定义命令；Node：启动文件 / npm 脚本。
+- **创建弹窗**：去掉「容器运行」选项。
+  - Python 分栏：同第 5 节既有（启动方式二选一：FastAPI 预设 / 自定义命令）。
+  - Node 分栏：名称 / 代码目录 / 监听端口 / 启动方式（启动文件或 npm 脚本）/ 启动文件（启动文件方式；占位「如 server.js、bin/www」）/ 脚本名（npm 脚本方式；缺省 start）/ 立即启动开关；表单内说明「项目里有 package.json 时会自动安装依赖」。
+- **就绪度提示**：Node 分栏顶部在 Node 环境不完整（缺 node 或 npm）时呈现提示「Node 环境不完整：缺 node」「缺 npm」并列出缺失项，附「前往环境管理」链接；创建提交被拒（APP_015）时就地提示。
+- **任务与运维**：任务抽屉、服务操作、参数、日志、建站、删除对两种运行时共用同一套界面；「重装依赖」在 Node 项目上执行 npm install，确认文案注明。
+- **Action**：无新增；appCreate 请求体增 runtime；appList 可带 runtime 过滤。

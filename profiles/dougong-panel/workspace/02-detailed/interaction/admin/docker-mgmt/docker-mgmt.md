@@ -2,9 +2,9 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v1.1 |
+| 版本 | v1.2 |
 | 状态 | 稳定 |
-| 最后更新 | 2026-11-23 |
+| 最后更新 | 2026-11-23（v1.2 宝塔式重组 D4：新增「应用」页签（清单/创建/启停/日志/建站/删除）；Compose 页签呈现未运行项目并新增删除项目；Action 28→35） |
 | 用户类型 | admin（readonly 视角为本文档子集，差异见 ../readonly/docker-mgmt/docker-mgmt.md） |
 | 唯一数据源 | 02-detailed/api/api-docker-mgmt.md v1.1 |
 | 组件体系 | Vue 3 + Naive UI（NTabs/NDataTable/NSelect/NInput/NButton/NTag/NPopconfirm/NModal/NAlert/NEmpty/NDrawer/NSwitch/NSpin/NTooltip；日志跟随为滚动文本流呈现，非终端仿真——不引入 xterm.js，不入 code 型；无激活栈 profile，不使用 vue3-engine 栈 Scm\* 组件） |
@@ -353,5 +353,32 @@ NModal 宽 640px；入口：Tab 2 工具栏「新建项目」（4.3）。字段�
 | v1.0 | 2026-11-14 | initial | 首次生成：1 hybrid 页面（页头 daemon 状态 Card + 引导态 + 容器/Compose/镜像/卷/网络五 Tab）、2 Drawer（容器详情=资源快照+日志双 Card；Compose 日志）、1 Dialog（拉取镜像）、24 Action（9 GET + 2 WS 读 + 13 POST 写）、3 字典 Key + panel_role 复用、0 独立表单路由页/0 详情路由页；supportedActions 权威渲染（容器六按钮）、locatable 预警+禁用（Compose 定位失败）、日志双通道（tail 档位+WS 跟随+end 帧分级）、刷新纪律（status 先行/Tab 懒加载/写后关联清单标记过期）为本阶段核心交互定义 |
 | v1.1 | 2026-11-22 | increment | 创建类增量 D4（56a3033 初版）：仅新增第 2a 节 Action 表——⚠️ 未同步 4.x 工具条与弹窗规格（交付断裂根因，见 2a 节更正注记） |
 | v1.1 | 2026-11-23 | fix-rewrite | 修复轮重写：4.1/4.3/4.5/4.6 工具条补四创建按钮（admin 专属）+ 5.5~5.8 四创建 Dialog 字段规格逐项（容器基础全集七组字段含多组端口/环境变量/挂载动态行、网络下拉同源投影；Compose 粘贴校验带行号+自动启动开关）+ 失败保留弹窗错误口径（019~022 格式/023~026 执行失败/027 换名）+ 第 8 节全局一致性待 Gate 2 复检（含入口可达性硬性项） |
+| v1.2 | 2026-11-23 | 增量 | 宝塔式重组 D4（ADR-033）：新增「应用」页签（位于「容器」之后）——清单、创建应用弹窗、启停/重启/日志/建站/删除；Compose 页签零容器项目呈现「未运行」、新增行内「删除项目」、DK_027 提示更新；新增 7 个 Action（admin 28→35）；错误处理新增 DK_028~032 |
 
 > FX 质量清单说明：FX-001~FX-141 逐条清单文件未随引擎 0.5.2 payload 发布（monitoring/panel-core/account-auth/service-mgmt/firewall 先例同口径复核），本节按分册 9 节结构逐节落实，并以第 8 节 14 项全局一致性自查替代可机械执行部分；全量 141 项留待 Gate 1 validation 执行。
+
+## 增量 v1.2（2026-11-23）：宝塔式重组 D4——「应用」页签与 Compose 生命周期
+
+> 依据 baota-restructure-design-2026-11-23.md 第五、六、九章。本节是权威增量。
+
+### 「应用」页签（新增，位于「容器」之后）
+
+- **工具条**：「创建应用」按钮（primary，admin 专属）+「刷新」；下方灰字「数据生成于 {generatedAt}」+「共 N 个应用」。
+- **列表列**：序号 / 名称 / 镜像 / 本机端口（呈现 127.0.0.1:{主机端口} → {容器端口}）/ 状态（运行中=绿、已停止=灰、部分运行=橙）/ 站点（已建站→站点链接；未建站→「仅本机可访问」）/ 操作。
+- **操作列**（admin；readonly 整列不渲染）：启动（未运行时）/ 停止（运行中时）/ 重启 / 日志 / 建站（未建站时）/ 删除（红色；强确认）。
+- **创建应用 Dialog**（NModal 宽 640px）：名称（占位「小写字母、数字、连字符，如 my-app」）/ 镜像（占位「nginx:latest」）/ 主机端口 / 容器端口 / 环境变量（多组 KEY=value 动态行）/ 挂载（多组 来源:容器内路径 动态行）/ 重启策略（下拉，选项同创建容器）；表单内说明「应用端口只在本机可访问，建站后对外提供访问」。失败保留弹窗并显示原因（DK_029 / DK_030 / DK_031；重名 DK_027 提示换名）。
+- **日志**：复用 Compose 日志 Drawer（项目名=应用名）。
+- **删除**：强确认「将停止并移除容器，并删除项目目录 /opt/dougong-compose/{名称}，不可恢复；已建的站点不会删除」。
+- **建站**：弹窗填写域名（与 app-mgmt 建站弹窗同形态），提交后提示站点已创建。
+- **空态**：「还没有应用，点击「创建应用」开始」（含创建按钮，admin）。
+
+### Compose 页签变更
+
+- 落盘存在但无容器的项目并入列表，状态呈现「未运行」；该类项目的操作：启动 / 日志 / 删除项目。
+- 新增行内「删除项目」（admin，强确认）：面板创建的项目文案「将停止并移除项目容器，并删除项目目录」；面板外项目文案「将停止并移除项目容器；项目目录不在面板管理范围内，不会删除」。
+- DK_027 提示更新为「Compose 项目已存在：可在 Compose 列表查看或删除同名项目后重建」。
+
+### Action 与错误处理
+
+- 新增 7 个 Action：appList（GET）/ appCreate（POST）/ appService（POST）/ appLogs（GET）/ appDelete（POST）/ appSite（POST）/ composeDelete（POST）；管理员 Action 总数 28 → 35。
+- 错误处理新增：DK_028→warning「应用不存在」并重拉应用清单；DK_029 / DK_030 / DK_031→创建弹窗内 NAlert（保持打开）；DK_032→error「项目删除失败：{data.reason}」。
