@@ -24,10 +24,11 @@ import (
 	storeapp "github.com/dougong/dougong/internal/store/appmgmt"
 )
 
-// EnvReadySource 是 env-mgmt Python 就绪度读契约 OHS（D-08；envsvc.Service
-// 实现——进程内单向消费，main 装配注入）。
+// EnvReadySource 是 env-mgmt 运行时就绪度读契约 OHS（D-08；envsvc.Service
+// 实现——进程内单向消费，main 装配注入）。ADR-033 增 NodeReadiness。
 type EnvReadySource interface {
 	PythonReadiness(ctx context.Context) (envsvc.PythonReadiness, error)
+	NodeReadiness(ctx context.Context) (envsvc.NodeReadiness, error)
 }
 
 // SiteRef 建站联动返回的站点引用值快照（不落库——D-12 值快照口径）。
@@ -71,15 +72,17 @@ type SysdGateway interface {
 	DisableUnit(ctx context.Context, name string) error
 }
 
-// Service 是应用管理门面（16 接口业务承载）。
+// Service 是应用管理门面（16 接口业务承载；ADR-033：运行时项目托管——
+// Python〔venv + systemd〕与 Node〔PM2〕）。
 type Service struct {
 	py           PyGateway
 	sysd         SysdGateway
+	node         NodeGateway // nil=Node 运行时通道未装配（创建 Node 项目时拒绝）
+	pm2          PM2Gateway  // nil=PM2 通道未装配（Node 运维如实拒绝）
 	store        *storeapp.Store
 	envReady     EnvReadySource
-	siteLink     SiteLinkGateway       // nil=未装配（hasSite 呈现 null；site/link 拒绝）
-	composeCre   ComposeProjectCreator // nil=未装配（容器化形态拒绝并引导 docker-mgmt）
-	cops         ComposeOps            // nil=容器化运维通道不可用
+	siteLink     SiteLinkGateway // nil=未装配（hasSite 呈现 null；site/link 拒绝）
+	dataDir      string          // 面板数据目录（启动器落位；main 装配注入）
 	clock        func() time.Time
 	syncDispatch bool // 测试缝：同步执行 runTask（确定性断言，沿 env-mgmt 测试先例）
 }
@@ -88,8 +91,9 @@ type Service struct {
 type Options struct {
 	EnvReady     EnvReadySource
 	SiteLink     SiteLinkGateway
-	ComposeCre   ComposeProjectCreator
-	ComposeOps   ComposeOps
+	Node         NodeGateway
+	PM2          PM2Gateway
+	DataDir      string
 	Clock        func() time.Time
 	SyncDispatch bool
 }
@@ -97,7 +101,7 @@ type Options struct {
 // New 构造服务。
 func New(py PyGateway, sysdGw SysdGateway, store *storeapp.Store, opts Options) *Service {
 	s := &Service{py: py, sysd: sysdGw, store: store,
-		envReady: opts.EnvReady, siteLink: opts.SiteLink, composeCre: opts.ComposeCre, cops: opts.ComposeOps,
+		envReady: opts.EnvReady, siteLink: opts.SiteLink, node: opts.Node, pm2: opts.PM2, dataDir: opts.DataDir,
 		clock: time.Now, syncDispatch: opts.SyncDispatch}
 	if s.clock == nil {
 		s.clock = time.Now
@@ -112,11 +116,14 @@ var appNameRe = regexp.MustCompile(AppNamePattern)
 // AppList GET /app/app/list：就绪度（模块级一次探测全应用共享——环境事实非
 // 应用事实）→ 逐应用实况探测（服务态/venv/依赖/端口/在途）→ 站点提示
 // （SiteLinkGateway 可用时）。探测失败字段 null 如实（不虚构运行态）。
-func (s *Service) AppList(ctx context.Context) (*AppListData, error) {
+func (s *Service) AppList(ctx context.Context, runtime string) (*AppListData, error) {
 	out := &AppListData{Items: []AppItem{}, GeneratedAt: formatTS(s.clock())}
 	if rd, err := s.envReady.PythonReadiness(ctx); err == nil {
 		out.PythonReadiness = pythonReadyData(rd)
 	} // 探测不可用 → 零值（installed=false 且能力位 null 语义由前端按 null 区分，D-08）
+	if rd, err := s.envReady.NodeReadiness(ctx); err == nil {
+		out.NodeReadiness = nodeReadyData(rd)
+	}
 	apps, err := s.store.App().List(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("appmgmt: app list: %w", err)
@@ -128,25 +135,37 @@ func (s *Service) AppList(ctx context.Context) (*AppListData, error) {
 		}
 	}
 	for _, a := range apps {
+		// runtime 过滤（ADR-033：网站管理页按 Python / Node 分栏各取其一）。
+		if runtime != "" && appRuntime(a) != runtime {
+			continue
+		}
+		runtime := appRuntime(a)
 		item := AppItem{
-			ID: a.ID, Name: a.Name, Dir: a.Dir, Entry: a.Entry,
+			ID: a.ID, Name: a.Name, Dir: a.Dir, Entry: a.Entry, Runtime: runtime,
 			StartMode: a.StartMode, ListenPort: a.ListenPort,
-			VenvExists: s.py.VenvExists(a.Dir),
-			CreatedAt:  formatTS(a.CreatedAt), CreatedBy: a.CreatedBy,
+			CreatedAt: formatTS(a.CreatedAt), CreatedBy: a.CreatedBy,
 		}
 		if id, ok := inFlight[a.Name]; ok {
 			v := id
 			item.RunningTaskID = &v
 		}
-		if d, err := s.sysd.GetUnit(ctx, a.UnitName); err == nil {
-			running, enabled := unitStates(d)
-			item.ServiceRunning, item.ServiceEnabled = running, enabled
-			item.UnitFailed = d.LoadState != "" && d.LoadState != "not-found" && d.ActiveState == "failed"
-		} // 查询失败保持 null（探测失败≠false，如实区分）
-		if item.VenvExists {
-			if n, err := s.py.DepsProbe(ctx, a.Dir); err == nil {
-				deps := n > 0
-				item.DepsInstalled = &deps
+		if runtime == storeapp.RuntimeNode {
+			// Node（PM2）实况（ADR-033 D-16）。
+			item.Pm2Status, item.ServiceRunning, item.ServiceEnabled, item.Restarts, item.MemoryBytes =
+				s.nodeProbe(ctx, a)
+			item.DepsInstalled = nodeDepsInstalled(a.Dir)
+		} else {
+			item.VenvExists = s.py.VenvExists(a.Dir)
+			if d, err := s.sysd.GetUnit(ctx, a.UnitName); err == nil {
+				running, enabled := unitStates(d)
+				item.ServiceRunning, item.ServiceEnabled = running, enabled
+				item.UnitFailed = d.LoadState != "" && d.LoadState != "not-found" && d.ActiveState == "failed"
+			} // 查询失败保持 null（探测失败≠false，如实区分）
+			if item.VenvExists {
+				if n, err := s.py.DepsProbe(ctx, a.Dir); err == nil {
+					deps := n > 0
+					item.DepsInstalled = &deps
+				}
 			}
 		}
 		if listening, err := portListening(a.ListenPort); err == nil {
@@ -160,6 +179,24 @@ func (s *Service) AppList(ctx context.Context) (*AppListData, error) {
 		out.Items = append(out.Items, item)
 	}
 	return out, nil
+}
+
+// appRuntime 档案运行时（历史行 runtime 列为空时按 python——迁移 018 缺省）。
+func appRuntime(a storeapp.App) string {
+	if a.Runtime == storeapp.RuntimeNode {
+		return storeapp.RuntimeNode
+	}
+	return storeapp.RuntimePython
+}
+
+func nodeReadyData(rd envsvc.NodeReadiness) NodeReadyData {
+	out := NodeReadyData{NodeAvailable: rd.NodeAvailable, NpmAvailable: rd.NpmAvailable,
+		Pm2Available: rd.Pm2Available}
+	if rd.NodeVersion != "" {
+		v := rd.NodeVersion
+		out.NodeVersion = &v
+	}
+	return out
 }
 
 func pythonReadyData(rd envsvc.PythonReadiness) PythonReadyData {
@@ -181,24 +218,28 @@ type CreateRequest struct {
 	Name       string    `json:"name"`
 	Dir        string    `json:"dir"`
 	Entry      string    `json:"entry"`
+	Runtime    string    `json:"runtime,omitempty"` // python（缺省）| node（ADR-033）
 	StartMode  string    `json:"startMode"`
 	StartSpec  StartSpec `json:"startSpec"`
 	ListenPort int       `json:"listenPort"`
 	StartNow   bool      `json:"startNow"`
-	// v1.1 容器化形态字段（startMode=container 时生效，⚠️A13）：
-	Image         string          `json:"image,omitempty"`
-	Env           []EnvKVDTO      `json:"env,omitempty"`
-	Mounts        []MountDTOMount `json:"mounts,omitempty"`
-	RestartPolicy string          `json:"restartPolicy,omitempty"`
 }
 
 // Create 创建应用：APP_001→002→003→004→005→白名单 顺序校验（D-03）→
 // INSERT app_task(pending) 与发起审计同事务 → worker 异步执行（档案登记仅在
-// succeeded 终态同事务，I-C01/C02——创建失败不残留半档案）。
+// succeeded 终态同事务，I-C01/C02——创建失败不残留半档案）。运行时二选一
+// （ADR-033）：Python=venv 链；Node=就绪度〔node/npm/PM2〕+ 启动方式校验。
 func (s *Service) Create(ctx context.Context, actor *authsvc.Identity, req CreateRequest) (*TaskCreatedData, error) {
-	// v1.1 容器化形态分支（⚠️A13，D0 Q5）：镜像必填；无 dir/entry/Python 校验。
+	// 容器运行形态已下线（ADR-033 D-app-04）：容器化部署归容器管理「应用」页签。
 	if req.StartMode == storeapp.StartModeContainer {
-		return s.createContainerized(ctx, actor, req)
+		return nil, errcode.ErrAppStartModeRetired
+	}
+	runtime := strings.TrimSpace(req.Runtime)
+	if runtime == "" {
+		runtime = storeapp.RuntimePython
+	}
+	if runtime != storeapp.RuntimePython && runtime != storeapp.RuntimeNode {
+		return nil, errParams("未知的运行时（应为 python 或 node）")
 	}
 	// APP_001 应用名格式（D-03）。
 	if !appNameRe.MatchString(req.Name) {
@@ -223,32 +264,51 @@ func (s *Service) Create(ctx context.Context, actor *authsvc.Identity, req Creat
 		return nil, errDir("代码目录不存在或不是目录")
 	}
 	entry := filepath.Clean(strings.TrimSpace(req.Entry))
+	// 入口文件：Python 与 Node 启动文件方式必填且须存在；Node 的 npm 脚本方式
+	// 不需要入口文件（启动目标是 package.json 的脚本，ADR-033 D-16）。
+	entryOptional := runtime == storeapp.RuntimeNode && req.StartMode == storeapp.StartModeNpmScript
+	if entry == "." {
+		entry = ""
+	}
 	if entry == "" || strings.Contains(entry, "..") || filepath.IsAbs(entry) {
-		return nil, errDir("入口文件须为目录内相对路径")
+		if entryOptional && entry == "" {
+			// 不需要入口文件
+		} else {
+			return nil, errDir("入口文件须为目录内相对路径")
+		}
 	}
-	if _, err := os.Stat(filepath.Join(dir, entry)); err != nil {
-		return nil, errDir("入口文件不存在")
+	if entry != "" {
+		if _, err := os.Stat(filepath.Join(dir, entry)); err != nil {
+			return nil, errDir("入口文件不存在")
+		}
 	}
-	// APP_004 Python 就绪度（D-08 分层缺失）。
-	rd, err := s.envReady.PythonReadiness(ctx)
-	if err != nil {
-		return nil, errcode.ErrAppEnvMissing.WithData(map[string]any{
-			"reason": "Python 环境状态未探测（探测不可用），请到环境管理确认"})
-	}
-	if !rd.Installed {
-		return nil, errcode.ErrAppEnvMissing.WithData(map[string]any{"missing": []string{"python"},
-			"reason": "Python 未安装，请到环境管理安装"})
-	}
-	var missing []string
-	if !rd.VenvSupport {
-		missing = append(missing, "venv")
-	}
-	if !rd.PipAvailable {
-		missing = append(missing, "pip")
-	}
-	if len(missing) > 0 {
-		return nil, errcode.ErrAppEnvMissing.WithData(map[string]any{"missing": missing,
-			"reason": "Python 环境能力缺失，请到环境管理补装（python3-venv/pip）"})
+	if runtime == storeapp.RuntimeNode {
+		// Node 就绪度分层校验（APP_015：缺 node / npm / PM2 引导环境管理）。
+		if err := s.checkNodeReady(ctx); err != nil {
+			return nil, err
+		}
+	} else {
+		// APP_004 Python 就绪度（D-08 分层缺失）。
+		rd, err := s.envReady.PythonReadiness(ctx)
+		if err != nil {
+			return nil, errcode.ErrAppEnvMissing.WithData(map[string]any{
+				"reason": "Python 环境状态未探测（探测不可用），请到环境管理确认"})
+		}
+		if !rd.Installed {
+			return nil, errcode.ErrAppEnvMissing.WithData(map[string]any{"missing": []string{"python"},
+				"reason": "Python 未安装，请到环境管理安装"})
+		}
+		var missing []string
+		if !rd.VenvSupport {
+			missing = append(missing, "venv")
+		}
+		if !rd.PipAvailable {
+			missing = append(missing, "pip")
+		}
+		if len(missing) > 0 {
+			return nil, errcode.ErrAppEnvMissing.WithData(map[string]any{"missing": missing,
+				"reason": "Python 环境能力缺失，请到环境管理补装（python3-venv/pip）"})
+		}
 	}
 	// APP_005 端口冲突（本机监听查询；不静默换端口）。
 	if req.ListenPort < 1024 || req.ListenPort > 65535 {
@@ -258,9 +318,35 @@ func (s *Service) Create(ctx context.Context, actor *authsvc.Identity, req Creat
 	if listening, err := portListening(req.ListenPort); err == nil && listening {
 		return nil, errcode.ErrAppPortOccupied.WithData(map[string]any{"port": req.ListenPort})
 	}
-	// 启动方式白名单（APP_012，D-06）。
-	if _, err := parseStartSpec(req.StartMode, mustJSON(req.StartSpec)); err != nil {
-		return nil, err
+	// 启动方式白名单（Python：APP_012，D-06；Node：APP_016，D-16）。
+	startSpec := req.StartSpec
+	if runtime == storeapp.RuntimeNode {
+		// 启动文件方式下入口字段本就是必填且已校验存在的项目内文件——启动参数
+		// 未另行指定时沿用入口字段，不要求用户填两遍。
+		if req.StartMode == storeapp.StartModeNodeFile && strings.TrimSpace(startSpec.File) == "" {
+			startSpec.File = filepath.ToSlash(entry)
+		}
+		sp, err := normalizeNodeStartSpec(req.StartMode, startSpec)
+		if err != nil {
+			return nil, err
+		}
+		startSpec = sp
+	} else {
+		if _, err := parseStartSpec(req.StartMode, mustJSON(req.StartSpec)); err != nil {
+			return nil, err
+		}
+	}
+	// Node 运行时通道装配与 node/npm 路径解析（启动器不依赖 PM2 守护进程的 PATH）。
+	var nodeBin, npmBin string
+	if runtime == storeapp.RuntimeNode {
+		if s.node == nil || s.pm2 == nil {
+			return nil, errNodeEnv(nil, "Node 运行时通道未装配，无法托管 Node 项目")
+		}
+		nb, mb, err := s.node.ResolveBins(ctx)
+		if err != nil {
+			return nil, errNodeEnv([]string{"node"}, err.Error())
+		}
+		nodeBin, npmBin = nb, mb
 	}
 	// I-05 互斥（create 场景按名字——档案未登记前未分配 id）。
 	taskID, err := s.createTask(ctx, actor, storeapp.AppTask{
@@ -276,8 +362,9 @@ func (s *Service) Create(ctx context.Context, actor *authsvc.Identity, req Creat
 	// 由 worker 从任务表 app_name + 本方法写入的 pending 计划文件承载——简化：
 	// worker 内重新校验并使用相同链路；此处将参数写入 output_tail 前缀注释，
 	// worker 解析。为可靠性与可审计性，采用任务输出首行 JSON 计划方案。
-	plan := map[string]any{"dir": dir, "entry": entry, "startMode": req.StartMode,
-		"startSpec": req.StartSpec, "listenPort": req.ListenPort, "startNow": req.StartNow}
+	plan := map[string]any{"dir": dir, "entry": entry, "runtime": runtime, "startMode": req.StartMode,
+		"startSpec": startSpec, "listenPort": req.ListenPort, "startNow": req.StartNow,
+		"nodeBin": nodeBin, "npmBin": npmBin}
 	if err := s.store.Task().AppendOutput(ctx, taskID, "plan:"+mustJSON(plan)); err != nil {
 		return nil, fmt.Errorf("appmgmt: persist create plan: %w", err)
 	}
@@ -328,12 +415,19 @@ func (s *Service) Deps(ctx context.Context, actor *authsvc.Identity, appID int64
 	if err := s.checkInFlightByApp(ctx, app.ID, app.Name); err != nil {
 		return nil, err
 	}
-	if !s.py.VenvExists(app.Dir) {
-		return nil, errcode.ErrAppVenvMissing.WithData(map[string]any{
-			"reason": "运行环境（venv）缺失，请删除后重建应用或先修复目录"})
-	}
-	if _, err := os.Stat(filepath.Join(app.Dir, "requirements.txt")); err != nil {
-		return nil, errParams("应用无 requirements.txt，无需安装依赖")
+	if appRuntime(app) == storeapp.RuntimeNode {
+		// Node：依赖清单为 package.json（ADR-033 D-18）；无清单如实拒绝。
+		if _, err := os.Stat(filepath.Join(app.Dir, "package.json")); err != nil {
+			return nil, errParams("项目里没有 package.json，无需安装依赖")
+		}
+	} else {
+		if !s.py.VenvExists(app.Dir) {
+			return nil, errcode.ErrAppVenvMissing.WithData(map[string]any{
+				"reason": "运行环境（venv）缺失，请删除后重建应用或先修复目录"})
+		}
+		if _, err := os.Stat(filepath.Join(app.Dir, "requirements.txt")); err != nil {
+			return nil, errParams("应用无 requirements.txt，无需安装依赖")
+		}
 	}
 	taskID, err := s.createTask(ctx, actor, storeapp.AppTask{
 		AppID: app.ID, AppName: app.Name, Action: storeapp.ActionDepsInstall,
@@ -398,15 +492,26 @@ func (s *Service) ParamsSave(ctx context.Context, actor *authsvc.Identity, req P
 		}
 	}
 	spec := app.StartSpec
+	isNode := appRuntime(app) == storeapp.RuntimeNode
 	if req.StartSpec != nil {
 		raw, jerr := jsonMarshal(*req.StartSpec)
 		if jerr != nil {
 			return nil, errParams("启动参数序列化失败")
 		}
-		if _, verr := parseStartSpec(app.StartMode, raw); verr != nil {
-			return nil, verr
+		if isNode {
+			// Node 启动方式校验（APP_016）；值对象以规整结果入库。
+			nsp, verr := normalizeNodeStartSpec(app.StartMode, *req.StartSpec)
+			if verr != nil {
+				return nil, verr
+			}
+			nraw, _ := jsonMarshal(nsp)
+			raw, spec = nraw, nraw
+		} else {
+			if _, verr := parseStartSpec(app.StartMode, raw); verr != nil {
+				return nil, verr
+			}
+			spec = raw
 		}
-		spec = raw
 	}
 	// .env 整文件替换（备份原文件；写入失败还原）。
 	if req.EnvLines != nil {
@@ -419,15 +524,27 @@ func (s *Service) ParamsSave(ctx context.Context, actor *authsvc.Identity, req P
 			_ = os.WriteFile(envPath+".dougong-bak", prev, 0o600)
 		}
 	}
-	// startSpec 变更 → 单元文件安全写回（D-06：WriteUnit 内含备份→原子写→
-	// verify→失败回滚；单元内容重渲染）。
+	// startSpec 变更 → 托管对象更新：
+	//   Python：单元文件安全写回（D-06：WriteUnit 内含备份→原子写→verify→
+	//   失败回滚；单元内容重渲染）。
+	//   Node：PM2 进程的启动参数在注册时固定，须重新注册（nodeReregister：保留
+	//   原运行态与开机自启设置；运行中的进程会随之重启——界面已提示）。
+	needRestart := true
 	if req.StartSpec != nil {
-		rb, werr := s.py.WriteUnit(ctx, app.UnitName,
-			renderUnit(app.Name, app.Dir, renderExecStart(app.StartMode, *req.StartSpec, app.ListenPort)))
-		if werr != nil {
-			// .env 已写不回滚（外部事实源合法更新）；单元失败如实拒绝并提示。
-			_ = rb
-			return nil, errParams("服务单元更新失败（已回滚原单元）：" + werr.Error())
+		if isNode {
+			if err := s.nodeReregister(ctx, app, *req.StartSpec); err != nil {
+				// .env 已写不回滚（外部事实源合法更新）；注册失败如实拒绝。
+				return nil, errParams("Node 进程重新注册失败：" + err.Error())
+			}
+			needRestart = false // 进程已按新参数重新注册，无需再手动重启
+		} else {
+			rb, werr := s.py.WriteUnit(ctx, app.UnitName,
+				renderUnit(app.Name, app.Dir, renderExecStart(app.StartMode, *req.StartSpec, app.ListenPort)))
+			if werr != nil {
+				// .env 已写不回滚（外部事实源合法更新）；单元失败如实拒绝并提示。
+				_ = rb
+				return nil, errParams("服务单元更新失败（已回滚原单元）：" + werr.Error())
+			}
 		}
 	}
 	tx, err := s.store.BeginTx(ctx)
@@ -447,7 +564,7 @@ func (s *Service) ParamsSave(ctx context.Context, actor *authsvc.Identity, req P
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("appmgmt: params commit: %w", err)
 	}
-	return &ParamsSaveData{AppID: app.ID, NeedRestart: true}, nil
+	return &ParamsSaveData{AppID: app.ID, NeedRestart: needRestart}, nil
 }
 
 // ---- ServiceOp（D-10：瞬时通道；请求仅 appId 不开放任意单元名 R-14）----
@@ -458,10 +575,18 @@ func (s *Service) ServiceOp(ctx context.Context, actor *authsvc.Identity, appID 
 	if err != nil {
 		return nil, errcode.ErrAppNotFound
 	}
-	// v1.1 容器化形态走 compose 通道（⚠️A13）。
-	if app.StartMode == storeapp.StartModeContainer {
-		if err := s.containerServiceOp(ctx, app.Name, op); err != nil {
+	// Node 运行时经 PM2（ADR-033 D-17：enable/disable 会同时启动/停止并保存进程列表）。
+	if appRuntime(app) == storeapp.RuntimeNode {
+		if s.pm2 == nil {
+			return nil, errUnitOp("PM2 通道未装配，无法操作 Node 项目")
+		}
+		if err := s.nodeServiceOp(ctx, app, op); err != nil {
 			return nil, err
+		}
+		e := auditEntry(actor, auditActionForService(op), ObjTypeApp, fmtID(app.ID),
+			map[string]any{"appId": app.ID, "unit": app.UnitName, "runtime": storeapp.RuntimeNode})
+		if err := s.store.Audit().Append(ctx, e, s.clock()); err != nil {
+			return nil, fmt.Errorf("appmgmt: service op audit: %w", err)
 		}
 		return &ServiceOpData{AppID: app.ID, Unit: app.UnitName}, nil
 	}
@@ -564,12 +689,16 @@ func (s *Service) LogTail(ctx context.Context, appID int64, lines int) (*LogData
 	if lines != 200 && lines != 500 && lines != 1000 {
 		lines = LogTailDefault
 	}
-	if app.StartMode == storeapp.StartModeContainer {
-		contentLines, logErr := s.cops.Logs(ctx, app.Name, app.Dir, "docker-compose.yml", lines)
-		if logErr != nil {
-			return nil, errUnitOp("日志查询失败：" + logErr.Error())
+	// Node 运行时取 PM2 日志文件尾部（ADR-033）。
+	if appRuntime(app) == storeapp.RuntimeNode {
+		if s.pm2 == nil {
+			return nil, errUnitOp("日志查询失败：PM2 通道未装配")
 		}
-		return &LogData{AppID: app.ID, Unit: app.UnitName, Lines: lines, Content: strings.Join(contentLines, "\n")}, nil
+		content, err := s.nodeLogTail(ctx, app, lines)
+		if err != nil {
+			return nil, err
+		}
+		return &LogData{AppID: app.ID, Unit: app.UnitName, Lines: lines, Content: content}, nil
 	}
 	content, err := s.py.Tail(ctx, app.UnitName, lines)
 	if err != nil {
@@ -679,65 +808,4 @@ func auditActionForService(op string) string {
 		return AuditActionServiceDisabled
 	}
 	return AuditActionServiceStarted
-}
-
-// createContainerized 容器化形态创建链（⚠️A13 v1.1，D0 Q5）：镜像必填 →
-// 生成单应用 compose.yml（含 dougong-app 归属标签）→ 经 ComposeProjectCreator
-// OHS 落盘并自动 up -d → 档案登记（compose 项目名引用替代 unit_name）。
-// 同步完成（compose 通道即时返回——无需 worker goroutine，与 venv 形态的
-// 异步 venv/pip 链不同：容器化无本地编译/下载步骤）。
-func (s *Service) createContainerized(ctx context.Context, actor *authsvc.Identity, req CreateRequest) (*TaskCreatedData, error) {
-	if _, err := s.store.App().GetByName(ctx, req.Name); err == nil {
-		return nil, errcode.ErrAppNameTaken
-	}
-	if !validateImageRef(req.Image) {
-		return nil, errcode.ErrAppImageInvalid
-	}
-	if req.ListenPort < 1024 || req.ListenPort > 65535 {
-		return nil, errcode.ErrAppPortOccupied.WithData(map[string]any{"port": req.ListenPort})
-	}
-	if s.composeCre == nil {
-		return nil, errcode.ErrAppImageInvalid.WithData(map[string]any{
-			"reason": "容器编排通道未装配（docker-mgmt 未接入）"})
-	}
-	taskID, err := s.createTask(ctx, actor, storeapp.AppTask{
-		AppName: req.Name, Action: storeapp.ActionCreate, RequestedBy: actorName(actor),
-	}, audit.Entry{Action: AuditActionTaskStarted, ObjectType: ObjTypeTask,
-		Detail: map[string]any{"appName": req.Name, "action": storeapp.ActionCreate,
-			"form": "container"}})
-	if err != nil {
-		return nil, err
-	}
-	yamlText := renderAppCompose(req.Name, req.Image, req.ListenPort, req.Env, nil, req.RestartPolicy)
-	if err := s.composeCre.CreateComposeProject(ctx, req.Name, yamlText, true); err != nil {
-		_ = s.store.Task().Finish(ctx, taskID, storeapp.TaskFailed, strPtr("容器编排失败："+err.Error()))
-		return nil, errcode.ErrAppImageInvalid.WithData(map[string]any{"reason": err.Error()})
-	}
-	tx, err := s.store.BeginTx(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("appmgmt: container create tx: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-	specJSON, _ := jsonMarshal(ContainerFormSpec{Image: req.Image, RestartPolicy: req.RestartPolicy})
-	arch := storeapp.App{
-		Name: req.Name, Dir: composeAppRoot(req.Name), Entry: "compose",
-		StartMode: storeapp.StartModeContainer,
-		StartSpec: specJSON, ListenPort: req.ListenPort, UnitName: "",
-		CreatedBy: actorName(actor),
-	}
-	if _, err := tx.App().Create(ctx, arch); err != nil {
-		return nil, fmt.Errorf("appmgmt: container archive: %w", err)
-	}
-	if err := tx.Task().Finish(ctx, taskID, storeapp.TaskSucceeded, nil); err != nil {
-		return nil, fmt.Errorf("appmgmt: container finish: %w", err)
-	}
-	if err := tx.Audit().Append(ctx, auditEntry(actor, AuditActionTaskFinished, ObjTypeTask,
-		fmtID(taskID), map[string]any{"appName": req.Name, "action": storeapp.ActionCreate,
-			"form": "container", "status": storeapp.TaskSucceeded}), s.clock()); err != nil {
-		return nil, fmt.Errorf("appmgmt: container audit: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("appmgmt: container commit: %w", err)
-	}
-	return &TaskCreatedData{TaskID: taskID}, nil
 }

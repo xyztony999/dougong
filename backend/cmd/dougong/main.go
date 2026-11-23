@@ -39,6 +39,7 @@ import (
 
 	acmegw "github.com/dougong/dougong/internal/adapter/acme"
 	"github.com/dougong/dougong/internal/adapter/appx"
+	"github.com/dougong/dougong/internal/adapter/pmx"
 	"github.com/dougong/dougong/internal/adapter/backupx"
 	"github.com/dougong/dougong/internal/adapter/cronx"
 	"github.com/dougong/dougong/internal/adapter/dbmongo"
@@ -452,29 +453,26 @@ func run(args []string) error {
 			Icon: "env", Order: 850, Visibility: []string{storeauth.RoleAdmin, storeauth.RoleReadonly}},
 	)
 
-	// app-mgmt：应用管理（D0 四拍板 2026-11-20，api-app-mgmt v1.0）——app/app_task
-	// 双聚合（迁移 015）+ appx 适配器（venv/pip 参数数组 R-08/单元安全写入
-	// 备份→原子写→verify→失败回滚 D-06/journalctl 日志）+ 删除保守保全
-	// （purgeDir 显式，绝不静默删代码 ⚠️A5）+ 跨模块 OHS 消费（env-mgmt
-	// PythonReadiness 就绪度读契约 v1.4 / site-mgmt 建站 D-12——提供方登记
-	// 归 site-mgmt 联动轮；service-mgmt SysdGateway 共享适配层双入口 ⚠️A12）。
-	// 启动恢复 I-08；任务 worker 为创建即触发的有限时 goroutine（G-06）。
-	// 菜单 /app 两角色可见（查看类全可看 ADR-018；日志 admin 专属 ⚠️A8）。
+	// app-mgmt：运行时项目托管（ADR-033，api-app-mgmt v1.2）——app/app_task
+	// 双聚合（迁移 015/018）+ appx 适配器（venv/pip/npm 参数数组 R-08/单元安全
+	// 写入 备份→原子写→verify→失败回滚 D-06/journalctl 日志）+ pmx 适配器
+	// （Node 项目由 PM2 托管进程：注册/启停/保存/jlist 投影/日志文件尾部）+
+	// 删除保守保全（purgeDir 显式，绝不静默删代码 ⚠️A5）+ 跨模块 OHS 消费
+	// （env-mgmt PythonReadiness / NodeReadiness 就绪度读契约 / site-mgmt 建站
+	// D-12；service-mgmt SysdGateway 共享适配层双入口 ⚠️A12）。启动恢复 I-08；
+	// 任务 worker 为创建即触发的有限时 goroutine（G-06）。
+	// 不再登记独立菜单（ADR-033 Q2）：面板由网站管理页「Python 项目 / Node
+	// 项目」分栏承载；路由 /app 重定向到 /sites。容器运行形态已下线
+	// （D-app-04），容器化部署归 docker-mgmt「应用」页签。
 	appStore := storeapp.New(db)
 	appSvc := appsvc.New(appx.New(), sysdGateway, appStore, appsvc.Options{
-		EnvReady: envSvc,                          // PythonReadiness 读契约 OHS（D-08）
+		EnvReady: envSvc,                          // PythonReadiness / NodeReadiness 读契约 OHS（D-08/D-16）
 		SiteLink: appsvc.AdaptSiteLinker(siteSvc), // 建站 OHS 消费（D-12）
-		ComposeCre: appsvc.ComposeCreatorFunc(func(_ context.Context, pn, cy string, au bool) error {
-			_, aerr := dockerSvc.CreateComposeProject(ctx, "system", pn, cy, &au)
-			return aerr
-		}), // 容器化通道（⚠️A13：docker-mgmt S-50-04/D-11）
-		ComposeOps: appsvc.AdaptComposeOps(composeRunner), // 容器化运维通道（⚠️A12）
+		Node:     appx.New(),                      // npm install / node·npm 路径解析（D-16）
+		PM2:      pmx.New(),                       // PM2 进程托管（D-16~D-18）
+		DataDir:  panelDataDir,                    // 启动器脚本落位（<数据目录>/app/pm2-launcher.js）
 	})
 	appSvc.RecoverInFlight(ctx)
-	panelSvc.Menus().Register(
-		panelsvc.MenuItem{Key: "app", Title: "应用管理", Path: "/app",
-			Icon: "apps", Order: 860, Visibility: []string{storeauth.RoleAdmin, storeauth.RoleReadonly}},
-	)
 
 	// db-tools：数据库工具集成（D0 Q1~Q3 拍板 2026-11-19，api-db-tools v1.2）——
 	// db_tool/tool_deploy_task 双聚合（迁移 013）+ toolx 部署网关（下载 sha256

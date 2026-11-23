@@ -36,10 +36,13 @@ func (s *Service) dispatch(taskID int64) {
 type createPlan struct {
 	Dir        string    `json:"dir"`
 	Entry      string    `json:"entry"`
+	Runtime    string    `json:"runtime,omitempty"` // python（缺省）| node（ADR-033）
 	StartMode  string    `json:"startMode"`
 	StartSpec  StartSpec `json:"startSpec"`
 	ListenPort int       `json:"listenPort"`
 	StartNow   bool      `json:"startNow"`
+	NodeBin    string    `json:"nodeBin,omitempty"` // Node 运行时：node 绝对路径（启动器解释器与启动参数）
+	NpmBin     string    `json:"npmBin,omitempty"`  // Node 运行时：npm 绝对路径
 }
 
 // runTask 单任务执行链。
@@ -77,6 +80,11 @@ func (s *Service) runCreate(ctx context.Context, task storeapp.AppTask, planJSON
 	if err := json.Unmarshal([]byte(planJSON), &plan); err != nil {
 		e := "创建计划解析失败（任务参数损坏）"
 		s.finish(ctx, task.ID, task, storeapp.TaskFailed, &e, ring, nil)
+		return
+	}
+	// Node 运行时走 PM2 链（ADR-033 D-16：npm install → 注册进程 → 保存）。
+	if plan.Runtime == storeapp.RuntimeNode {
+		s.runNodeCreate(ctx, task, plan, ring)
 		return
 	}
 	ring.append("[venv] python3 -m venv .venv")
@@ -130,6 +138,10 @@ func (s *Service) runDeps(ctx context.Context, task storeapp.AppTask, ring *outp
 		s.finish(ctx, task.ID, task, storeapp.TaskFailed, &e, ring, nil)
 		return
 	}
+	if appRuntime(app) == storeapp.RuntimeNode {
+		s.runNodeDeps(ctx, task, app, ring)
+		return
+	}
 	ring.append("[deps] pip install -r requirements.txt")
 	out, err := s.py.PipInstall(ctx, app.Dir, PYOpTimeout)
 	ring.append(out)
@@ -149,6 +161,10 @@ func (s *Service) runDelete(ctx context.Context, task storeapp.AppTask, ring *ou
 	if err != nil {
 		e := "应用档案不存在（可能已被删除）"
 		s.finish(ctx, task.ID, task, storeapp.TaskFailed, &e, ring, nil)
+		return
+	}
+	if appRuntime(app) == storeapp.RuntimeNode {
+		s.runNodeDelete(ctx, task, app, ring)
 		return
 	}
 	ring.append("[service] 停止服务 " + app.UnitName)

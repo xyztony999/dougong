@@ -123,6 +123,10 @@ func (stubReady) PythonReadiness(_ context.Context) (envsvc.PythonReadiness, err
 	return envsvc.PythonReadiness{Installed: true, Version: "3.11.2", VenvSupport: true, PipAvailable: true}, nil
 }
 
+func (stubReady) NodeReadiness(_ context.Context) (envsvc.NodeReadiness, error) {
+	return envsvc.NodeReadiness{NodeAvailable: true, NpmAvailable: true, Pm2Available: true, NodeVersion: "22.14.0"}, nil
+}
+
 // ---- 会话与请求辅助（env-mgmt module_test 同法）----
 
 func loginSession(t *testing.T, app *testApp, username string) session {

@@ -3,6 +3,8 @@
 package appmgmt
 
 import (
+	"strings"
+
 	"github.com/dougong/dougong/internal/api"
 	"github.com/dougong/dougong/internal/api/middleware"
 	"github.com/dougong/dougong/internal/api/response"
@@ -59,7 +61,14 @@ func (m *Module) Register(rg *gin.RouterGroup) {
 }
 
 func (m *Module) list(c *gin.Context) {
-	data, err := m.svc.AppList(c.Request.Context())
+	// runtime 过滤（ADR-033：网站管理页 Python / Node 分栏各取其一；缺省返回全部）。
+	runtime := strings.TrimSpace(c.Query("runtime"))
+	if runtime != "" && runtime != "python" && runtime != "node" {
+		response.Fail(c, errcode.ErrAppParamsInvalid.WithData(map[string]any{
+			"reason": "runtime 取值须为 python 或 node"}))
+		return
+	}
+	data, err := m.svc.AppList(c.Request.Context(), runtime)
 	respond(c, data, err)
 }
 

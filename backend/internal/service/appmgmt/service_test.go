@@ -89,10 +89,17 @@ func (f *fakeSysd) DisableUnit(_ context.Context, n string) error {
 	return nil
 }
 
-type fakeReady struct{ rd envsvc.PythonReadiness }
+type fakeReady struct {
+	rd   envsvc.PythonReadiness
+	node envsvc.NodeReadiness
+}
 
 func (f fakeReady) PythonReadiness(_ context.Context) (envsvc.PythonReadiness, error) {
 	return f.rd, nil
+}
+
+func (f fakeReady) NodeReadiness(_ context.Context) (envsvc.NodeReadiness, error) {
+	return f.node, nil
 }
 
 type fakeSiteLink struct {
@@ -127,10 +134,17 @@ func newTestService(t *testing.T) (*Service, *fakePy, *fakeSysd, *storeapp.Store
 	st := storeapp.New(db)
 	py := &fakePy{}
 	sd := &fakeSysd{}
+	nd := &fakeNode{nodeBin: "/usr/bin/node", npmBin: "/usr/bin/npm"}
+	pm := newFakePM2()
+	tstNode, tstPM2 = nd, pm // Node 分支测试经包级变量取回替身（见 node_test.go）
 	svc := New(py, sd, st, Options{
-		EnvReady: fakeReady{rd: envsvc.PythonReadiness{
-			Installed: true, Version: "3.11.2", VenvSupport: true, PipAvailable: true}},
+		EnvReady: fakeReady{
+			rd: envsvc.PythonReadiness{
+				Installed: true, Version: "3.11.2", VenvSupport: true, PipAvailable: true},
+			node: envsvc.NodeReadiness{NodeAvailable: true, NpmAvailable: true, Pm2Available: true,
+				NodeVersion: "22.14.0"}},
 		SyncDispatch: true, // 同步执行 runTask（确定性断言，env-mgmt 先例）
+		Node:         nd, PM2: pm, DataDir: t.TempDir(),
 	})
 	return svc, py, sd, st
 }

@@ -3,7 +3,7 @@
 // 方式加载应用。.env 是环境变量的唯一来源——面板不把其内容复制到任何别处。
 //
 // 参数（由面板经 pm2 start … -- 传入）：
-//   node pm2-launcher.js <项目目录> <node|npm> <node 绝对路径> <npm 绝对路径> <file|script> <目标>
+//   node pm2-launcher.js <项目目录> <node 绝对路径> <npm 绝对路径> <file|script> <目标>
 //     file   目标=项目内入口文件相对路径（在 PM2 直接管理的进程内加载）
 //     script 目标=npm 脚本名（以 npm 绝对路径执行 npm run <脚本名>）
 'use strict';
@@ -11,7 +11,7 @@ const fs = require('fs');
 const path = require('path');
 const cp = require('child_process');
 
-const [dir, mode, nodeBin, npmBin, kind, target] = process.argv.slice(2);
+const [dir, nodeBin, npmBin, kind, target] = process.argv.slice(2);
 if (!dir || !kind || !target) {
   console.error('[dougong] 启动器参数不完整');
   process.exit(2);

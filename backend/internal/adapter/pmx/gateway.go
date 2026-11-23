@@ -54,7 +54,8 @@ type StartSpec struct {
 	Name     string
 	Cwd      string
 	Launcher string
-	Args     []string // 启动器参数：项目目录/模式/node 路径/npm 路径/file|script/目标
+	NodeBin  string   // 解释执行启动器的 node 绝对路径（空=沿用 PM2 默认解释器）
+	Args     []string // 启动器参数：项目目录/node 路径/npm 路径/file|script/目标
 }
 
 // Gateway 是 PM2 通道（零状态；并发安全）。
@@ -127,10 +128,15 @@ func (g *Gateway) run(ctx context.Context, timeout time.Duration, args ...string
 	return buf.String(), nil
 }
 
-// buildStartArgs 组装注册参数（纯函数；-- 之后为启动器参数）。
+// buildStartArgs 组装注册参数（纯函数；-- 之后为启动器参数）。NodeBin 非空
+// 时以 --interpreter 指定解释器——PM2 守护进程的 PATH 未必含 node 安装位置
+// （开机时由 systemd 拉起），不依赖它。
 func buildStartArgs(spec StartSpec) []string {
-	args := []string{"start", spec.Launcher, "--name", spec.Name, "--cwd", spec.Cwd, "--"}
-	return append(args, spec.Args...)
+	args := []string{"start", spec.Launcher, "--name", spec.Name, "--cwd", spec.Cwd}
+	if spec.NodeBin != "" {
+		args = append(args, "--interpreter", spec.NodeBin)
+	}
+	return append(append(args, "--"), spec.Args...)
 }
 
 // Start 注册并启动 PM2 进程（执行目标=启动器脚本）。同名进程已存在时 pm2

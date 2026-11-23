@@ -42,29 +42,45 @@ type PythonReadyData struct {
 	PipAvailable *bool   `json:"pipAvailable"`
 }
 
+// NodeReadyData Node 环境就绪度（GET /app/app/list 响应；ADR-033 D-16：
+// node / npm / PM2 三项可用性——PM2 为 Node 项目的进程托管依赖）。
+type NodeReadyData struct {
+	NodeAvailable bool    `json:"nodeAvailable"`
+	NpmAvailable  bool    `json:"npmAvailable"`
+	Pm2Available  bool    `json:"pm2Available"`
+	NodeVersion   *string `json:"nodeVersion"` // 缺席 null 如实
+}
+
 // AppItem 应用列表条目（档案+实况投影合并，D-01；探测失败字段 null 如实）。
+// ADR-033：runtime 区分 Python / Node；Node 条目的服务状态来自 PM2，另带
+// PM2 原值状态、重启次数与内存占用（Python 条目这三项为 null）。
 type AppItem struct {
-	ID             int64  `json:"id"`
-	Name           string `json:"name"`
-	Dir            string `json:"dir"`
-	Entry          string `json:"entry"`
-	StartMode      string `json:"startMode"`
-	ListenPort     int    `json:"listenPort"`
-	ServiceRunning *bool  `json:"serviceRunning"`
-	ServiceEnabled *bool  `json:"serviceEnabled"`
-	VenvExists     bool   `json:"venvExists"`
-	DepsInstalled  *bool  `json:"depsInstalled"`
-	PortListening  *bool  `json:"portListening"`
-	RunningTaskID  *int64 `json:"runningTaskId"`
-	HasSite        *bool  `json:"hasSite"`
-	UnitFailed     bool   `json:"unitFailed"`
-	CreatedAt      string `json:"createdAt"`
-	CreatedBy      string `json:"createdBy"`
+	ID             int64   `json:"id"`
+	Name           string  `json:"name"`
+	Dir            string  `json:"dir"`
+	Entry          string  `json:"entry"`
+	Runtime        string  `json:"runtime"`
+	StartMode      string  `json:"startMode"`
+	ListenPort     int     `json:"listenPort"`
+	ServiceRunning *bool   `json:"serviceRunning"`
+	ServiceEnabled *bool   `json:"serviceEnabled"`
+	VenvExists     bool    `json:"venvExists"`
+	DepsInstalled  *bool   `json:"depsInstalled"`
+	PortListening  *bool   `json:"portListening"`
+	RunningTaskID  *int64  `json:"runningTaskId"`
+	HasSite        *bool   `json:"hasSite"`
+	UnitFailed     bool    `json:"unitFailed"`
+	Pm2Status      *string `json:"pm2Status"`
+	Restarts       *int    `json:"restarts"`
+	MemoryBytes    *int64  `json:"memoryBytes"`
+	CreatedAt      string  `json:"createdAt"`
+	CreatedBy      string  `json:"createdBy"`
 }
 
 // AppListData GET /app/app/list 响应。
 type AppListData struct {
 	PythonReadiness PythonReadyData `json:"pythonReadiness"`
+	NodeReadiness   NodeReadyData   `json:"nodeReadiness"`
 	Items           []AppItem       `json:"items"`
 	GeneratedAt     string          `json:"generatedAt"`
 }
@@ -74,12 +90,15 @@ type TaskCreatedData struct {
 	TaskID int64 `json:"taskId"`
 }
 
-// StartSpec 启动方式值对象（D-06；preset_fastapi=module+app+args；custom=command）。
+// StartSpec 启动方式值对象（D-06：preset_fastapi=module+app+args；custom=
+// command；ADR-033 D-16：node_file=file、npm_script=script）。
 type StartSpec struct {
 	Module  string `json:"module,omitempty"`
 	App     string `json:"app,omitempty"`
 	Args    string `json:"args,omitempty"`
 	Command string `json:"command,omitempty"`
+	File    string `json:"file,omitempty"`   // Node 启动文件（项目内相对路径）
+	Script  string `json:"script,omitempty"` // Node npm 脚本名（缺省 start）
 }
 
 // parseStartSpec 解析并校验启动方式值对象（D-06/APP_012 白名单：

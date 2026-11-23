@@ -11,10 +11,12 @@ import (
 
 func TestBuildStartArgs(t *testing.T) {
 	spec := StartSpec{Name: "dougong-app-web", Cwd: "/srv/web", Launcher: "/var/lib/dougong/app/pm2-launcher.js",
-		Args: []string{"/srv/web", "node", "/usr/bin/node", "/usr/bin/npm", "file", "server.js"}}
+		NodeBin: "/usr/bin/node",
+		Args:    []string{"/srv/web", "/usr/bin/node", "/usr/bin/npm", "file", "server.js"}}
 	got := buildStartArgs(spec)
 	want := []string{"start", "/var/lib/dougong/app/pm2-launcher.js", "--name", "dougong-app-web",
-		"--cwd", "/srv/web", "--", "/srv/web", "node", "/usr/bin/node", "/usr/bin/npm", "file", "server.js"}
+		"--cwd", "/srv/web", "--interpreter", "/usr/bin/node", "--",
+		"/srv/web", "/usr/bin/node", "/usr/bin/npm", "file", "server.js"}
 	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
 		t.Fatalf("buildStartArgs = %v, want %v", got, want)
 	}
@@ -28,6 +30,11 @@ func TestBuildStartArgs(t *testing.T) {
 	}
 	if sep < 0 || sep >= len(got)-1 {
 		t.Fatalf("缺少 -- 分隔或其位置错误: %v", got)
+	}
+	// NodeBin 为空时不带 --interpreter
+	bare := buildStartArgs(StartSpec{Name: "n", Cwd: "/c", Launcher: "/l.js", Args: []string{"a"}})
+	if strings.Join(bare, " ") != "start /l.js --name n --cwd /c -- a" {
+		t.Fatalf("无解释器参数 = %v", bare)
 	}
 }
 
