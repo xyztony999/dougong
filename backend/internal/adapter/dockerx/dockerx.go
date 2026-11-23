@@ -444,15 +444,33 @@ func (g *Gateway) ListNetworks(ctx context.Context) ([]NetworkFact, error) {
 	return facts, nil
 }
 
-// DeleteNetwork 删除网络（预定义 403→ErrPredefinedNetwork；被接入
-// 409→ErrInUse，D-08）。
+// DeleteNetwork 删除网络（预定义→ErrPredefinedNetwork；被接入→ErrInUse，D-08；
+// 两者均为 daemon 403，按报错原文区分——见 mapNetworkRemoveError）。
 func (g *Gateway) DeleteNetwork(ctx context.Context, id string) error {
 	cctx, cancel := withTimeout(ctx, SDKTimeout)
 	defer cancel()
 	if err := g.cli.NetworkRemove(cctx, id); err != nil {
-		return sdkError("network delete", err)
+		return mapNetworkRemoveError(err)
 	}
 	return nil
+}
+
+// mapNetworkRemoveError 归一 NetworkRemove 的 daemon 拒绝。
+//
+// 实测口径（Docker 29.8.1，2026-11-23 探针）：daemon 对「预定义网络」与「有活动
+// 端点的网络」都回 403 Forbidden——
+//   - "bridge is a pre-defined network and cannot be removed"
+//   - "error while removing network: network x has active endpoints (name:\"c\" id:…)"
+//
+// 仅凭 errdefs 类别分不开。此前一律经 sdkError 归为 ErrPredefinedNetwork，删除被
+// 接入的网络时用户看到的是「预定义网络不可删除」（DK_011）而非「被容器接入」
+// （DK_010）。这里按 daemon 原文区分：含 "pre-defined network" 为预定义，其余
+// Forbidden 为被接入。
+func mapNetworkRemoveError(err error) error {
+	if errdefs.IsForbidden(err) && !strings.Contains(err.Error(), "pre-defined network") {
+		return fmt.Errorf("%w: network delete: %v", ErrInUse, err)
+	}
+	return sdkError("network delete", err)
 }
 
 // scanPullError 消费 daemon 拉取进度流并提取失败消息（D-05/D-08：tag 不
@@ -473,9 +491,11 @@ func scanPullError(rc io.Reader) string {
 }
 
 // sdkError 将 SDK 错误按 errdefs 语义归一（D-08）：NotFound→ErrNotFound、
-// Conflict→ErrInUse、Forbidden→ErrPredefinedNetwork（daemon 对预定义网络
-// 删除回 403；其余调用面 Forbidden 罕见，归一后由服务层按面翻译）、其余
-// 原文 ExecError。NotFound/Conflict/Forbidden 之外的原文包装保留上下文。
+// Conflict→ErrInUse、Forbidden→ErrPredefinedNetwork（其余调用面 Forbidden 罕见，
+// 归一后由服务层按面翻译）、其余原文 ExecError。NotFound/Conflict/Forbidden 之外
+// 的原文包装保留上下文。
+// 注意：网络删除不经此处的 Forbidden 分支——被接入的网络同样回 403，须按原文
+// 区分，见 mapNetworkRemoveError。
 func sdkError(verb string, err error) error {
 	switch {
 	case errdefs.IsNotFound(err):

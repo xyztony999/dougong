@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/errdefs"
 )
 
 // ---------- MapState（BA 附录B.1） ----------
@@ -562,6 +563,57 @@ func TestRunRejectsNonVerb(t *testing.T) {
 		if r.busy[fact.Project] {
 			t.Fatalf("Run(%q) 被拒后不应登记互斥", verb)
 		}
+	}
+}
+
+// TestMapNetworkRemoveError 网络删除拒绝归一（D-08）。真实 daemon 对「预定义网络」
+// 与「有活动端点的网络」都回 403 Forbidden（Docker 29.8.1 实测，2026-11-23 探针），
+// 仅凭 errdefs 类别分不开，须按报错原文区分。历史缺陷：被接入的网络一律经
+// sdkError 归为预定义，DK_010「网络被容器接入」在真实 daemon 下不可达。
+// 用例文本取自 daemon 实际返回的原文。
+func TestMapNetworkRemoveError(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want error // nil = 非 errdefs 类别，原文 ExecError 透传
+	}{
+		{"被容器接入的自定义网络（403）",
+			errdefs.Forbidden(errors.New(`Error response from daemon: error while removing network: network web-net has active endpoints (name:"web-c" id:"3b0cd998fbc6")`)),
+			ErrInUse},
+		{"预定义 bridge（403）",
+			errdefs.Forbidden(errors.New("Error response from daemon: bridge is a pre-defined network and cannot be removed")),
+			ErrPredefinedNetwork},
+		{"预定义 host（403）",
+			errdefs.Forbidden(errors.New("Error response from daemon: host is a pre-defined network and cannot be removed")),
+			ErrPredefinedNetwork},
+		{"不存在（404）",
+			errdefs.NotFound(errors.New("Error response from daemon: network web-net not found")),
+			ErrNotFound},
+		{"其它失败原文透传",
+			errors.New("context deadline exceeded"),
+			nil},
+	}
+	for _, c := range cases {
+		got := mapNetworkRemoveError(c.err)
+		if c.want == nil {
+			var exec *ExecError
+			if !errors.As(got, &exec) {
+				t.Fatalf("%s: err = %v, want ExecError 原文透传", c.name, got)
+			}
+			continue
+		}
+		if !errors.Is(got, c.want) {
+			t.Fatalf("%s: err = %v, want %v", c.name, got, c.want)
+		}
+	}
+	// 互斥：被接入不得同时归为预定义，反之亦然
+	inUse := mapNetworkRemoveError(errdefs.Forbidden(errors.New("network x has active endpoints")))
+	if errors.Is(inUse, ErrPredefinedNetwork) {
+		t.Fatalf("被接入的网络不得归为预定义：%v", inUse)
+	}
+	pre := mapNetworkRemoveError(errdefs.Forbidden(errors.New("bridge is a pre-defined network and cannot be removed")))
+	if errors.Is(pre, ErrInUse) {
+		t.Fatalf("预定义网络不得归为被接入：%v", pre)
 	}
 }
 

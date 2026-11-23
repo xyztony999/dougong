@@ -1161,7 +1161,7 @@ async function doComposeCreate(): Promise<void> {
     <n-modal v-if="authStore.isAdmin" v-model:show="showContainerCreate" preset="card" title="创建容器" style="width: 640px">
       <n-alert v-if="ccServerError !== null" type="error" title="创建失败" :bordered="false" class="create-error">{{ ccServerError }}</n-alert>
       <n-form label-placement="left" label-width="90">
-        <n-form-item label="容器名"><n-input v-model:value="ccForm.name" placeholder="小写字母/数字/连字符，如 my-app" /></n-form-item>
+        <n-form-item label="容器名"><n-input v-model:value="ccForm.name" placeholder="字母或数字开头，可含 . _ -，如 my-app" /></n-form-item>
         <n-form-item label="镜像"><n-input v-model:value="ccForm.image" placeholder="nginx:latest（本地不存在会自动拉取）" /></n-form-item>
         <n-form-item label="端口映射">
           <div class="row-list">
