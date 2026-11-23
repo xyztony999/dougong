@@ -55,26 +55,30 @@ type NodeReadyData struct {
 // ADR-033：runtime 区分 Python / Node；Node 条目的服务状态来自 PM2，另带
 // PM2 原值状态、重启次数与内存占用（Python 条目这三项为 null）。
 type AppItem struct {
-	ID             int64   `json:"id"`
-	Name           string  `json:"name"`
-	Dir            string  `json:"dir"`
-	Entry          string  `json:"entry"`
-	Runtime        string  `json:"runtime"`
-	StartMode      string  `json:"startMode"`
-	ListenPort     int     `json:"listenPort"`
-	ServiceRunning *bool   `json:"serviceRunning"`
-	ServiceEnabled *bool   `json:"serviceEnabled"`
-	VenvExists     bool    `json:"venvExists"`
-	DepsInstalled  *bool   `json:"depsInstalled"`
-	PortListening  *bool   `json:"portListening"`
-	RunningTaskID  *int64  `json:"runningTaskId"`
-	HasSite        *bool   `json:"hasSite"`
-	UnitFailed     bool    `json:"unitFailed"`
-	Pm2Status      *string `json:"pm2Status"`
-	Restarts       *int    `json:"restarts"`
-	MemoryBytes    *int64  `json:"memoryBytes"`
-	CreatedAt      string  `json:"createdAt"`
-	CreatedBy      string  `json:"createdBy"`
+	ID        int64  `json:"id"`
+	Name      string `json:"name"`
+	Dir       string `json:"dir"`
+	Entry     string `json:"entry"`
+	Runtime   string `json:"runtime"`
+	StartMode string `json:"startMode"`
+	// StartSpec 应用档案里实际保存的启动参数（ADR-033 起随清单下发：参数编辑
+	// 据此预填——此前前端只能拿创建表单的上次输入顶替，对早先创建的应用保存
+	// 参数会把它悄悄改成默认值，或因命令为空而保存失败）。档案损坏时 null。
+	StartSpec      *StartSpec `json:"startSpec"`
+	ListenPort     int        `json:"listenPort"`
+	ServiceRunning *bool      `json:"serviceRunning"`
+	ServiceEnabled *bool      `json:"serviceEnabled"`
+	VenvExists     bool       `json:"venvExists"`
+	DepsInstalled  *bool      `json:"depsInstalled"`
+	PortListening  *bool      `json:"portListening"`
+	RunningTaskID  *int64     `json:"runningTaskId"`
+	HasSite        *bool      `json:"hasSite"`
+	UnitFailed     bool       `json:"unitFailed"`
+	Pm2Status      *string    `json:"pm2Status"`
+	Restarts       *int       `json:"restarts"`
+	MemoryBytes    *int64     `json:"memoryBytes"`
+	CreatedAt      string     `json:"createdAt"`
+	CreatedBy      string     `json:"createdBy"`
 }
 
 // AppListData GET /app/app/list 响应。
@@ -169,6 +173,20 @@ WantedBy=multi-user.target
 
 // unitNameFor 派生服务单元名（I-01：dougong-app-{name}.service）。
 func unitNameFor(name string) string { return UnitPrefix + name + ".service" }
+
+// startSpecOf 解析档案里实际保存的启动方式值对象（清单下发供参数编辑预填）。
+// 空串或解析失败返回 nil 如实——档案损坏不阻断清单，参数编辑时后端仍会按
+// 白名单校验新提交的值。
+func startSpecOf(raw string) *StartSpec {
+	if raw == "" {
+		return nil
+	}
+	var sp StartSpec
+	if err := json.Unmarshal([]byte(raw), &sp); err != nil {
+		return nil
+	}
+	return &sp
+}
 
 // AppTaskItem 任务条目（task/list·detail；retryable=D-13 前端按钮态数据源）。
 type AppTaskItem struct {

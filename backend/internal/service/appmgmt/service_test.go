@@ -408,6 +408,11 @@ func TestParamsBaseline(t *testing.T) {
 	fi, _ := os.Stat(envPath)
 	base := fmtMtime(fi.ModTime().UTC())
 	_ = os.WriteFile(envPath, []byte("A=2\n"), 0o600) // 外部修改
+	// 文件系统时间戳粒度可能粗于两次写入的间隔（如 Windows 的时钟节拍），同一
+	// 时刻的两次写入 mtime 相同就判不出「被改过」——显式把 mtime 拨后一秒，用例
+	// 不依赖时序（此前在 Windows 上偶发失败）。
+	later := fi.ModTime().Add(time.Second)
+	_ = os.Chtimes(envPath, later, later)
 	if _, err := svc.ParamsSave(ctx, actor(), ParamsSaveRequest{
 		AppID: app.ID, EnvLines: []string{"B=3"}, BaseMtime: &base}); err == nil ||
 		!(strings.Contains(err.Error(), "APP_012") || strings.Contains(err.Error(), "外部修改")) {

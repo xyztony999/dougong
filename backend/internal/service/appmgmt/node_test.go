@@ -242,6 +242,40 @@ func TestNodeCreateFileMode(t *testing.T) {
 		app.Entry != "server.js" || app.ListenPort != 18700 {
 		t.Fatalf("档案字段错误: %+v", app)
 	}
+	// 清单下发应用实际保存的启动参数（参数编辑预填的数据源）
+	list, _ := svc.AppList(ctx, "node")
+	if sp := list.Items[0].StartSpec; sp == nil || sp.File != "server.js" {
+		t.Fatalf("清单应带出实际保存的启动参数: %+v", sp)
+	}
+}
+
+// TestParamsPrefillFromStoredSpec 参数编辑以应用实际保存的启动参数为准：此前
+// 前端只能拿创建表单的上次输入顶替，对早先创建的应用会把启动参数悄悄改成
+// 默认值。清单下发 startSpec 后，按它原样提交不改变任何参数。
+func TestParamsPrefillFromStoredSpec(t *testing.T) {
+	svc, _, _, st := newTestService(t)
+	ctx := context.Background()
+	dir := mkNodeDir(t, map[string]string{"app.py": "pass"})
+	res, err := svc.Create(ctx, actor(), CreateRequest{Name: "real", Dir: dir, Entry: "app.py",
+		StartMode: "preset_fastapi", StartSpec: StartSpec{Module: "mymod", App: "myapp", Args: "--workers 2"},
+		ListenPort: 18711})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	waitSettled(t, st, res.TaskID)
+	list, _ := svc.AppList(ctx, "python")
+	sp := list.Items[0].StartSpec
+	if sp == nil || sp.Module != "mymod" || sp.App != "myapp" || sp.Args != "--workers 2" {
+		t.Fatalf("清单应带出实际保存的启动参数: %+v", sp)
+	}
+	// 以清单下发的值原样提交 → 保存成功且档案不变
+	if _, err := svc.ParamsSave(ctx, actor(), ParamsSaveRequest{AppID: list.Items[0].ID, StartSpec: sp}); err != nil {
+		t.Fatalf("按实际参数保存应成功: %v", err)
+	}
+	after, _ := st.App().GetByName(ctx, "real")
+	if !strings.Contains(after.StartSpec, `"module":"mymod"`) || !strings.Contains(after.StartSpec, `"args":"--workers 2"`) {
+		t.Fatalf("原样提交不应改变启动参数: %s", after.StartSpec)
+	}
 }
 
 func TestNodeCreateNpmScriptMode(t *testing.T) {

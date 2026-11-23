@@ -142,7 +142,7 @@ func (s *Service) AppList(ctx context.Context, runtime string) (*AppListData, er
 		runtime := appRuntime(a)
 		item := AppItem{
 			ID: a.ID, Name: a.Name, Dir: a.Dir, Entry: a.Entry, Runtime: runtime,
-			StartMode: a.StartMode, ListenPort: a.ListenPort,
+			StartMode: a.StartMode, StartSpec: startSpecOf(a.StartSpec), ListenPort: a.ListenPort,
 			CreatedAt: formatTS(a.CreatedAt), CreatedBy: a.CreatedBy,
 		}
 		if id, ok := inFlight[a.Name]; ok {
