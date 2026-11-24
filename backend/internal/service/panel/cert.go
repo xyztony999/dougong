@@ -14,6 +14,8 @@ import (
 	"io"
 	"math/big"
 	"net"
+	"regexp"
+	"strings"
 	"time"
 )
 
@@ -48,7 +50,7 @@ func ValidateCertPair(certPEM, keyPEM string) (*CertFields, error) {
 
 // parseCertificatePEM 解析首块 CERTIFICATE PEM。
 func parseCertificatePEM(pemText string) (*x509.Certificate, error) {
-	block, _ := pem.Decode([]byte(pemText))
+	block, _ := pem.Decode([]byte(normalizePEM(pemText)))
 	if block == nil || block.Type != "CERTIFICATE" {
 		return nil, fmt.Errorf("expect CERTIFICATE pem block")
 	}
@@ -57,7 +59,7 @@ func parseCertificatePEM(pemText string) (*x509.Certificate, error) {
 
 // parsePrivateKeyPEM 解析私钥 PEM（PKCS#1 RSA / SEC1 EC / PKCS#8 通用）。
 func parsePrivateKeyPEM(pemText string) (crypto.PrivateKey, error) {
-	block, _ := pem.Decode([]byte(pemText))
+	block, _ := pem.Decode([]byte(normalizePEM(pemText)))
 	if block == nil {
 		return nil, fmt.Errorf("expect private key pem block")
 	}
@@ -68,6 +70,42 @@ func parsePrivateKeyPEM(pemText string) (crypto.PrivateKey, error) {
 		return key, nil
 	}
 	return x509.ParsePKCS8PrivateKey(block.Bytes)
+}
+
+// PEM 标记匹配（RE2 不支持反向引用，BEGIN/END 分开匹配，取首块 BEGIN 到其后首个 END 之间的正文）。
+var (
+	pemBeginRe = regexp.MustCompile(`-----BEGIN ([A-Za-z0-9 ]+)-----`)
+	pemEndRe   = regexp.MustCompile(`-----END ([A-Za-z0-9 ]+)-----`)
+)
+
+// normalizePEM 容错重排 PEM 文本。背景：单行输入框粘贴多行 PEM 时，浏览器会把换行符替换成
+// 空格，得到「-----BEGIN PRIVATE KEY----- MIGH… o+83… -----END PRIVATE KEY-----」这种
+// 标记与正文挤在一行、base64 里夹空格的坏格式，pem.Decode 直接拒收。这里把首块标记之间的
+// 正文去掉全部空白、按 64 字符折行，恢复标准 PEM；只修空白，不改 base64 内容，配对校验照常。
+// 找不到合法标记时原样返回，交给 pem.Decode 报原本的错。
+func normalizePEM(text string) string {
+	b := pemBeginRe.FindStringSubmatchIndex(text)
+	if b == nil {
+		return text
+	}
+	e := pemEndRe.FindStringIndex(text[b[1]:])
+	if e == nil {
+		return text
+	}
+	typ := text[b[2]:b[3]]
+	body := strings.Join(strings.Fields(text[b[1]:b[1]+e[0]]), "")
+	var out strings.Builder
+	out.WriteString("-----BEGIN " + typ + "-----\n")
+	for i := 0; i < len(body); i += 64 {
+		end := i + 64
+		if end > len(body) {
+			end = len(body)
+		}
+		out.WriteString(body[i:end])
+		out.WriteByte('\n')
+	}
+	out.WriteString("-----END " + typ + "-----\n")
+	return out.String()
 }
 
 // matchKeyPair 校验证书公钥与私钥配对（I-P04）。

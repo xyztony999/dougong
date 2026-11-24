@@ -147,12 +147,12 @@ lang 为字符串非枚举（MVP 固定 `zh-CN` 单选项，api I-P08；多语�
 | HTTPS 模式 | NSelect（https_mode） | off/self_signed/imported/acme 四态（R-10 三态 + v1.1 增量 acme，api D-P14） |
 | └ 模式说明 | 内联 hint | self_signed→「保存后系统自动生成自签证书」；imported→展开证书导入区；acme→「ACME 证书在下方『面板证书』Card 申请，申请成功后自动启用（勿在此手选）」 |
 | └ 证书 PEM | NInput type=textarea（monospace） | certPem；仅 imported 展开 |
-| └ 私钥 PEM | NInput type=textarea（monospace，粘贴态遮罩） | keyPem；仅 imported 展开；保存成功后清空不回显（api I-P06 零下发） |
+| └ 私钥 PEM | NInput type=textarea（monospace，粘贴态遮罩） | keyPem；仅 imported 展开；保存成功后清空不回显（api I-P06 零下发）。遮罩用 CSS（-webkit-text-security）只改显示不改值，多行粘贴的换行原样保留，附「显示私钥/隐藏私钥」开关临时核对。**必须多行文本域**：v0.5.0 前实现误用单行 password 框，粘贴多行 PEM 时换行被浏览器折成空格致导入失败，v0.5.1 回归本设计 |
 | └ 当前证书摘要 | 只读描述列表 | cert 存在时展示：来源 tag（panel_cert_source）/颁发者/有效期（notAfter 过期临近橙色提示）；无「查看私钥」入口（api 3.3 脱敏） |
 
 **按钮**：
 - `保存`（configUpdate {httpsMode}）：to imported 前置校验证书已导入（PANEL_003→提示「请先导入证书与私钥」）；to acme 前置校验 panel_cert.source=acme 且未过期（PANEL_003→提示「请先在下方『面板证书』Card 申请 ACME 证书」，api D-P14）；to self_signed 成功 toast「已保存，自签证书已生成」（api D-P06 即时生效）；to off 直接生效。
-- `导入证书`（certUpload {certPem, keyPem}，仅 imported 展开区可见）：PANEL_002→「证书解析失败或与私钥不配对，请检查 PEM 内容」（R-14）；成功 toast「证书已导入并记入审计」+ 摘要刷新；不改变 https_mode（两接口顺序协作：先导入后切模式，api 2.3）。
+- `导入证书`（certUpload {certPem, keyPem}，仅 imported 展开区可见）：PANEL_002→「证书解析失败或与私钥不配对，请检查 PEM 内容」（R-14）；后端解析前对 PEM 容错重排——粘贴产生的空白坏格式（标记与正文挤在一行、base64 夹空格）去掉空白按 64 折行后再解析，只修空白不放宽配对校验（v0.5.1）；成功 toast「证书已导入并记入审计」+ 摘要刷新；不改变 https_mode（两接口顺序协作：先导入后切模式，api 2.3）。
 
 即时生效；Card 角标「即时生效」。
 

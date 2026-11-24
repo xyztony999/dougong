@@ -116,6 +116,9 @@ interface ImportFormData {
 }
 const importForm = ref<ImportFormData>({ certPem: '', keyPem: '' })
 const importing = ref(false)
+// 私钥文本域默认遮罩（CSS -webkit-text-security，多行粘贴不受影响），可临时显示核对。
+// 不用单行 password 框遮罩——那会把多行 PEM 的换行折成空格导致导入失败（v0.5.1 修复）。
+const keyRevealed = ref(false)
 
 const importRules: FormRules = {
   certPem: { required: true, message: '请粘贴证书 PEM 内容', trigger: 'blur' },
@@ -179,15 +182,20 @@ async function onImport(): Promise<void> {
           class="mono"
         />
       </n-form-item>
-      <!-- 粘贴态遮罩：Naive UI textarea 无遮罩能力，私钥用 password 输入承载（tasks 偏差 1） -->
+      <!-- 私钥用多行文本域 + CSS 遮罩（-webkit-text-security）：单行 password 框粘贴多行 PEM
+           会把换行折成空格导致导入失败（v0.5.1 修复，回归 PageSpec「textarea + 粘贴态遮罩」设计）。
+           遮罩只影响显示、不影响多行粘贴；可点「显示私钥」临时核对。后端 normalizePEM 另对空白坏格式容错。 -->
       <n-form-item label="私钥 PEM" path="keyPem">
         <n-input
           v-model:value="importForm.keyPem"
-          type="password"
-          show-password-on="click"
-          placeholder="-----BEGIN PRIVATE KEY-----…"
-          class="mono"
+          type="textarea"
+          :rows="5"
+          placeholder="-----BEGIN PRIVATE KEY-----&#10;…"
+          :class="['mono', { 'key-masked': !keyRevealed }]"
         />
+        <n-button text size="tiny" class="key-toggle" @click="keyRevealed = !keyRevealed">
+          {{ keyRevealed ? '隐藏私钥' : '显示私钥' }}
+        </n-button>
       </n-form-item>
       <div class="actions">
         <n-button type="primary" :loading="importing" @click="onImport">导入证书</n-button>
@@ -233,6 +241,13 @@ async function onImport(): Promise<void> {
 .mono :deep(input) {
   font-family: ui-monospace, SFMono-Regular, Consolas, 'Courier New', monospace;
   font-size: 12px;
+}
+/* 私钥遮罩：只改显示不改值，多行粘贴的换行原样保留（不支持的浏览器回退为明文，可点「显示私钥」核对） */
+.key-masked :deep(textarea) {
+  -webkit-text-security: disc;
+}
+.key-toggle {
+  margin-top: 4px;
 }
 .import-area {
   padding: 12px;
