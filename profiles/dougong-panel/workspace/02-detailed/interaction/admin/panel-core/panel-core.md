@@ -2,11 +2,11 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v1.3 |
+| 版本 | v1.4 |
 | 状态 | 稳定 |
 | 最后更新 | 2026-11-24 |
-| 用户类型 | admin（框架级行为：菜单渲染/首访 HTTPS 提示/页面切换的加载反馈与失败恢复/弹窗抽屉关闭期间的侧栏点击在本节定义，readonly 文档引用本文） |
-| 唯一数据源 | 02-detailed/api/api-panel-core.md v2.3 |
+| 用户类型 | admin（框架级行为：菜单渲染/首访 HTTPS 提示/页面切换的加载反馈与失败恢复/弹窗抽屉关闭期间的侧栏点击/安全入口前缀寻址在本节定义，readonly 文档引用本文） |
+| 唯一数据源 | 02-detailed/api/api-panel-core.md v2.4 |
 | 组件体系 | Vue 3 + Naive UI（knowledge/architecture-choices 栈版本表；无激活栈 profile，不使用 vue3-engine 栈 Scm* 组件） |
 | 确认方式 | headless run：7 项交互确认依据 D3 契约 + R-09/R-10 + ADR-018 + FL v1.1 + ADR-028/029 推导，标注于各节 |
 
@@ -120,10 +120,10 @@ lang 为字符串非枚举（MVP 固定 `zh-CN` 单选项，api I-P08；多语�
 | 启用开关 | NSwitch | 切换即触发确认流（见下），不直接提交 |
 | 当前入口路径 | NCode + `复制` 按钮 | enabled=true 时展示；readonly 可见完整路径（FL 附录B 决策） |
 
-**交互流**：
-1. 开关 0→1：NModal 确认（文案含风险提示「开启后未携带入口路径的访问将被拒绝，请妥善保存路径」）→ configUpdate {entryPathEnabled:true} → 若无既有路径服务端自动生成（api 4.1.4）→ 成功后弹 NModal 大字展示路径 + 复制按钮（prd N2 遗忘风险对策）。
-2. 开关 1→0：NPopconfirm 确认「关闭后任意路径均可访问面板」→ configUpdate {entryPathEnabled:false}。
-3. `重新生成路径`（NButton，enabled=true 时可用）：NPopconfirm 警告「旧路径立即失效，未保存新路径将无法访问」→ entryPathRegenerate → 新路径 NModal + 复制；PANEL_* 失败原路径不变（api 4.1.4）。
+**交互流**（v1.4：三个动作成功后都**整页跳转**到新地址下的设置页——当前页面是按旧地址加载的，`<base>` 还是旧值，成功后再发的任何请求都带旧前缀、会被入口网关拦掉，故不在当前页继续请求；跳转前在会话存储记一笔〔60s 时效〕，新页面挂载时补成功提示并再次展示路径，prd N2 遗忘风险对策不丢）：
+1. 开关 0→1：NModal 确认（文案含风险提示「开启后未携带入口路径的访问将被拒绝，请妥善保存路径」）→ configUpdate {entryPathEnabled:true} → 若无既有路径服务端自动生成（api 4.1.4）→ 成功后**整页跳到 `/{entryPath}/settings`**，新页面弹 NModal 大字展示路径 + 复制按钮（prd N2 遗忘风险对策）。
+2. 开关 1→0：NPopconfirm 确认「关闭后任意路径均可访问面板」→ configUpdate {entryPathEnabled:false} → 成功后**整页跳到根地址 `/settings`**。
+3. `重新生成路径`（NButton，enabled=true 时可用）：NPopconfirm 警告「旧路径立即失效，未保存新路径将无法访问」→ entryPathRegenerate → 成功后**整页跳到新路径下的设置页** + 新路径 NModal + 复制；PANEL_* 失败原路径不变、留在当前页（api 4.1.4）。
 
 修改即时生效（EntryPathGuard 下一请求即用新值，api D-P03）；Card 角标 NTag「即时生效」(green)。审计提示：成功 toast 附「变更已记入审计」（api panel_entry_path_regenerated）。
 
@@ -235,7 +235,7 @@ lang 为字符串非枚举（MVP 固定 `zh-CN` 单选项，api I-P08；多语�
 |------|--------|------|
 | 侧边菜单渲染 | menuList → NMenu 树 | 进入框架后调用一次（D-P07 服务端按角色过滤下发，前端不硬编码菜单、不做二次过滤）；panel-core 自身菜单（面板设置/关于）亦经 ModuleMenuRegistry 构建期登记、由同一接口返回 |
 | 首访 HTTPS 建议 | configDetail.https.mode + location.protocol | 见 5.1 页面级横幅（FR-07，无独立接口） |
-| 安全入口前缀 | 透明 | 前端不感知 `/{entryPath}` 前缀：静态资源与 API 均相对路径；未携带前缀的请求由 EntryPathGuard 返回标准 404（api D-P03，不进前端拦截器分流；书签丢失前缀 = 看到 404，属预期安全行为） |
+| 安全入口前缀（v1.4 修订） | 服务端注入 `<base>` + 前端相对寻址 | 开启安全入口后，页面、脚本、图标、接口、WebSocket **全部位于 `/{entryPath}/` 之下**：①构建用相对地址（`base: './'`），入口 HTML 引用 `./assets/…`、`./favicon.svg`，按需分包相对入口脚本自身解析；②服务端下发入口 HTML 时注入 `<base href="/{entryPath}/">`（未开启时 `/`），深链接 `/{entryPath}/sites/12` 下的相对地址也解析到入口路径下（api D-P20）；③前端经统一「应用基址」辅助函数（读 `<base>`）给路由历史基址、接口请求、WebSocket 地址、图标、自动重新加载加前缀。未携带前缀的请求由 EntryPathGuard 返回标准 404（api D-P03，不进前端拦截器分流；书签丢失前缀 = 看到 404，属预期安全行为）。修复前实现从未做到本行意图（入口 HTML 与接口全是根路径写法），开启即白屏——取证与验收见 d0-clarification-panel-core-entry-path-2026-11-24.md |
 | 顶栏（v1.2） | 路由 meta.title + 菜单树 | 顶栏标题=当前页面标题（D-P18：路由 meta.title 优先、菜单 title 兜底——替换硬编码业务域显示名，内部术语不泄漏用户 UI）；用户名/角色/登出区不变（account-auth 复用）；非菜单页（403/编辑页等）以 meta.title 呈现 |
 | 页面切换的加载反馈（v1.3） | 路由守卫（beforeEach / afterEach / onError） | 点侧栏菜单项或页面内跳转后：①被点击的菜单项**立即高亮**（不等页面文件下载；目标不是菜单页时保持原高亮）；②切换超过 200ms 仍未完成时，顶栏标题右侧出现小转圈 +「正在加载页面…」；③切换完成或失败即消失。200ms 内完成的切换不出现（不闪烁）。快速连点以最后一次点击为准 |
 | 页面文件没下载下来——网络原因（v1.3） | router.onError / vite:preloadError | 界面留在原页面，提示「页面没加载出来。请检查网络后再点一次」；不自动重新加载；下一次点击自动重试，不需要刷新。入口脚本探测请求本身失败、或探测拿到 404 以外的其它状态码（反向代理的 5xx、不支持 HEAD 的 405 等）时同样按网络原因处理 |
@@ -273,5 +273,6 @@ lang 为字符串非枚举（MVP 固定 `zh-CN` 单选项，api I-P08；多语�
 | v1.1 | 2026-11-16 | interface_added / field_added / enum_value_added | 增量 D4（ADR-028/029，数据源 api-panel-core.md v2.0）：**新增 Action 3 个**（certStatus/certRequest/certRetryRenewal，7→10）；settings 新增 Card 3 域名绑定（绑定强确认 NModal/解绑 NPopconfirm，经 configUpdate.bindDomain）与 Card 5 面板证书（申请/状态/手动重试，同步等待 ≤120s loading 态），原 Card 3~6 顺延为 4/6/7/8（6→8）；HTTPS Card 模式下拉扩四态（+acme，to acme 前置引导至面板证书 Card）；字典 +cert_status 引用（4 值子集）、https_mode/panel_cert_source 取值扩 acme；错误处理 +PANEL_007~011 文案；第 8 节自查 12→14 项（ADR-028 风险对策、ACME 同步等待交互）；S7 机械 diff 10/10 通过（见本次自检记录） |
 | v1.2 | 2026-11-16 | copy_revision / structural | 增量 D4（v0.1.2 用户反馈第 5/7 项，数据源 api-panel-core.md v2.2 D-P18）：**设置页四分组重排**（常规/网络与访问/安全与证书/关于——8 Card 语义编号不变、呈现顺序与分组标题落地，Card 6 语言回归常规首卡）；**顶栏标题=当前页面标题**（路由 meta.title 优先、菜单 title 兜底，替换硬编码业务域显示名——框架级职责本节登记）；路由 meta +title 两项；Action/字典/契约零变化（菜单 IA 变更见 api v2.2 与 PageSpec account-auth v1.3） |
 | v1.3 | 2026-11-24 | rule_added | 增量 D4（缺陷反馈「左侧侧栏有时点不动」，数据源 api-panel-core.md v2.3 D-P19，取证见 00-architecture/d0-clarification-panel-core-sidebar-nav-2026-11-24.md 第 7 节）：第 7 节框架级行为 +6 行——页面切换的加载反馈（菜单项立即高亮 + 超过 200ms 顶栏显示「正在加载页面…」）、页面文件没下载下来的四种处理（网络原因提示 / 面板升级后自动重新加载一次、兜底提示框 / 页面内按需模块 / 其它导航错误只提示）、弹窗抽屉正在关闭时把落在侧栏上的点击转发给菜单项；第 8 节自查 14→15 项；Action/字典/路由表/页面结构零变化（无新页面、无新接口） |
+| v1.4 | 2026-11-24 | rule_changed / copy_revision | 增量 D4（缺陷「安全入口开启后面板在浏览器里打不开」，数据源 api-panel-core.md v2.4 D-P20，取证与验收见 00-architecture/d0-clarification-panel-core-entry-path-2026-11-24.md 第 8 节，用户拍板方案 A「完整前缀」）：**第 7 节「安全入口前缀」行修订**——由「前端不感知前缀（透明）」改为实际机制「服务端注入 `<base>` + 前端相对寻址」（构建 `base: './'` + 入口 HTML 注入 `<base href="/{entryPath}/">` + 统一应用基址辅助函数供路由/请求/WebSocket/图标/自动重新加载加前缀；修复前实现从未做到、开启即白屏）；**Card 2 安全入口交互流修订**——开启/重新生成/关闭成功后整页跳转到新地址下的设置页（不在旧基址页面上重读配置），跳转前会话存储记一笔（60s 时效）供新页面补提示与路径展示（prd N2 遗忘风险对策不丢）；Action/字典/路由表/页面结构零变化（无新页面、无新接口） |
 
 > FX 质量清单说明：FX-001~FX-141 逐条清单文件未随引擎 0.5.2 payload 发布（本次 find 复核：payload 下无 design/front-spec checklist，frontend-specs 仅存在于未激活的栈 profile vue3-engine/react-vite 下），本节按分册 9 节结构逐节落实，并以第 8 节 12 项全局一致性自查替代可机械执行部分；全量 141 项留待 Gate 1 validation 执行。
