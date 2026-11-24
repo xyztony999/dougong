@@ -3,13 +3,17 @@
 package api
 
 import (
+	"bytes"
+	"compress/gzip"
 	"errors"
 	"io"
 	"io/fs"
 	"log/slog"
 	"mime"
 	"path"
+	"strconv"
 	"strings"
+	"sync"
 
 	"net/http"
 
@@ -32,10 +36,24 @@ type Module interface {
 type Server struct {
 	engine  *gin.Engine
 	modules []Module
+
+	// spaGzip 是内嵌页面文件的 gzip 压缩缓存。文件名带内容哈希、内容在进程生命周期内不变，
+	// 所以每个文件只压缩一次（首次被请求时），之后直接发缓存——不是每个请求现压（api D-P19）。
+	spaGzip   map[string][]byte
+	spaGzipMu sync.Mutex
 }
 
 // spaFS 是内嵌前端 dist 子文件系统（web.DistFS 的 "dist" 子树）。
 var spaFS fs.FS
+
+// 内嵌页面文件的传输参数（api D-P19）。
+const (
+	// spaGzipLevel 压缩级别。实测 v0.4.0 构建的全部可压缩文件（16.8MB）：级别 1 / 5 / 6 分别压到
+	// 5.10 / 4.31 / 4.28MB，耗时 0.12 / 0.24 / 0.31 秒——5 比 1 小 15%，比 6 只大 0.6% 而快约 20%。
+	spaGzipLevel = 5
+	// spaGzipMinSize 小于该大小的文件不压缩（压完不一定更小，白占 CPU）。
+	spaGzipMinSize = 1024
+)
 
 func init() {
 	sub, err := fs.Sub(web.DistFS, "dist")
@@ -60,9 +78,11 @@ func NewServer() *Server {
 // 挂载点」决策与 EntryPathHandler 的入口根→"/" 映射配套，ADR-009 单二进制）：
 //   - 命中已注册 API 模块前缀的未知路径 → 统一 404 包络（API 契约不变，
 //     不把前端 index 回给 API 客户端）；
-//   - 其余路径按 dist 静态文件服务（MIME + 缓存头：vite 哈希资源 immutable，
-//     index.html no-cache）；
-//   - 文件不存在 → 回退 index.html（SPA 深链 /login、/sites/... 由前端路由
+//   - 其余路径按 dist 静态文件服务，传输规则见 api D-P19：
+//     缓存头（哈希资源 immutable、index.html no-cache）、gzip 压缩并带 Vary、
+//     显式 Content-Length、HEAD 与 GET 同头；
+//   - `/assets/` 下不存在的文件 → 标准 404（不走 SPA 兜底，见下）；
+//   - 其它路径文件不存在 → 回退 index.html（SPA 深链 /login、/sites/... 由前端路由
 //     接管）；dist 尚未构建（占位态）→ 404 包络并记录告警日志。
 func (s *Server) serveSPA(c *gin.Context) {
 	p := path.Clean(c.Request.URL.Path)
@@ -84,13 +104,22 @@ func (s *Server) serveSPA(c *gin.Context) {
 	if name == "" {
 		name = "index.html"
 	}
+	asset := strings.HasPrefix(name, "assets/")
 	f, err := spaFS.Open(name)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		response.FailWith(c, errcode.ErrInternal)
 		return
 	}
-	if err != nil { // SPA 深链回退 index.html
-		name = "index.html"
+	if err != nil {
+		if asset && path.Ext(name) != "" {
+			// 带内容哈希的页面文件不存在：面板已升级而浏览器还开着旧页面，或前端在探测
+			// 入口脚本是否还在。回标准 404、不落到下面的 SPA 兜底——兜底会把 index.html
+			// 当这个文件发出去：中间缓存可能把 HTML 当脚本缓存下来，前端也分不清
+			// 「面板已升级」和「网络失败」（api D-P19）。
+			c.String(http.StatusNotFound, "404 page not found")
+			return
+		}
+		name = "index.html" // SPA 深链回退 index.html
 		if f, err = spaFS.Open(name); err != nil {
 			slog.WarnContext(c.Request.Context(), "spa: dist not populated (placeholder only)")
 			response.FailWith(c, errcode.ErrNotFound)
@@ -98,20 +127,113 @@ func (s *Server) serveSPA(c *gin.Context) {
 		}
 	}
 	defer f.Close()
-	if info, statErr := f.Stat(); statErr != nil || info.IsDir() {
+	info, statErr := f.Stat()
+	if statErr != nil || info.IsDir() {
 		response.FailWith(c, errcode.ErrNotFound)
 		return
 	}
-	if strings.HasPrefix(name, "assets/") {
+	if asset {
 		c.Header("Cache-Control", "public, max-age=31536000, immutable") // 内容哈希命名
+		// 同一地址按 Accept-Encoding 有压缩 / 未压缩两种回应，中间缓存必须区分。
+		c.Header("Vary", "Accept-Encoding")
 	} else {
 		c.Header("Cache-Control", "no-cache") // index.html 等入口文件
 	}
 	if ct := mime.TypeByExtension(path.Ext(name)); ct != "" {
 		c.Header("Content-Type", ct)
 	}
+	size := info.Size()
+	var compressed []byte
+	if asset && size >= spaGzipMinSize && spaCompressible(name) && acceptsGzip(c.GetHeader("Accept-Encoding")) {
+		if compressed = s.gzipAsset(name); compressed != nil {
+			size = int64(len(compressed))
+			c.Header("Content-Encoding", "gzip")
+		}
+	}
+	c.Header("Content-Length", strconv.FormatInt(size, 10))
 	c.Status(http.StatusOK)
+	if c.Request.Method == http.MethodHead {
+		return // 与 GET 同样的头，不回响应体
+	}
+	if compressed != nil {
+		_, _ = c.Writer.Write(compressed)
+		return
+	}
 	_, _ = io.Copy(c.Writer, f)
+}
+
+// gzipAsset 返回内嵌页面文件的 gzip 内容，进程内缓存、每个文件只压缩一次。
+// 读文件或压缩失败时返回 nil，调用方原样下发。持锁压缩：同一文件的并发首请求
+// 只压一次，别的文件排在后面（最大的 7MB 文件约 0.09 秒）。
+func (s *Server) gzipAsset(name string) []byte {
+	s.spaGzipMu.Lock()
+	defer s.spaGzipMu.Unlock()
+	if cached, ok := s.spaGzip[name]; ok {
+		return cached
+	}
+	raw, err := fs.ReadFile(spaFS, name)
+	if err != nil {
+		return nil
+	}
+	var buf bytes.Buffer
+	w, err := gzip.NewWriterLevel(&buf, spaGzipLevel)
+	if err != nil {
+		return nil
+	}
+	if _, err = w.Write(raw); err != nil {
+		return nil
+	}
+	if err = w.Close(); err != nil {
+		return nil
+	}
+	if s.spaGzip == nil {
+		s.spaGzip = make(map[string][]byte)
+	}
+	s.spaGzip[name] = buf.Bytes()
+	return s.spaGzip[name]
+}
+
+// spaCompressible 按扩展名判断是否压缩，不看 MIME 表——MIME 表因平台而异
+// （Windows 读注册表、Linux 读 /etc/mime.types），同一文件两边必须判定一致。
+func spaCompressible(name string) bool {
+	switch strings.ToLower(path.Ext(name)) {
+	case ".js", ".mjs", ".css", ".svg", ".json", ".html", ".txt", ".map", ".ttf":
+		return true
+	}
+	return false
+}
+
+// acceptsGzip 判断 Accept-Encoding 是否接受 gzip：gzip 或 * 且 q 不为 0；
+// 显式的 gzip 优先于 *（`gzip;q=0, *` 不接受）。非法 q 值的参数忽略。
+func acceptsGzip(header string) bool {
+	gzipQ, wildcardQ := 1.0, 1.0
+	seenGzip, seenWildcard := false, false
+	for _, item := range strings.Split(header, ",") {
+		parts := strings.Split(strings.TrimSpace(item), ";")
+		coding := strings.ToLower(strings.TrimSpace(parts[0]))
+		if coding != "gzip" && coding != "*" {
+			continue
+		}
+		q := 1.0
+		for _, param := range parts[1:] {
+			kv := strings.SplitN(strings.TrimSpace(param), "=", 2)
+			if len(kv) != 2 || !strings.EqualFold(strings.TrimSpace(kv[0]), "q") {
+				continue
+			}
+			if parsed, parseErr := strconv.ParseFloat(strings.TrimSpace(kv[1]), 64); parseErr == nil {
+				q = parsed
+			}
+		}
+		if coding == "gzip" {
+			gzipQ, seenGzip = q, true
+		} else {
+			wildcardQ, seenWildcard = q, true
+		}
+	}
+	if seenGzip {
+		return gzipQ > 0
+	}
+	return seenWildcard && wildcardQ > 0
 }
 
 // RegisterModules 按序挂载业务模块（前缀冲突由 gin panic 快速暴露——启动期）。

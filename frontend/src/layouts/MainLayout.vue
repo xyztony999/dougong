@@ -37,6 +37,11 @@ import { useDbCrumbs } from '@/composables/useDbCrumbs'
 import type { DbCrumb } from '@/composables/useDbCrumbs'
 import { useAuthStore } from '@/stores/auth'
 import { usePanelStore } from '@/stores/panel'
+import { useNavigationStore } from '@/stores/navigation'
+import { NAV_TEXT } from '@/router/navFailure'
+import { useDelayedTrue } from '@/composables/useDelayedTrue'
+import { collectMenuPaths, resolveMenuValue } from './menuHighlight'
+import { useClosingOverlayForwarder } from './closingOverlayClick'
 import { PANEL_ROLE, dictItem } from '@/types/enums'
 import type { PanelMenuItem } from '@/types/panel'
 
@@ -45,6 +50,11 @@ const router = useRouter()
 const message = useMessage()
 const authStore = useAuthStore()
 const panelStore = usePanelStore()
+const nav = useNavigationStore()
+
+/** 切换超过这么久还没完成才显示「正在加载页面…」（缓存命中的切换几十毫秒就完成，不该闪一下）。 */
+const NAV_SLOW_AFTER_MS = 200
+const navLoadingText = NAV_TEXT.loading
 
 function renderIcon(icon: Component): () => ReturnType<typeof h> {
   return () => h(NIcon, null, { default: () => h(icon) })
@@ -172,7 +182,23 @@ function retryMenu(): void {
   void panelStore.loadMenu()
 }
 
-const activeKey = computed(() => route.path)
+/**
+ * 菜单当前高亮的项（PageSpec 第 7 节 v1.3「页面切换的加载反馈」）：切换进行中且目标是菜单页
+ * 时提前高亮目标——页面组件按需下载，慢链路上要等几秒路由才会切换，只跟随当前路由的话
+ * 点了半天那一项都不亮，看着就像没点上。目标不是菜单页（在线编辑、表详情等）保持原样。
+ */
+const menuPaths = computed(() => collectMenuPaths(panelStore.menuItems))
+const menuValue = computed(() => resolveMenuValue(nav.pendingPath, menuPaths.value, route.path))
+
+/** 顶栏的「正在加载页面…」：只在真实等待时出现，见 NAV_SLOW_AFTER_MS。 */
+const navSlow = useDelayedTrue(computed(() => nav.pending), NAV_SLOW_AFTER_MS)
+
+/** 包着侧栏菜单的元素：弹窗/抽屉正在关闭时，据此判断被吃掉的点击底下是不是本侧栏。 */
+const menuRoot = ref<Element | null>(null)
+
+// 弹窗、抽屉正在关闭时，把落在侧栏上的点击转发给菜单项（PageSpec 第 7 节 v1.3；
+// 卸载时自动移除监听）。菜单还没渲染出来时 menuRoot 为空，转发自然不生效。
+useClosingOverlayForwarder(document, menuRoot)
 
 function onMenuSelect(key: string): void {
   void router.push(key)
@@ -224,31 +250,39 @@ async function onLogout(): Promise<void> {
           <span>菜单加载失败</span>
           <n-button size="tiny" @click="retryMenu">重试</n-button>
         </div>
-        <n-menu
-          v-else
-          :options="menuOptions"
-          :value="activeKey"
-          :collapsed-width="64"
-          :collapsed-icon-size="20"
-          @update:value="onMenuSelect"
-        />
+        <div v-else ref="menuRoot" class="menu-root">
+          <n-menu
+            :options="menuOptions"
+            :value="menuValue"
+            :collapsed-width="64"
+            :collapsed-icon-size="20"
+            @update:value="onMenuSelect"
+          />
+        </div>
       </n-layout-sider>
       <n-layout>
         <n-layout-header bordered class="header">
           <!-- v0.1.2 反馈第 5 项（D-P18）：顶栏标题=当前页面标题（路由 meta.title 优先、
            菜单 title 兜底）；v1.4 F5：数据库域升级为 n-breadcrumb 返回导航（7.2 crumb 链，
            末级当前页不可点），其余模块保持单标题兜底（panel-core 通用能力渐进接入） -->
-          <n-breadcrumb v-if="crumbs.length > 0" class="header-title">
-            <n-breadcrumb-item
-              v-for="(crumb, idx) in crumbs"
-              :key="idx"
-              :class="{ 'crumb-current': crumb.path === null }"
-              @click="onCrumbClick(crumb)"
-            >
-              {{ crumb.label }}
-            </n-breadcrumb-item>
-          </n-breadcrumb>
-          <span v-else class="header-title">{{ headerTitle }}</span>
+          <div class="header-left">
+            <n-breadcrumb v-if="crumbs.length > 0" class="header-title">
+              <n-breadcrumb-item
+                v-for="(crumb, idx) in crumbs"
+                :key="idx"
+                :class="{ 'crumb-current': crumb.path === null }"
+                @click="onCrumbClick(crumb)"
+              >
+                {{ crumb.label }}
+              </n-breadcrumb-item>
+            </n-breadcrumb>
+            <span v-else class="header-title">{{ headerTitle }}</span>
+            <!-- 页面切换超过 200ms 仍未完成时的加载提示（PageSpec 第 7 节 v1.3） -->
+            <span v-if="navSlow" class="header-nav-loading" role="status">
+              <n-spin size="small" />
+              <span>{{ navLoadingText }}</span>
+            </span>
+          </div>
           <div class="header-right">
             <span class="username">{{ authStore.currentUser?.username ?? '' }}</span>
             <n-tag :type="roleDict.tag" size="small">{{ roleDict.label }}</n-tag>
@@ -303,8 +337,22 @@ async function onLogout(): Promise<void> {
   padding: 0 24px;
   height: 56px;
 }
+.header-left {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
 .header-title {
   font-weight: 500;
+}
+.header-nav-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 16px;
+  font-size: 13px;
+  opacity: 0.7;
+  white-space: nowrap;
 }
 .crumb-current {
   cursor: default;

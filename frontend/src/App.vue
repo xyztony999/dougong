@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { NGlobalStyle, darkTheme, dateZhCN, zhCN } from 'naive-ui'
 import type { GlobalTheme, GlobalThemeOverrides } from 'naive-ui'
+import AppNavFeedback from '@/components/AppNavFeedback.vue'
 
 // 暗色为一等公民（frontend-03 §1）：跟随系统 prefers-color-scheme，运行期系统切换即时生效
 // （首启 UI 缺陷修复轮：原一次性读取 .matches 不响应系统切换）
@@ -40,6 +41,8 @@ const themeOverrides = computed<GlobalThemeOverrides>(() =>
     <NGlobalStyle />
     <n-message-provider>
       <n-dialog-provider>
+        <!-- 页面切换失败的提示（消息条 / 提示框）：要能用到上面两个 provider，所以放在它们里面 -->
+        <AppNavFeedback />
         <router-view />
       </n-dialog-provider>
     </n-message-provider>

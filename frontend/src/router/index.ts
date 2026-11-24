@@ -9,6 +9,8 @@ import { useAuthStore } from '@/stores/auth'
 import { useDbStore } from '@/stores/database'
 import type { PanelRole } from '@/types/enums'
 import { notifyError } from '@/utils/notify'
+import { createAssetFailureHandlers, createBrowserRecoveryDeps } from './navFailure'
+import { registerNavigationTracking } from './navHooks'
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -295,6 +297,15 @@ const router = createRouter({
   ]
 })
 
+/**
+ * 页面切换的进行中状态与失败处理（PageSpec panel-core 第 7 节 v1.3）。
+ * 失败处理器在两个入口之间共享——路由跳转（router.onError）与页面内按需模块
+ * （vite:preloadError，main.ts 用同一个实例登记）——同一次失败只处理一次。
+ * 跟踪要先于下面的认证守卫登记：认证探测等异步守卫的耗时也算在「切换中」里。
+ */
+const assetFailureHandlers = createAssetFailureHandlers(createBrowserRecoveryDeps())
+registerNavigationTracking(router, assetFailureHandlers)
+
 router.beforeEach(async (to) => {
   const auth = useAuthStore()
 
@@ -374,4 +385,4 @@ router.beforeEach(async (to) => {
   return true
 })
 
-export { router }
+export { router, assetFailureHandlers }
