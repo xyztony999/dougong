@@ -12,6 +12,7 @@ import type {
   TerminalUserOptionsData
 } from '@/types/terminal'
 import { parseServerFrame } from '@/types/terminal'
+import { withBase } from '@/utils/base'
 import { buildQuery, request } from './http'
 
 /** 指定身份候选清单（登录 shell 过滤，D-02 实况直读；每次打开对话框均拉取不缓存） */
@@ -50,11 +51,12 @@ export interface TerminalSocket {
   close(): void
 }
 
-/** 同源 WS 地址（https→wss；开发态经 vite proxy /terminal ws 透传，禁止硬编码后端地址） */
+/** 同源 WS 地址（https→wss；开发态经 vite proxy /terminal ws 透传，禁止硬编码后端地址；
+ *  路径同样要带应用基址——开着安全入口时不带入口前缀的连接会被拦掉） */
 function terminalWsUrl(params: TerminalConnectParams): string {
   const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
   const query = buildQuery({ identitySource: params.identitySource, username: params.username })
-  return `${proto}://${window.location.host}/terminal/session/connect${query}`
+  return `${proto}://${window.location.host}${withBase('/terminal/session/connect')}${query}`
 }
 
 /**

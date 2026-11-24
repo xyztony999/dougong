@@ -7,11 +7,15 @@ import { login, totpVerify } from '@/api/auth'
 import { ApiError } from '@/api/http'
 import { useAuthStore } from '@/stores/auth'
 import { extractLoginTicket, extractRemainingSeconds } from '@/types/auth'
+import { withBase } from '@/utils/base'
 import { formatCountdown } from '@/utils/format'
 
 const router = useRouter()
 const message = useMessage()
 const authStore = useAuthStore()
+
+/** 面板图标：public/ 下的文件不参与打包，地址要自己带上应用基址（utils/base） */
+const logoSrc = withBase('/favicon.svg')
 
 /** 说明文字颜色随主题（dark 适配修复轮）：textColor2 在暗色下为 0.82 白，保证小字号可读 */
 const themeVars = useThemeVars()
@@ -130,7 +134,7 @@ async function onSubmit(): Promise<void> {
 
 <template>
   <div class="page">
-    <img class="login-logo" src="/favicon.svg" alt="斗拱 Dougong" />
+    <img class="login-logo" :src="logoSrc" alt="斗拱 Dougong" />
     <n-card class="card" title="登录斗拱面板">
       <n-form
         ref="formRef"

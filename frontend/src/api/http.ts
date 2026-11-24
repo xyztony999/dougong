@@ -6,10 +6,13 @@
  *   AUTH_001/002 → 清会话跳 /login（002 附过期提示）；AUTH_003 → 提示刷新；
  *   AUTH_008/009/010/014 → 业务提示；AUTH_004/005/006/007/011/012/013 由页面专属处理
  *   （silentAuth 请求不触发全局跳转/提示，调用方自行处理——sessionCurrent 首屏探测等）
+ * - 地址：入参照旧写面板路径（'/auth/me'），发出前经 withBase() 加上应用基址——开着安全入口时
+ *   请求要带入口路径前缀（api D-P03，utils/base）
  */
 import type { Envelope } from '@/types/api'
 import { AUTH_ERROR_TEXT, fieldErrorsToText } from '@/types/auth'
 import { PANEL_ERROR_TEXT } from '@/types/panel'
+import { withBase } from '@/utils/base'
 import { normalizeCode } from '@/utils/errcode'
 import { notifyError } from '@/utils/notify'
 
@@ -117,7 +120,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
 
   let res: Response
   try {
-    res = await fetch(path + buildQuery(options.query), {
+    res = await fetch(withBase(path + buildQuery(options.query)), {
       method,
       headers,
       body,
@@ -176,7 +179,7 @@ export async function postForm<T>(
 
   let res: Response
   try {
-    res = await fetch(path, {
+    res = await fetch(withBase(path), {
       method: 'POST',
       headers,
       body: form,
@@ -202,7 +205,7 @@ export async function downloadFile(
   const headers: Record<string, string> = { Accept: 'application/octet-stream' }
   let res: Response
   try {
-    res = await fetch(path + buildQuery(query), {
+    res = await fetch(withBase(path + buildQuery(query)), {
       method: 'GET',
       headers,
       credentials: 'same-origin'
@@ -235,7 +238,7 @@ export async function postDownload(
 
   let res: Response
   try {
-    res = await fetch(path, {
+    res = await fetch(withBase(path), {
       method: 'POST',
       headers,
       body: JSON.stringify(body),
@@ -259,7 +262,7 @@ export async function requestText(path: string, query?: object): Promise<string>
   const headers: Record<string, string> = { Accept: 'text/plain' }
   let res: Response
   try {
-    res = await fetch(path + buildQuery(query), {
+    res = await fetch(withBase(path + buildQuery(query)), {
       method: 'GET',
       headers,
       credentials: 'same-origin'

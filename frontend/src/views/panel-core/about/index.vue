@@ -2,7 +2,11 @@
 import { computed, onMounted, ref } from 'vue'
 import { versionGet } from '@/api/panel'
 import type { PanelVersionData } from '@/types/panel'
+import { withBase } from '@/utils/base'
 import { formatDateTime } from '@/utils/format'
+
+/** 面板图标：public/ 下的文件不参与打包，地址要自己带上应用基址（utils/base） */
+const logoSrc = withBase('/favicon.svg')
 
 /** 进入时 versionGet 一次（api D-P11：需会话；无操作按钮、无检查更新入口——该动作在设置页 Card 6） */
 const version = ref<PanelVersionData | null>(null)
@@ -40,7 +44,7 @@ onMounted(() => {
 <template>
   <div class="page">
     <n-card title="版本信息" :loading="loading">
-      <img class="about-logo" src="/favicon.svg" alt="斗拱 Dougong" />
+      <img class="about-logo" :src="logoSrc" alt="斗拱 Dougong" />
       <template v-if="version !== null">
         <div class="version">{{ version.version }}</div>
         <n-descriptions label-placement="left" :column="1" bordered size="small" class="desc">

@@ -44,6 +44,7 @@ import { collectMenuPaths, resolveMenuValue } from './menuHighlight'
 import { useClosingOverlayForwarder } from './closingOverlayClick'
 import { PANEL_ROLE, dictItem } from '@/types/enums'
 import type { PanelMenuItem } from '@/types/panel'
+import { withBase } from '@/utils/base'
 
 const route = useRoute()
 const router = useRouter()
@@ -51,6 +52,9 @@ const message = useMessage()
 const authStore = useAuthStore()
 const panelStore = usePanelStore()
 const nav = useNavigationStore()
+
+/** 面板图标：public/ 下的文件不参与打包，地址要自己带上应用基址（utils/base） */
+const logoSrc = withBase('/favicon.svg')
 
 /** 切换超过这么久还没完成才显示「正在加载页面…」（缓存命中的切换几十毫秒就完成，不该闪一下）。 */
 const NAV_SLOW_AFTER_MS = 200
@@ -242,7 +246,7 @@ async function onLogout(): Promise<void> {
         v-model:collapsed="siderCollapsed"
       >
         <div class="brand" :class="{ 'brand-collapsed': siderCollapsed }">
-          <img class="brand-logo" src="/favicon.svg" alt="斗拱 Dougong" />
+          <img class="brand-logo" :src="logoSrc" alt="斗拱 Dougong" />
           <span v-show="!siderCollapsed">斗拱面板</span>
         </div>
         <n-spin v-if="panelStore.menuLoading" size="small" class="menu-state" />

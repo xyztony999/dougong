@@ -3,13 +3,20 @@ package api
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
+	"errors"
+	"html"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
+
+	"github.com/dougong/dougong/internal/api/middleware"
 )
 
 // 内嵌前端页面文件的传输规则（api D-P19）。用确定性的内存文件系统替换内嵌 dist，
@@ -22,7 +29,7 @@ var (
 	spaFixtureSVG   = "<svg>" + strings.Repeat("<!-- filler -->", 200) + "</svg>"
 	spaFixtureTTF   = strings.Repeat("fontbytes", 300)
 	spaFixtureBin   = strings.Repeat("binary00", 300)
-	spaFixtureIndex = "<!doctype html><html><script type=\"module\" src=\"/assets/app-abc123.js\"></script></html>"
+	spaFixtureIndex = "<!doctype html>\n<html lang=\"zh-CN\">\n  <head>\n    <meta charset=\"UTF-8\" />\n  </head>\n  <body><div id=\"app\"></div><script type=\"module\" src=\"./assets/app-abc123.js\"></script></body>\n</html>"
 	spaAssetCache   = "public, max-age=31536000, immutable"
 )
 
@@ -256,9 +263,169 @@ func TestServeSPAIndexNeverLongCached(t *testing.T) {
 		if w.Header().Get("Vary") != "" || w.Header().Get("Content-Encoding") != "" {
 			t.Fatalf("GET %s: entry document must stay uncompressed and Vary-free", target)
 		}
-		if w.Body.String() != spaFixtureIndex {
-			t.Fatalf("GET %s: body is not index.html", target)
+		// 未注入入口状态来源时基址恒为 /：正文 = 原 index.html 加上 <base href="/">
+		if want := string(spaIndexWithBase([]byte(spaFixtureIndex), "/")); w.Body.String() != want {
+			t.Fatalf("GET %s: body is not index.html with base /", target)
 		}
+	}
+}
+
+// fakeEntrySource 是安全入口状态来源的替身。
+type fakeEntrySource struct {
+	enabled bool
+	path    string
+	err     error
+}
+
+func (f fakeEntrySource) EntryPathState(context.Context) (bool, string, error) {
+	return f.enabled, f.path, f.err
+}
+
+// TestServeSPAEntryBaseInjection 入口 HTML 按安全入口状态注入 <base>（api D-P03）：
+// 页面里的相对地址据此落在入口路径之下——注入错了，开着安全入口的面板在浏览器里就是一片空白。
+func TestServeSPAEntryBaseInjection(t *testing.T) {
+	cases := []struct {
+		name    string
+		source  *fakeEntrySource
+		wantTag string
+	}{
+		{"no source: base is /", nil, `<base href="/">`},
+		{"entry disabled: base is /", &fakeEntrySource{enabled: false, path: "abc12345"}, `<base href="/">`},
+		{"entry enabled without a path: base is /", &fakeEntrySource{enabled: true, path: ""}, `<base href="/">`},
+		{"entry enabled: base is /{entryPath}/", &fakeEntrySource{enabled: true, path: "abc12345"}, `<base href="/abc12345/">`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := useSPAFixture(t)
+			if tc.source != nil {
+				s.SetEntryPathSource(*tc.source)
+			}
+			for _, target := range []string{"/", "/sites", "/databases/mysql/3/browse/db", "/login"} {
+				w := spaDo(s, http.MethodGet, target, "gzip", map[string]string{"Accept": "text/html"})
+				body := w.Body.String()
+				if w.Code != http.StatusOK {
+					t.Fatalf("GET %s status = %d, want 200", target, w.Code)
+				}
+				if !strings.Contains(body, tc.wantTag) {
+					t.Fatalf("GET %s: base tag %q missing from:\n%s", target, tc.wantTag, body)
+				}
+				// 注入位置：<head> 之后、入口脚本之前；除此之外正文原样
+				head := strings.Index(body, "<head>")
+				base := strings.Index(body, "<base")
+				script := strings.Index(body, "<script")
+				if !(head >= 0 && base > head && script > base) {
+					t.Fatalf("GET %s: base tag must sit right after <head> and before the entry script:\n%s", target, body)
+				}
+				want := string(spaIndexWithBase([]byte(spaFixtureIndex), strings.TrimSuffix(strings.TrimPrefix(tc.wantTag, `<base href="`), `">`)))
+				if body != want {
+					t.Fatalf("GET %s: body differs from index.html plus the base tag", target)
+				}
+				if cc := w.Header().Get("Cache-Control"); cc != "no-cache" {
+					t.Fatalf("GET %s Cache-Control = %q, want no-cache (the base follows the entry setting)", target, cc)
+				}
+				if cl := w.Header().Get("Content-Length"); cl != strconv.Itoa(len(body)) {
+					t.Fatalf("GET %s Content-Length = %q, want %d (length of the document actually sent)", target, cl, len(body))
+				}
+			}
+			// HEAD 与 GET 同头：Content-Length 是注入后的长度，不回响应体
+			get := spaDo(s, http.MethodGet, "/", "", nil)
+			head := spaDo(s, http.MethodHead, "/", "", nil)
+			if head.Body.Len() != 0 {
+				t.Fatalf("HEAD must not return a body: %d bytes", head.Body.Len())
+			}
+			if cl, want := head.Header().Get("Content-Length"), get.Header().Get("Content-Length"); cl == "" || cl != want {
+				t.Fatalf("HEAD Content-Length = %q, want the GET value %q", cl, want)
+			}
+		})
+	}
+}
+
+// TestServeSPAEntryBaseFailsClosed 读不到安全入口状态时，入口文档回标准 404（与入口网关同口径），
+// 不能带着错误的基址发出去；静态文件不受影响。
+func TestServeSPAEntryBaseFailsClosed(t *testing.T) {
+	s := useSPAFixture(t)
+	s.SetEntryPathSource(fakeEntrySource{err: errors.New("state unreadable")})
+	w := spaDo(s, http.MethodGet, "/", "", map[string]string{"Accept": "text/html"})
+	if w.Code != http.StatusNotFound || strings.Contains(w.Body.String(), "<base") {
+		t.Fatalf("status = %d body %q, want a plain 404 without the document", w.Code, w.Body.String())
+	}
+	if a := spaDo(s, http.MethodGet, "/assets/app-abc123.js", "gzip", nil); a.Code != http.StatusOK {
+		t.Fatalf("static assets must not depend on the entry state: status = %d", a.Code)
+	}
+}
+
+// TestEntryGatewayAndBaseAgree 入口网关和入口文档必须对得上：文档里的 <base> 加上页面里的
+// 相对地址，得到的每一个地址都要能通过同一个网关。基址少了结尾斜杠（/abc 而不是 /abc/）时，
+// 浏览器会把 ./assets/x.js 解析成不带前缀的 /assets/x.js，被网关拦掉——开着安全入口就是白屏。
+func TestEntryGatewayAndBaseAgree(t *testing.T) {
+	s := useSPAFixture(t)
+	src := fakeEntrySource{enabled: true, path: "abc12345"}
+	s.SetEntryPathSource(src)
+	gate := middleware.EntryPathHandler(src, s.engine)
+	entryPrefix := "/abc12345/"
+	do := func(target string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		gate.ServeHTTP(w, httptest.NewRequest(http.MethodGet, target, nil))
+		return w
+	}
+	page := do(entryPrefix)
+	if page.Code != http.StatusOK {
+		t.Fatalf("GET the entry address: status = %d, want 200", page.Code)
+	}
+	m := regexp.MustCompile(`<base href="([^"]*)">`).FindStringSubmatch(page.Body.String())
+	if m == nil {
+		t.Fatalf("the entry document has no base tag:\n%s", page.Body.String())
+	}
+	base, err := url.Parse(html.UnescapeString(m[1]))
+	if err != nil {
+		t.Fatalf("base %q is not a valid address: %v", m[1], err)
+	}
+	refs := regexp.MustCompile(`(?:src|href)="([^"]+)"`).FindAllStringSubmatch(page.Body.String(), -1)
+	if len(refs) == 0 {
+		t.Fatal("the fixture index.html must reference at least one file")
+	}
+	for _, ref := range refs {
+		rel, err := url.Parse(html.UnescapeString(ref[1]))
+		if err != nil {
+			t.Fatalf("reference %q is not a valid address: %v", ref[1], err)
+		}
+		resolved := base.ResolveReference(rel)
+		target := resolved.RequestURI()
+		if !strings.HasPrefix(target, entryPrefix) {
+			t.Fatalf("%s resolves to %q under base %s: not under the entry path", ref[1], target, base)
+		}
+		if w := do(target); w.Code != http.StatusOK {
+			t.Fatalf("%s resolves to %s: the gateway answered %d, want 200", ref[1], target, w.Code)
+		}
+	}
+	// 同一个文件不带入口前缀：网关照旧拦掉
+	if w := do("/assets/app-abc123.js"); w.Code != http.StatusNotFound {
+		t.Fatalf("asset without the entry prefix: status = %d, want 404", w.Code)
+	}
+}
+
+// TestSpaIndexWithBase 纯函数的边界。
+func TestSpaIndexWithBase(t *testing.T) {
+	raw := []byte("<!doctype html><HTML><HEAD><TITLE>x</TITLE></HEAD><BODY></BODY></HTML>")
+	got := string(spaIndexWithBase(raw, "/e/"))
+	want := "<!doctype html><HTML><HEAD><base href=\"/e/\"><TITLE>x</TITLE></HEAD><BODY></BODY></HTML>"
+	if got != want {
+		t.Fatalf("case-insensitive head match:\n got %s\nwant %s", got, want)
+	}
+	if string(spaIndexWithBase([]byte("<!doctype html><html><body></body></html>"), "/e/")) != "<!doctype html><html><body></body></html>" {
+		t.Fatal("no <head>: return the document untouched")
+	}
+	if string(spaIndexWithBase([]byte("<html><head"), "/e/")) != "<html><head" {
+		t.Fatal("unterminated <head: return the document untouched")
+	}
+	if out := spaIndexWithBase(raw, `/"x`); !strings.Contains(string(out), `<base href="/&#34;x">`) {
+		t.Fatalf("base must be HTML-escaped: %s", out)
+	}
+	// 真正核对输入没被改动：调用前留一份副本，调用后逐字节比对
+	before := append([]byte(nil), raw...)
+	spaIndexWithBase(raw, "/e/")
+	if !bytes.Equal(raw, before) {
+		t.Fatalf("input must not be modified in place: %s", raw)
 	}
 }
 

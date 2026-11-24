@@ -14,6 +14,7 @@
  */
 import type { NavFailure, NavFailureKind } from '@/stores/navigation'
 import { useNavigationStore } from '@/stores/navigation'
+import { withBase } from '@/utils/base'
 
 /** 用户可见文案（栈文案规约：无 emoji、无感叹号，说清结果与下一步）。 */
 export const NAV_TEXT = {
@@ -269,7 +270,8 @@ export function createBrowserRecoveryDeps(): NavRecoveryDeps {
     storage: createBrowserStorage(),
     reload: (target) => {
       if (target === null) window.location.reload()
-      else window.location.assign(target)
+      // 目标是面板路径（如 /sites）：整页跳转要带上应用基址，否则开着安全入口时跳过去是 404
+      else window.location.assign(withBase(target))
     },
     report: (kind, target) => useNavigationStore().report(kind, target),
     now: () => Date.now()

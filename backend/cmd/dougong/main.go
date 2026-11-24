@@ -514,6 +514,8 @@ func run(args []string) error {
 
 	// HTTP 骨架 + 模块挂载（后续模块在此追加 RegisterModules 参数）。
 	server := api.NewServer()
+	// 下发入口 HTML 时按安全入口状态注入 <base>（D-P03：页面、脚本、接口都在入口路径之下）。
+	server.SetEntryPathSource(panelSvc)
 	server.RegisterModules(
 		authapi.NewModule(authSvc, auditSvc, cfg.CookieSecure),
 		panelapi.NewModule(authSvc, panelSvc),

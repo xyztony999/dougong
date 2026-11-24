@@ -11,6 +11,10 @@ import { NaiveUiResolver } from 'unplugin-vue-components/resolvers'
 const backendAddr = process.env.DG_BACKEND_ADDR ?? 'http://127.0.0.1:8080'
 
 export default defineConfig({
+  // 页面文件用相对地址（./assets/…）：面板开启安全入口后，页面、脚本、接口都位于 /{entryPath}/ 之下，
+  // 相对地址跟着页面所在位置走；后端在下发的页面里写 <base>，深链接（/sites/12）下也解析得到
+  // （api D-P03，utils/base）。开发服务器不写 <base>，按根路径提供，不受影响。
+  base: './',
   plugins: [
     vue(),
     AutoImport({

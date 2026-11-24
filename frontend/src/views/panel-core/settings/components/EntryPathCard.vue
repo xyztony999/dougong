@@ -1,17 +1,23 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useMessage } from 'naive-ui'
-import { configUpdate, entryPathRegenerate } from '@/api/panel'
 import { useAuthStore } from '@/stores/auth'
-import { usePanelStore } from '@/stores/panel'
 import { CONFIG_EFFECT_MODE, dictItem } from '@/types/enums'
 import type { PanelConfigDetail } from '@/types/panel'
 import { copyText } from '@/utils/clipboard'
+import {
+  ENTRY_PATH_DONE_TEXT,
+  createBrowserEntryPathDeps,
+  createEntryPathActions,
+  takeEntryPathChange
+} from './entryPathActions'
 
 const props = defineProps<{ detail: PanelConfigDetail }>()
 const message = useMessage()
 const authStore = useAuthStore()
-const panelStore = usePanelStore()
+// 开启 / 重新生成 / 关闭成功后整页跳到新地址（entryPathActions）；当前页面不再重新读取配置——
+// 那次请求带的是旧前缀，开着安全入口时会被拦掉
+const actions = createEntryPathActions(createBrowserEntryPathDeps())
 
 const enabled = computed(() => props.detail.entryPath.enabled)
 /** 当前完整相对路径（URL 前缀形态 /{entryPath}；readonly 可见完整值——ADR-018 全可看） */
@@ -29,28 +35,12 @@ function onEnableRequest(): void {
 }
 
 async function onEnableConfirm(): Promise<void> {
-  try {
-    await configUpdate({ entryPathEnabled: true })
-    // 无既有路径时服务端自动生成（api 4.1.4）；统一 re-fetch 取新值
-    await panelStore.loadConfig()
-    message.success('安全入口已开启，变更已记入审计')
-    enableConfirmShow.value = false
-    const path = panelStore.configDetail?.entryPath.path ?? null
-    if (path !== null) openPathModal(path)
-  } catch {
-    // 失败保持开关原状态（拦截器已提示）
-  }
+  if (await actions.enable()) enableConfirmShow.value = false
 }
 
 /** 1→0：NPopconfirm 确认（模板内触发） */
 async function onDisable(): Promise<void> {
-  try {
-    await configUpdate({ entryPathEnabled: false })
-    message.success('安全入口已关闭，变更已记入审计')
-    await panelStore.loadConfig()
-  } catch {
-    // 拦截器已提示
-  }
+  await actions.disable()
 }
 
 const regenerating = ref(false)
@@ -59,12 +49,7 @@ const regenerating = ref(false)
 async function onRegenerate(): Promise<void> {
   regenerating.value = true
   try {
-    const data = await entryPathRegenerate()
-    message.success('已重新生成，变更已记入审计')
-    await panelStore.loadConfig()
-    openPathModal(data.entryPath)
-  } catch {
-    // 拦截器已提示
+    await actions.regenerate()
   } finally {
     regenerating.value = false
   }
@@ -78,6 +63,15 @@ function openPathModal(path: string): void {
   pathModalValue.value = `/${path}`
   pathModalShow.value = true
 }
+
+// 页面是因为刚开启或重新生成才整页跳过来的：提示在这里补上，路径再展示一次
+onMounted(() => {
+  const change = takeEntryPathChange()
+  if (change === null) return
+  message.success(ENTRY_PATH_DONE_TEXT[change])
+  const path = props.detail.entryPath.path
+  if (change !== 'disabled' && path !== null && path !== '') openPathModal(path)
+})
 
 async function onCopy(text: string): Promise<void> {
   const ok = await copyText(text)

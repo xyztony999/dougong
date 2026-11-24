@@ -37,6 +37,7 @@ import type {
   DockerVolumeListData
 } from '@/types/docker'
 import { parseDockerLogFrame } from '@/types/docker'
+import { withBase } from '@/utils/base'
 import { buildQuery, request } from './http'
 
 /** daemonStatus：接管结论即时探测（D-01：状态/版本/不可用细节；无缓存按需拉取） */
@@ -186,10 +187,11 @@ export interface DockerLogSocket {
   close(): void
 }
 
-/** 同源 WS 地址（https→wss；开发态经 vite proxy /docker ws 透传，禁止硬编码后端地址） */
+/** 同源 WS 地址（https→wss；开发态经 vite proxy /docker ws 透传，禁止硬编码后端地址；
+ *  路径同样要带应用基址——开着安全入口时不带入口前缀的连接会被拦掉） */
 function dockerWsUrl(path: string, query: Record<string, string | number | undefined>): string {
   const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
-  return `${proto}://${window.location.host}${path}${buildQuery(query)}`
+  return `${proto}://${window.location.host}${withBase(path)}${buildQuery(query)}`
 }
 
 /**

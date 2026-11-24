@@ -26,8 +26,9 @@ import type {
   UserResetPasswordReq
 } from '@/types/auth'
 import { ApiError, buildQuery, request } from './http'
-import { normalizeCode } from '@/utils/errcode'
 import { normalizeAuditListResult } from '@/utils/audit'
+import { withBase } from '@/utils/base'
+import { normalizeCode } from '@/utils/errcode'
 
 /** ---- init（api 4.4） ---- */
 
@@ -138,7 +139,7 @@ function exportFilename(): string {
  * 按当前筛选条件触发下载，成功提示由调用方展示（导出动作已记审计）。
  */
 export async function exportAuditLog(filter: AuditFilter): Promise<void> {
-  const res = await fetch(`/auth/audit-log/export${buildQuery(filter)}`, {
+  const res = await fetch(withBase(`/auth/audit-log/export${buildQuery(filter)}`), {
     method: 'GET',
     credentials: 'same-origin',
     headers: { Accept: 'text/csv, application/json' }

@@ -5,7 +5,9 @@ package api
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"errors"
+	"html"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -41,10 +43,17 @@ type Server struct {
 	// 所以每个文件只压缩一次（首次被请求时），之后直接发缓存——不是每个请求现压（api D-P19）。
 	spaGzip   map[string][]byte
 	spaGzipMu sync.Mutex
+
+	// entryPath 是安全入口状态来源（可选，由 SetEntryPathSource 注入）：下发入口 HTML 时
+	// 据此注入 <base>，让页面里的相对地址落在入口路径之下（api D-P03）。nil 时基址恒为 /。
+	entryPath middleware.EntryPathSource
 }
 
 // spaFS 是内嵌前端 dist 子文件系统（web.DistFS 的 "dist" 子树）。
 var spaFS fs.FS
+
+// SetEntryPathSource 注入安全入口状态来源（main 装配时调用）。
+func (s *Server) SetEntryPathSource(src middleware.EntryPathSource) { s.entryPath = src }
 
 // 内嵌页面文件的传输参数（api D-P19）。
 const (
@@ -150,16 +159,76 @@ func (s *Server) serveSPA(c *gin.Context) {
 			c.Header("Content-Encoding", "gzip")
 		}
 	}
+	// 入口 HTML：注入 <base>，让页面里的相对地址（脚本、图标、样式）落在入口路径之下。
+	// 开启安全入口后，入口网关只放行带入口前缀的请求，而页面引用的是相对地址——基址
+	// 不对的话脚本全部 404，浏览器里就是一片空白（api D-P03）。
+	var document []byte
+	if name == "index.html" {
+		base, baseErr := s.spaBasePath(c.Request.Context())
+		if baseErr != nil {
+			// 与入口网关同口径：读不到入口状态时 fail-closed，标准 404
+			slog.ErrorContext(c.Request.Context(), "spa: read entry path state", "err", baseErr)
+			http.NotFound(c.Writer, c.Request)
+			return
+		}
+		raw, readErr := io.ReadAll(f)
+		if readErr != nil {
+			response.FailWith(c, errcode.ErrInternal)
+			return
+		}
+		document = spaIndexWithBase(raw, base)
+		size = int64(len(document))
+	}
 	c.Header("Content-Length", strconv.FormatInt(size, 10))
 	c.Status(http.StatusOK)
 	if c.Request.Method == http.MethodHead {
 		return // 与 GET 同样的头，不回响应体
+	}
+	if document != nil {
+		_, _ = c.Writer.Write(document)
+		return
 	}
 	if compressed != nil {
 		_, _ = c.Writer.Write(compressed)
 		return
 	}
 	_, _ = io.Copy(c.Writer, f)
+}
+
+// spaBasePath 返回页面基址（以 / 开头和结尾）：安全入口开启时为 /{entryPath}/，否则 /。
+func (s *Server) spaBasePath(ctx context.Context) (string, error) {
+	if s.entryPath == nil {
+		return "/", nil
+	}
+	enabled, entryPath, err := s.entryPath.EntryPathState(ctx)
+	if err != nil {
+		return "", err
+	}
+	if !enabled || entryPath == "" {
+		return "/", nil
+	}
+	return "/" + entryPath + "/", nil
+}
+
+// spaIndexWithBase 在入口 HTML 的 <head> 开头注入 <base href=…>（入口只有几百字节，
+// 每次请求现拼，不缓存——内容随安全入口配置变化）。找不到 <head> 时原样返回。
+func spaIndexWithBase(raw []byte, base string) []byte {
+	lower := bytes.ToLower(raw)
+	open := bytes.Index(lower, []byte("<head"))
+	if open < 0 {
+		return raw
+	}
+	rel := bytes.IndexByte(lower[open:], '>')
+	if rel < 0 {
+		return raw
+	}
+	at := open + rel + 1
+	tag := []byte("<base href=\"" + html.EscapeString(base) + "\">")
+	out := make([]byte, 0, len(raw)+len(tag))
+	out = append(out, raw[:at]...)
+	out = append(out, tag...)
+	out = append(out, raw[at:]...)
+	return out
 }
 
 // gzipAsset 返回内嵌页面文件的 gzip 内容，进程内缓存、每个文件只压缩一次。

@@ -8,6 +8,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useDbStore } from '@/stores/database'
 import type { PanelRole } from '@/types/enums'
+import { appBasePath } from '@/utils/base'
 import { notifyError } from '@/utils/notify'
 import { createAssetFailureHandlers, createBrowserRecoveryDeps } from './navFailure'
 import { registerNavigationTracking } from './navHooks'
@@ -37,8 +38,9 @@ declare module 'vue-router' {
   }
 }
 
+// 路由基址 = 应用基址（安全入口开启后页面都在 /{entryPath}/ 之下，utils/base）
 const router = createRouter({
-  history: createWebHistory(),
+  history: createWebHistory(appBasePath()),
   routes: [
     {
       path: '/init-wizard',

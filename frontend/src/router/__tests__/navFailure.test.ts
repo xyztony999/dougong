@@ -9,6 +9,7 @@ import {
   NAV_TEXT,
   consumeReloadedFlag,
   createAssetFailureHandlers,
+  createBrowserRecoveryDeps,
   detectAssetFailureCause,
   errorMessage,
   installPreloadErrorGuard,
@@ -468,5 +469,38 @@ describe('installUnhandledRejectionGuard：只吞已经提示过的加载失败'
     const h = harness()
     h.dispose()
     expect(h.emit(new TypeError(CHROME_CHUNK_ERROR))).toBe(false)
+  })
+})
+
+describe('浏览器环境下的依赖（createBrowserRecoveryDeps）：整页跳转带应用基址', () => {
+  /** 模拟浏览器：地址栏、会话存储、页面里的 <base>（baseHref 为 null 表示没有） */
+  function fakeBrowser(baseHref: string | null): { assign: ReturnType<typeof vi.fn>; reload: ReturnType<typeof vi.fn> } {
+    const assign = vi.fn()
+    const reload = vi.fn()
+    vi.stubGlobal('window', { location: { assign, reload }, sessionStorage: memoryStorage() })
+    vi.stubGlobal('document', {
+      querySelector: (selector: string) =>
+        selector === 'base[href]' && baseHref !== null ? { getAttribute: () => baseHref } : null
+    })
+    return { assign, reload }
+  }
+
+  it('开着安全入口：自动重新加载到的地址带入口路径（api D-P03）', () => {
+    const { assign } = fakeBrowser('/abc12345/')
+    createBrowserRecoveryDeps().reload('/sites/12/source')
+    expect(assign).toHaveBeenCalledWith('/abc12345/sites/12/source')
+  })
+
+  it('安全入口没开启：地址不变', () => {
+    const { assign } = fakeBrowser('/')
+    createBrowserRecoveryDeps().reload('/sites/12/source')
+    expect(assign).toHaveBeenCalledWith('/sites/12/source')
+  })
+
+  it('没有目标页时重新加载当前页', () => {
+    const { assign, reload } = fakeBrowser('/abc12345/')
+    createBrowserRecoveryDeps().reload(null)
+    expect(reload).toHaveBeenCalledTimes(1)
+    expect(assign).not.toHaveBeenCalled()
   })
 })
