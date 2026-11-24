@@ -2,10 +2,10 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v2.2 |
+| 版本 | v2.3 |
 | 状态 | 稳定 |
-| 最后更新 | 2026-11-16 |
-| 输入 | prd-panel-core.md v1.3（CLI 增量完备性复核通过，ADR-028/029/030）、domain-model.md v1.17、d0-clarification-panel-core.md、D1 三文档（BA/AA/FL v1.2，含 CLI 增量 D1） |
+| 最后更新 | 2026-11-24 |
+| 输入 | prd-panel-core.md v1.6（侧栏点击反馈增量 FR-08/N2，取证见 00-architecture/d0-clarification-panel-core-sidebar-nav-2026-11-24.md）、v1.3（CLI 增量完备性复核通过，ADR-028/029/030）、domain-model.md v1.17、d0-clarification-panel-core.md、D1 三文档（BA/AA/FL v1.2，含 CLI 增量 D1） |
 | 接口规约 | 无激活技术栈（ACTIVE_STACKS 为空）——按通用 REST/JSON 契约设计；认证/鉴权/CSRF 复用 account-auth 中间件契约（R-02/ADR-018，api-account-auth.md 3.1）；全局入口前置=安全入口路径网关（R-10） |
 
 ## 1. 模块设计概述
@@ -18,7 +18,7 @@
 
 | 项 | 说明 |
 |----|------|
-| 本模块做 | panel_config 配置读写与生效分类（含绑定域名 bind_domain）、安全入口路径网关与域名绑定 Host 强校验网关（全局中间件）、面板自身 HTTPS 证书管理（自签/导入/ACME 签发与续期经 site-mgmt 通道）、菜单树按角色下发、版本信息、更新检查开关与手动触发、构建期菜单挂载登记约定、CLI 管理通道六命令族契约（非 HTTP，ADR-030，4.1.4 CLI 入口） |
+| 本模块做 | panel_config 配置读写与生效分类（含绑定域名 bind_domain）、安全入口路径网关与域名绑定 Host 强校验网关（全局中间件）、面板自身 HTTPS 证书管理（自签/导入/ACME 签发与续期经 site-mgmt 通道）、菜单树按角色下发、版本信息、更新检查开关与手动触发、构建期菜单挂载登记约定、CLI 管理通道六命令族契约（非 HTTP，ADR-030，4.1.4 CLI 入口）、内嵌前端页面文件的传输（SPA 静态服务：压缩、缓存头、已不存在的文件回 404，D-P19） |
 | 本模块不做（接口边界） | ① 登录/会话/RBAC/审计接口——归 account-auth（本模块仅消费其中间件与 AuditService.Record）；② 站点 SSL 证书（站点侧 ACME/续期）——归 site-mgmt，本模块仅管面板自身证书（其 ACME 签发/挑战写回复用 site-mgmt 通道，ADR-029，见 1.5/3.2）；③ 面板服务重启/自升级——重启经 systemctl（FR-02，OS 层），无面板自重启/自升级接口（idea.md §4.2）；④ 监控/业务页面数据接口——归各业务模块（本模块仅供给菜单树骨架）；⑤ DNS-01 通配符证书与独立 80 端口监听——二期/非目标（ADR-029） |
 | 与存储的关系 | SQLite 单文件（ADR-011），panel_config/panel_cert 两表，DDL 见 5.3；会话有效期参数不在库——载体为配置文件（account-auth D-10，见 3.4 配置项） |
 
@@ -44,6 +44,7 @@
 | D-P16 | **HostGuard 全局前置**：与 EntryPathGuard 同层 net/http 包装、紧随其后（Entry → Host → 引擎中间件链）；绑定后 Host 不匹配（含 IP 直连）一律**标准 404 无业务码**（与 D-P03 同防探测语义）；读态失败 fail-closed 404（沿 A-P7 先例）；作用于全部路由含未认证访问；绑定/解绑即时生效 | ADR-028 强校验语义；两网关失败响应同为标准 404，先后顺序不泄露信息 |
 | D-P17 | **CLI 管理通道=进程内 service 复用、无 HTTP 绕行**（ADR-030）：六命令族直接操作本机数据目录/SQLite，复用 4.1.1 领域服务与 4.1.5 仓储契约，不经 HTTP/中间件链（服务器终端本地通道，权限=终端系统权限而非面板会话/角色）；退出码约定 **0=成功 / 2=参数校验失败（AUTH_012/PANEL_012 语义）/ 1=执行失败（对应错误码语义，stdout 同步打印 code 与人类可读原因**，沿 init CLI「非 0 退出+stdout 提示」先例，api-account-auth.md 4.4.4）；**读命令服务运行时可直读**（SQL #2 通道）；**写命令完成后统一输出 `systemctl restart dougong` 提示**（ADR-030 口径；实际生效分类仍按 config_effect_mode——即时项即刻生效、重启项待重启，与 prd FR-19/N2 衔接）；**变更审计 source=cli**（枚举池既有 audit_source，动作码全量复用既有常量，见 3.4）；reset-password 新密码仅经环境变量 DOUGONG_INIT_PASSWORD 注入、**不经 argv**（防 ps 泄密，同 init 口径；缺失=PANEL_012）；裸 `dougong`（无子命令）=启动面板服务（既有行为不变） | ADR-030 宝塔同款定位；单二进制优势（进程内复用免 HTTP 绕行）；退出码沿通用终端惯例（0 成功/2 用法错误/1 失败） |
 | D-P18 | **菜单 IA 增量（v2.2，v0.1.2 用户反馈第 5/6 项）**：①**分组结构启用**——MenuItem.children 父子两级（menu/list 响应结构 v1.0 起预留，本轮侧栏分组渲染落地）：分组节点 path 为空（分组非路由）、visibility 取子项并集、children 非空的叶节点不合法（两级封顶）；②**account-auth 域菜单登记补全**——「用户与安全」分组（组内：用户管理 /users、在线会话 /sessions、审计日志 /audit-logs、个人资料 /profile，两角色可达；页面内操作差异按既有页面级负空间 ADR-018）——设计侧 PageSpec account-auth 第 7 节本有侧栏菜单四项，实现侧 ModuleMenuRegistry 未登记致 /users 不可达，本增量**实现回归设计**并升格为分组；③**env-mgmt 菜单登记**——「环境管理」/env（两角色，随 env-mgmt 新模块 v1.0）；④**顶栏标题=当前页面标题**（前端框架职责：路由 meta.title 优先、菜单 title 兜底——替换 MainLayout 硬编码业务域显示名「账户与安全基座」，内部设计术语不泄漏用户 UI；呈现细节归 PageSpec panel-core v1.2 第 7 节，无接口变更）；⑤设置页重排（第 7 项）纯 PageSpec 层零接口变更 | v0.1.2 用户实测反馈：顶栏「账户与安全基座」内部术语泄漏（第 5 项）+设置里找不到用户管理（第 6 项，根因=菜单登记缺失）；菜单内容为构建期数据非接口契约，本决策登记登记表变更口径供 Gate 对齐基线 |
+| D-P19 | **内嵌前端页面文件的传输规则（v2.3，缺陷反馈「侧栏有时点不动」）**：①缓存头——`assets/*`（文件名带内容哈希）`Cache-Control: public, max-age=31536000, immutable`，其余（index.html 等）`no-cache`（既有行为不变；index.html 永不长缓存）；②压缩——请求 `Accept-Encoding` 含 gzip（q 不为 0）且文件为可压缩类型（按扩展名 js/mjs/css/svg/json/html/txt/map/ttf，不依赖平台相关的 MIME 表）且不小于 1KB 时 gzip 压缩并带 `Content-Encoding: gzip`；压缩结果进程内缓存——**每个文件只压缩一次**（首次被请求时），之后直接发缓存，不是每个请求现压；不压缩小于 1KB 的文件与浏览器不支持 gzip 的请求；③全部 `assets/*` 响应带 `Vary: Accept-Encoding`（有无压缩都带，中间缓存不会把未压缩版本回给支持 gzip 的客户端）；④不加 ETag / Last-Modified（与现状一致）：文件名带内容哈希、内容不变，校验器没有意义，也避免「同一 ETag 对应两种编码」的不一致；index.html 走 `no-cache` 每次整份重新下发（441 字节）；⑤`Content-Length` 显式给出，不支持 Range（沿用现状：忽略 Range 回 200 全量），HEAD 与 GET 同样的头、不回响应体；⑥**`/assets/` 下不存在的文件回标准 404**（纯文本，不走 SPA 兜底、无业务码）——中间缓存不会把 index.html 当脚本缓存，前端也能据此识别「面板已升级」；其它路径不存在仍回 index.html（深链 `/sites` 等直接访问与刷新照常可用，既有行为不变）；⑦反向代理已开压缩时见到上游带 `Content-Encoding` 即不再二次压缩，未开压缩时由面板自己压缩 | 根因取证（D0 第 7 节）：页面分包按需下载而后端从不压缩，慢链路首次打开页面空等 0.5~11 秒（50KB/s 实测「历史趋势」10.9 秒，gzip 后 4.4 秒）；面板升级后旧页面请求已不存在的哈希文件，原 SPA 兜底回 200 + index.html，浏览器按 MIME 拒绝而前端无从分辨「已升级」与「网络失败」——改回标准 404 后，前端探测入口脚本是否还在即可判定并自动重新加载（PageSpec panel-core v1.3 第 7 节）；标准 404 与 D-P03/D-P16 同口径。压缩一次并缓存而非初始化时全量压缩：实测全量压缩耗时 0.12~0.31 秒、常驻多占 4.3~5.1MB，而多数会话只用到其中一小部分文件；按文件惰性压缩的最坏一次性代价是最大文件（7MB 的 Monaco 语言 worker）约 0.09 秒，且只占实际用到的文件的内存 |
 
 ### 1.4 领域对象总览
 
@@ -322,6 +323,7 @@ panel_cert：
 | ModuleMenuRegistry（构建期登记约定） | 全部业务模块 | 模块以 {key,title,path,icon,order,visibility,children?} 登记（v2.2：children 分组启用，D-P18）；GET /panel/menu/list 单一数据源（D-P07）；登记实例增量（v2.2）：account-auth 域「用户与安全」分组（用户管理/在线会话/审计日志/个人资料，两角色）+ env-mgmt「环境管理」（两角色） |
 | 设置页透传区（detail.session 键） | account-auth 会话策略展示 | 只读透传 internal/config 会话键（D-P08/D-10），本模块不提供其修改接口 |
 | 中间件链顺序约束 | api 路由层 | EntryPathGuard → HostGuard → InitGuard → AuthRequired → CsrfGuard → RoleRequired（3.1，顺序固定） |
+| 内嵌前端页面文件传输（SPA 静态服务，NoRoute） | 浏览器（面板前端自身；直连或经反向代理） | 哈希资源 immutable 长缓存、index.html no-cache；gzip 压缩（每文件一次、缓存）并带 `Vary: Accept-Encoding`，显式 Content-Length，HEAD 同头（D-P19）；`/assets/` 下已不存在的文件回标准 404（不走 SPA 兜底）；其它路径不存在仍回 index.html（深链）；API 模块前缀下未知路径维持 404 包络（既有行为不变） |
 
 **跨模块消费契约（本模块引入，v2.0；v2.1 追加 CLI 消费预告一行；与 D1 被依赖登记对应 api-site-mgmt.md 1.5/5.1 v1.1）**：
 
@@ -388,6 +390,7 @@ CREATE TABLE IF NOT EXISTS panel_cert (
 | v2.0 | 2026-11-16 | interface_added / field_added / enum_value_added / rule_changed / table_changed | 增量 D3（ADR-028/029，输入 prd v1.1/domain-model v1.16/D1 三文档 v1.1）：**新增接口 3 个**——GET /panel/cert/status（两角色）、POST /panel/cert/request（ACME 申请，HTTP-01 经已有 nginx、同步终态 ≤120s）、POST /panel/cert/retry-renewal（手动重试，4.1.3 同通道），域名绑定/解绑**并入** config/update（bindDomain 字段，D-P12 设计判断：用户输入值走 update 唯一写入口，解绑=置空，不设独立接口）；**字段新增**——panel_config.bind_domain（HostGuard 强校验 I-P09/D-P16）、panel_cert.last_error（acme 排障）；**枚举扩展**——https_mode +acme（D-P14 联动，池行同步）、panel_cert_source +acme（D2 已扩，本文对齐）、新增 cert_status 引用（4 值子集呈现）；**规则**——设计决策 D-P12~D-P16、不变量 I-P04 扩展 + I-P09/I-P10、子流程 4.1.3 面板证书自动续期任务、中间件链 +HostGuard、跨模块消费契约（site-mgmt AcmeGateway + nginx 安全写回，5.1 消费表，与 D1 登记对应）；**DDL**——两表 CHECK 扩展与新列 + 增量迁移 007（表重建流程，5.3）；**错误码** PANEL_007~011 接力（PANEL_003 语义扩展 acme 分支）；关闭 prd 待对齐-6/-7；M1~M5 增量重跑通过 | 1.2/1.3/1.4/1.5/2.1/2.3/3.1/3.2/3.3/3.4/4.1.1/4.1.2/4.1.3/4.1.4/4.1.5/5.1/5.2/5.3 |
 | v2.1 | 2026-11-16 | interface_added / rule_added | CLI 增量 D3（ADR-030，输入 prd v1.3/domain-model v1.17/D1 三文档 v1.2）：**新增 CLI 入口命令族契约（非 HTTP）6 项**（4.1.4「CLI 入口」，结构沿 api-account-auth.md 4.4.4 init 先例）——`status`（systemd 状态+初始化态+访问 URL）/`info`（版本/端口/入口路径/HTTPS/数据目录）/`reset-password -username`（DOUGONG_INIT_PASSWORD 环境变量注入、复用 account-auth 密码重置业务）/`set-port`（写 listen_port，需重启）/`entrypath show\|regen\|off`（即时生效）/`service start\|stop\|restart\|status`（systemctl 参数数组 R-08），逐项参数/退出码/输出要点/生效语义（写命令统一 `systemctl restart dougong` 提示，实际按 config_effect_mode）/审计；**规则**——设计决策 D-P17（进程内复用无 HTTP 绕行、退出码 0/2/1 约定、source=cli）、3.1 增 CLI 通道规范行（不经中间件链）、3.4 审计动作码全量复用注（panel_config_changed/panel_entry_path_regenerated/account-auth password_reset）与 1.5 account-auth 消费方向 + systemd 治理注；**错误码** PANEL_012 接力（INIT_PASSWORD_MISSING）；**5.1 增 account-auth 用户密码重置业务消费预告**（OHS 方法签名待其文档登记，本版不改 api-account-auth.md）；**DDL/表结构零变更**（复用 SQL #2/#3 通道，5.2 场景注）；HTTP 接口清单与权限矩阵零变化；M1~M5 增量重跑通过 | 1.1/1.2/1.3/1.5/3.1/3.4/4.1.4/5.1/5.2 |
 | v2.2 | 2026-11-16 | rule_added | 菜单 IA 增量（v0.1.2 用户反馈第 5/6/7 项，输入 PageSpec panel-core v1.2/PageSpec account-auth v1.3 增量方向）：**规则新增 D-P18**——①MenuItem.children 分组结构启用（响应结构 v1.0 预留、本轮落地侧栏分组渲染：分组 path 空、两级封顶、visibility 并集）；②account-auth 域菜单登记补全（「用户与安全」分组四子项两角色——实现回归 PageSpec account-auth 第 7 节既有设计，修复 /users 不可达）；③env-mgmt「环境管理」菜单登记（两角色）；④顶栏标题=当前页面标题（路由 meta.title 优先、菜单 title 兜底，替换 MainLayout 硬编码业务域显示名——内部术语不泄漏用户 UI，前端框架职责归 PageSpec）；⑤设置页重排纯 PageSpec 层零接口变更；**HTTP 接口清单/权限矩阵/DDL/错误码/枚举零变化**（menu/list 响应结构不变，内容为构建期登记数据）；M1~M5 增量重跑通过 | 1.3、4.1.4、5.1 |
+| v2.3 | 2026-11-24 | rule_added / rule_changed | 侧栏点击反馈增量 D3（输入 prd v1.6、D1 三文档 v1.3，缺陷反馈「左侧侧栏有时点不动」）：**规则新增 D-P19**（内嵌前端页面文件传输规则：gzip 压缩并带 Vary、每文件压缩一次并缓存、显式 Content-Length、HEAD 同头；**规则变更**：`/assets/` 下已不存在的文件由「回 index.html + 200」改为「标准 404」，深链兜底不变）；1.2 边界与 5.1 服务清单同步登记 SPA 静态服务；**HTTP 接口清单/权限矩阵/DDL/SQL/枚举/错误码零变化**（页面切换的加载反馈与失败恢复是前端框架职责，归 PageSpec panel-core v1.3 第 7 节） | 1.2 / 1.3 / 5.1 |
 
 ### 6.2 变更类型词汇表
 

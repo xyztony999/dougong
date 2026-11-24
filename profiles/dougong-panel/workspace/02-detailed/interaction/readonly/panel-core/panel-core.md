@@ -2,12 +2,12 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v1.2 |
+| 版本 | v1.3 |
 | 状态 | 稳定 |
-| 最后更新 | 2026-11-16 |
+| 最后更新 | 2026-11-24 |
 | 用户类型 | readonly |
-| 唯一数据源 | 02-detailed/api/api-panel-core.md v2.2 |
-| 公共页定义 | 复用 admin 文档（../admin/panel-core/panel-core.md 第 7 节）：框架级行为（菜单渲染/首访 HTTPS 提示/入口前缀透明） |
+| 唯一数据源 | 02-detailed/api/api-panel-core.md v2.3 |
+| 公共页定义 | 复用 admin 文档（../admin/panel-core/panel-core.md 第 7 节）：框架级行为（菜单渲染/首访 HTTPS 提示/入口前缀透明/页面切换的加载反馈与失败恢复/弹窗抽屉关闭期间的侧栏点击，v1.3） |
 | 边界依据 | ADR-018：全可看（设置项当前值全部可见，含安全入口路径值——FL 附录B 决策）+ 禁一切变更 + 禁 Web 终端 + 禁上传下载 |
 | 组件体系 | Vue 3 + Naive UI（同 admin 文档） |
 
@@ -73,6 +73,7 @@
 |------|------|--------------|
 | /settings、/about | `{requiresAuth:true}` | 同路由只读渲染（按 authStore.user.role==='readonly' 分支禁用控件/隐藏按钮） |
 | 框架菜单 | — | menuList 返回即为本角色可见集（服务端过滤），无需前端二次处理 |
+| 页面切换的加载反馈与失败恢复、弹窗抽屉关闭期间的侧栏点击 | — | 与 admin 完全一致（框架级机制，两角色同行为；文案与规则见 admin 文档第 7 节 v1.3） |
 
 ## 第 8 节 全局一致性
 
@@ -93,5 +94,6 @@
 | v1.0 | 2026-11-12 | initial | 首次生成：只读视角 settings（6 Card 全可见、控件禁用、4 Action 负空间）+ about（无差异）；公共框架行为引用 admin 文档第 7 节 |
 | v1.1 | 2026-11-16 | interface_added / field_added | 增量 D4（ADR-028/029，数据源 api-panel-core.md v2.0，同步 admin 文档 v1.1）：只读 Action 3→4（+certStatus 面板证书状态查看）；负空间 4→6（+certRequest/certRetryRenewal，configUpdate 含域名绑定/解绑字段已在负空间内）；差异表 6→8 Card（+域名绑定只读行、+面板证书只读行）；字典同源扩展（cert_status 引用、https_mode/panel_cert_source +acme） |
 | v1.2 | 2026-11-16 | copy_revision / structural | 增量 D4 随 admin v1.2（数据源 api v2.2）：设置页四分组重排同 admin 视角（只读控件禁用不变）；顶栏标题=当前页面标题（D-P18 框架级，两角色一致）；Action/负空间/字典零变化 |
+| v1.3 | 2026-11-24 | rule_added | 增量 D4 随 admin v1.3（数据源 api v2.3）：第 7 节登记页面切换的加载反馈与失败恢复、弹窗抽屉关闭期间的侧栏点击（两角色一致，规则见 admin 文档第 7 节）；Action/负空间/字典/页面结构零变化 |
 
 > FX 清单执行方式同 admin 文档第 9 节注记（清单文件未随 payload 发布，按 9 节结构落实 + 第 8 节自查；全量留待 Gate 1）。
