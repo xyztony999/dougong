@@ -19,7 +19,8 @@ import { PACKAGE_MANAGER_FAMILY, dictItem } from '@/types/enums'
 import type { EnvItem } from '@/types/env'
 import { formatTime } from '@/utils/format'
 import EnvTaskDrawer from './components/EnvTaskDrawer.vue'
-import { ENV_ACCENT, ENV_MONOGRAM } from './envMeta'
+import { ENV_ACCENT, installedLabel } from './envMeta'
+import EnvLogo from './EnvLogo.vue'
 import { envTaskColumns, envTypeOptions, statusOptions } from './taskColumns'
 import { useRouter } from 'vue-router'
 
@@ -99,14 +100,14 @@ const channelTag = computed(() => {
 /** 卡片实况渲染辅助（v1.1 三态 ⚠️A9：installed=null 仅条目级真错误显橙——通道级
  * 不可用由页头横幅承载语义，角标降级灰「未探测」不重复渲染；false=未安装含
  * 包名不在包数据库形态） */
-function installedText(item: EnvItem): { text: string; type: 'default' | 'success' | 'warning' } {
+function installedText(item: EnvItem): { text: string; type: 'default' | 'success' | 'warning'; title: string } {
   if (item.installed === null) {
     return store.channel.available
-      ? { text: '探测不可用', type: 'warning' }
-      : { text: '未探测', type: 'default' }
+      ? { text: '探测不可用', type: 'warning', title: '' }
+      : { text: '未探测', type: 'default', title: '' }
   }
-  if (!item.installed) return { text: '未安装', type: 'default' }
-  return { text: `已安装 · ${item.version ?? ''}`, type: 'success' }
+  if (!item.installed) return { text: '未安装', type: 'default', title: '' }
+  return { text: installedLabel(item.version), type: 'success', title: item.version ?? '' }
 }
 
 const taskColumns = computed(() => envTaskColumns(onDrawerTaskClick))
@@ -150,14 +151,13 @@ onUnmounted(() => {
         :key="item.envType"
         class="env-tile"
         :class="{ clickable: item.installed === true }"
+        :style="{ '--env-accent': ENV_ACCENT[item.envType] }"
         @click="item.installed === true && router.push(`/env/${item.envType}`)"
       >
-        <span class="rail" :style="{ background: ENV_ACCENT[item.envType] }"></span>
+        <span class="rail"></span>
         <div class="tile-body">
           <div class="tile-head">
-            <span class="mono-mark" :style="{ color: ENV_ACCENT[item.envType] }">
-              {{ ENV_MONOGRAM[item.envType] }}
-            </span>
+            <env-logo :env-type="item.envType" :size="42" />
             <div class="tile-id">
               <div class="env-title">
                 {{ item.displayName }}
@@ -167,7 +167,13 @@ onUnmounted(() => {
               </div>
               <div class="env-desc">{{ item.description }}</div>
             </div>
-            <n-tag :type="installedText(item).type" size="small" :bordered="false">
+            <n-tag
+              class="ver-tag"
+              :type="installedText(item).type"
+              size="small"
+              :bordered="false"
+              :title="installedText(item).title || undefined"
+            >
               {{ installedText(item).text }}
             </n-tag>
           </div>
@@ -249,22 +255,26 @@ onUnmounted(() => {
   gap: 14px;
 }
 .env-tile {
+  --env-accent: #18a058;
   display: flex;
-  border-radius: 10px;
+  border-radius: 12px;
   overflow: hidden;
   border: 1px solid var(--n-border-color);
   background: var(--n-color, transparent);
   min-height: 148px;
+  transition: border-color 0.15s ease, background 0.15s ease;
 }
 .env-tile.clickable {
   cursor: pointer;
 }
 .env-tile.clickable:hover {
-  border-color: rgba(24, 160, 88, 0.45);
+  border-color: color-mix(in srgb, var(--env-accent) 55%, transparent);
+  background: color-mix(in srgb, var(--env-accent) 7%, var(--n-color, transparent));
 }
 .rail {
   width: 4px;
   flex-shrink: 0;
+  background: var(--env-accent);
 }
 .tile-body {
   flex: 1;
@@ -279,20 +289,6 @@ onUnmounted(() => {
   gap: 12px;
   align-items: flex-start;
 }
-.mono-mark {
-  width: 40px;
-  height: 40px;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: ui-monospace, SFMono-Regular, Consolas, 'Courier New', monospace;
-  font-weight: 700;
-  font-size: 13px;
-  letter-spacing: 0.02em;
-  background: rgba(127, 127, 127, 0.12);
-  flex-shrink: 0;
-}
 .tile-id {
   flex: 1;
   min-width: 0;
@@ -303,6 +299,16 @@ onUnmounted(() => {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+.ver-tag {
+  flex-shrink: 0;
+  max-width: 9.5rem;
+  min-width: 0;
+}
+.ver-tag :deep(.n-tag__content) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .env-desc {
   margin-top: 2px;

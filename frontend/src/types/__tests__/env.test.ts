@@ -3,6 +3,7 @@
  * bootstrap_status 独立维度（v1.2，api-env-mgmt v1.2 D-18）。
  */
 import { describe, expect, it } from 'vitest'
+import { installedLabel, shortEnvVersion } from '@/views/env-mgmt/envMeta'
 import {
   BOOTSTRAP_STATUS,
   ENV_TASK_ACTION,
@@ -56,5 +57,26 @@ describe('env 字典 S8 锚点（枚举池同值）', () => {
   it('bootstrap_status 与 env_task_status 独立（同名 succeeded/failed 语义不同）', () => {
     // 引导 failed=warning（包已装），任务 failed=error（包操作失败）——独立维度不混淆。
     expect(BOOTSTRAP_STATUS.failed.tag).not.toBe(ENV_TASK_STATUS.failed.tag)
+  })
+})
+
+describe('shortEnvVersion', () => {
+  it('丢掉发行版后缀，只留开头数字段', () => {
+    expect(shortEnvVersion('29.1.3-0ubuntu3-24.04.2')).toBe('29.1.3')
+    expect(shortEnvVersion('1.30.6-1~noble')).toBe('1.30.6')
+    expect(shortEnvVersion('8.0.42-0ubuntu0.24.04.1')).toBe('8.0.42')
+    expect(shortEnvVersion('v22.14.0')).toBe('22.14.0')
+  })
+
+  it('无数字前缀时原样返回，空串则空', () => {
+    expect(shortEnvVersion('noble')).toBe('noble')
+    expect(shortEnvVersion('')).toBe('')
+    expect(shortEnvVersion(null)).toBe('')
+    expect(shortEnvVersion(undefined)).toBe('')
+  })
+
+  it('installedLabel 用短版本', () => {
+    expect(installedLabel('29.1.3-0ubuntu3-24.04.2')).toBe('已安装 · 29.1.3')
+    expect(installedLabel('')).toBe('已安装')
   })
 })

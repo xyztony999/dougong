@@ -18,7 +18,8 @@ import { useEnvStore } from '@/stores/env'
 import { ENV_TYPE } from '@/types/enums'
 import type { EnvType } from '@/types/enums'
 import type { EnvItem, EnvProfileData, EnvServiceOp, EnvSettingView, EnvVersionItem } from '@/types/env'
-import { ENV_ACCENT, ENV_MONOGRAM, isRuntimeEnv } from './envMeta'
+import { ENV_ACCENT, isRuntimeEnv, shortEnvVersion } from './envMeta'
+import EnvLogo from './EnvLogo.vue'
 import EnvTaskDrawer from './components/EnvTaskDrawer.vue'
 import { envTaskColumns, envTypeOptions, statusOptions } from './taskColumns'
 
@@ -291,39 +292,41 @@ onUnmounted(() => {
       </n-result>
 
       <template v-else-if="item !== null">
-        <header class="hero">
-          <span class="rail" :style="{ background: ENV_ACCENT[envType] }"></span>
-          <span class="mono-mark" :style="{ color: ENV_ACCENT[envType] }">{{ ENV_MONOGRAM[envType] }}</span>
+        <header class="hero" :style="{ '--env-accent': ENV_ACCENT[envType] }">
+          <env-logo :env-type="envType" :size="52" />
           <div class="hero-text">
             <h1>{{ item.displayName }}</h1>
-            <p>
+            <div class="hero-meta">
               <template v-if="item.installed === true">
-                {{ item.version ?? '已安装' }}
-                <template v-if="item.unitName !== ''">
-                  · {{ item.serviceRunning ? '运行中' : '已停止' }}
-                  · 自启{{ item.serviceEnabled ? '开' : '关' }}
-                </template>
+                <span class="chip mono" :title="item.version ?? ''">
+                  {{ shortEnvVersion(item.version) || '已安装' }}
+                </span>
+                <span v-if="item.unitName !== ''" class="chip" :class="{ live: item.serviceRunning }">
+                  {{ item.serviceRunning ? '运行中' : '已停止' }}
+                </span>
+                <span v-if="item.unitName !== ''" class="chip">
+                  自启{{ item.serviceEnabled ? '开' : '关' }}
+                </span>
               </template>
-              <template v-else-if="item.installed === false">未安装</template>
-              <template v-else>状态未知</template>
-            </p>
+              <span v-else-if="item.installed === false" class="chip">未安装</span>
+              <span v-else class="chip">状态未知</span>
+            </div>
           </div>
           <div v-if="authStore.isAdmin" class="hero-actions">
             <template v-if="hasService && item.installed === true">
-              <n-button size="small" :loading="serviceBusy === 'start'" @click="onServiceOp('start')">
-                启动
-              </n-button>
-              <n-button size="small" :loading="serviceBusy === 'stop'" @click="onServiceOp('stop')">
-                停止
-              </n-button>
-              <n-button size="small" :loading="serviceBusy === 'restart'" @click="onServiceOp('restart')">
-                重启
-              </n-button>
-              <n-switch
-                :value="item.serviceEnabled === true"
-                :loading="serviceBusy === 'enable' || serviceBusy === 'disable'"
-                @update:value="(v: boolean) => onServiceOp(v ? 'enable' : 'disable')"
-              />
+              <n-button-group size="small">
+                <n-button :loading="serviceBusy === 'start'" @click="onServiceOp('start')">启动</n-button>
+                <n-button :loading="serviceBusy === 'stop'" @click="onServiceOp('stop')">停止</n-button>
+                <n-button :loading="serviceBusy === 'restart'" @click="onServiceOp('restart')">重启</n-button>
+              </n-button-group>
+              <label class="autostart">
+                <span>自启</span>
+                <n-switch
+                  :value="item.serviceEnabled === true"
+                  :loading="serviceBusy === 'enable' || serviceBusy === 'disable'"
+                  @update:value="(v: boolean) => onServiceOp(v ? 'enable' : 'disable')"
+                />
+              </label>
             </template>
             <n-button v-if="item.installed === true" size="small" type="error" ghost @click="uninstallShow = true">
               卸载
@@ -337,15 +340,26 @@ onUnmounted(() => {
           </div>
         </header>
 
-        <n-tabs v-model:value="tab" type="line" animated>
+        <n-tabs v-model:value="tab" type="line" animated class="tabs">
           <n-tab-pane v-if="hasService" name="service" tab="服务">
-            <p class="pane-lead">单元 {{ item.unitName || '—' }}</p>
             <n-alert v-if="item.installed !== true" type="info" :closable="false">
               安装后可在这里启停服务。
             </n-alert>
-            <div v-else class="kv">
-              <div><span>运行</span>{{ item.serviceRunning ? '运行中' : '已停止' }}</div>
-              <div><span>开机自启</span>{{ item.serviceEnabled ? '开' : '关' }}</div>
+            <div v-else class="stat-grid">
+              <div class="stat">
+                <div class="stat-k">单元</div>
+                <div class="stat-v mono">{{ item.unitName || '—' }}</div>
+              </div>
+              <div class="stat">
+                <div class="stat-k">运行</div>
+                <div class="stat-v" :class="{ live: item.serviceRunning }">
+                  {{ item.serviceRunning ? '运行中' : '已停止' }}
+                </div>
+              </div>
+              <div class="stat">
+                <div class="stat-k">开机自启</div>
+                <div class="stat-v">{{ item.serviceEnabled ? '开' : '关' }}</div>
+              </div>
             </div>
           </n-tab-pane>
 
@@ -353,60 +367,76 @@ onUnmounted(() => {
             <n-alert v-if="item.installed !== true" type="info" :closable="false">
               安装后可改这些常用项。
             </n-alert>
-            <n-form v-else label-placement="left" label-width="140" class="settings-form">
-              <n-form-item v-for="s in profile?.settings ?? []" :key="s.key" :label="s.label">
-                <n-switch
-                  v-if="settingControl(s) === 'switch'"
-                  :value="settingsForm[s.key] === (s.options?.[0] ?? 'on')"
-                  @update:value="(v: boolean) => (settingsForm[s.key] = v ? (s.options?.[0] ?? 'on') : (s.options?.[1] ?? 'off'))"
-                />
-                <n-input v-else v-model:value="settingsForm[s.key]" :placeholder="s.hint || s.key" />
-                <template v-if="s.hint" #feedback>{{ s.hint }}</template>
-              </n-form-item>
-              <n-button
-                v-if="authStore.isAdmin"
-                type="primary"
-                :loading="savingSettings"
-                @click="onSaveSettings"
-              >
-                保存配置
-              </n-button>
-            </n-form>
+            <div v-else class="sheet">
+              <div v-for="s in profile?.settings ?? []" :key="s.key" class="sheet-row">
+                <div class="sheet-copy">
+                  <div class="sheet-name">{{ s.label }}</div>
+                  <div v-if="s.hint" class="sheet-hint">{{ s.hint }}</div>
+                </div>
+                <div class="sheet-control">
+                  <n-switch
+                    v-if="settingControl(s) === 'switch'"
+                    :value="settingsForm[s.key] === (s.options?.[0] ?? 'on')"
+                    @update:value="(v: boolean) => (settingsForm[s.key] = v ? (s.options?.[0] ?? 'on') : (s.options?.[1] ?? 'off'))"
+                  />
+                  <n-input
+                    v-else
+                    v-model:value="settingsForm[s.key]"
+                    size="small"
+                    :placeholder="s.hint || s.key"
+                  />
+                </div>
+              </div>
+              <div v-if="authStore.isAdmin" class="sheet-foot">
+                <n-button type="primary" :loading="savingSettings" @click="onSaveSettings">
+                  保存配置
+                </n-button>
+              </div>
+            </div>
           </n-tab-pane>
 
           <n-tab-pane v-if="(profile?.configFiles.length ?? 0) > 0" name="files" tab="配置文件">
-            <div class="file-bar">
-              <n-select
-                v-model:value="fileId"
-                :options="(profile?.configFiles ?? []).map((f) => ({ label: `${f.label}  ${f.path}`, value: f.id }))"
-                style="max-width: 520px"
-              />
-              <n-button
-                v-if="authStore.isAdmin"
-                type="primary"
-                :disabled="fileId === '' || !(profile?.configFiles.find((f) => f.id === fileId)?.exists)"
-                :loading="savingFile"
-                @click="onSaveFile"
-              >
-                保存文件
-              </n-button>
+            <div class="editor">
+              <div class="editor-bar">
+                <n-select
+                  v-model:value="fileId"
+                  size="small"
+                  :options="(profile?.configFiles ?? []).map((f) => ({ label: f.label, value: f.id }))"
+                  style="width: 180px"
+                />
+                <span class="editor-path">{{ filePath || '—' }}</span>
+                <n-button
+                  v-if="authStore.isAdmin"
+                  size="small"
+                  type="primary"
+                  :disabled="fileId === '' || !(profile?.configFiles.find((f) => f.id === fileId)?.exists)"
+                  :loading="savingFile"
+                  @click="onSaveFile"
+                >
+                  保存文件
+                </n-button>
+              </div>
+              <n-spin :show="fileLoading">
+                <n-input
+                  v-model:value="fileContent"
+                  type="textarea"
+                  :rows="22"
+                  class="mono editor-body"
+                  :disabled="!authStore.isAdmin || !(profile?.configFiles.find((f) => f.id === fileId)?.exists)"
+                  placeholder="文件不存在或尚未安装"
+                />
+              </n-spin>
             </div>
-            <p v-if="filePath" class="path">{{ filePath }}</p>
-            <n-spin :show="fileLoading">
-              <n-input
-                v-model:value="fileContent"
-                type="textarea"
-                :rows="22"
-                class="mono"
-                :disabled="!authStore.isAdmin || !(profile?.configFiles.find((f) => f.id === fileId)?.exists)"
-                placeholder="文件不存在或尚未安装"
-              />
-            </n-spin>
           </n-tab-pane>
 
           <n-tab-pane name="versions" tab="版本">
-            <div class="ver-head">
-              <span>当前 {{ item.version || '—' }}</span>
+            <div class="ver-banner">
+              <div>
+                <div class="stat-k">当前版本</div>
+                <div class="stat-v mono" :title="item.version ?? ''">
+                  {{ shortEnvVersion(item.version) || item.version || '—' }}
+                </div>
+              </div>
               <n-button
                 v-if="authStore.isAdmin && item.installed === true"
                 size="small"
@@ -419,7 +449,7 @@ onUnmounted(() => {
             <n-spin :show="versionsLoading">
               <n-empty v-if="versions.length === 0" description="仓库里没有读到版本，可以直接升级到最新。" />
               <ul v-else class="ver-list">
-                <li v-for="row in versions" :key="row.version" class="ver-row">
+                <li v-for="row in versions" :key="row.version" class="ver-row" :class="{ current: row.current }">
                   <span class="ver-id">{{ row.version }}</span>
                   <n-tag v-if="row.current" type="success" size="small" :bordered="false">当前</n-tag>
                   <n-popconfirm
@@ -473,42 +503,31 @@ onUnmounted(() => {
 .page {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  max-width: 960px;
+  gap: 20px;
+  max-width: 880px;
 }
 .crumb {
   display: flex;
   align-items: center;
   gap: 8px;
   font-size: 13px;
-  opacity: 0.75;
+  opacity: 0.7;
 }
 .crumb-sep {
-  opacity: 0.4;
+  opacity: 0.35;
 }
 .hero {
+  --env-accent: #18a058;
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 16px 16px 16px 0;
-  border: 1px solid var(--n-border-color);
-  border-radius: 10px;
+  gap: 16px;
+  padding: 18px 18px 18px 16px;
+  border: 1px solid color-mix(in srgb, var(--env-accent) 28%, var(--n-border-color, #3a3a3a));
+  border-radius: 14px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--env-accent) 16%, transparent), transparent 58%),
+    var(--n-color, transparent);
   overflow: hidden;
-}
-.rail {
-  width: 4px;
-  align-self: stretch;
-}
-.mono-mark {
-  width: 44px;
-  height: 44px;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: ui-monospace, SFMono-Regular, Consolas, 'Courier New', monospace;
-  font-weight: 700;
-  background: rgba(127, 127, 127, 0.12);
 }
 .hero-text {
   flex: 1;
@@ -516,82 +535,202 @@ onUnmounted(() => {
 }
 .hero-text h1 {
   margin: 0;
-  font-size: 18px;
+  font-size: 20px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
 }
-.hero-text p {
-  margin: 4px 0 0;
+.hero-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 2px 8px;
+  border-radius: 999px;
   font-size: 12px;
-  opacity: 0.7;
+  background: rgba(127, 127, 127, 0.12);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chip.live {
+  color: #18a058;
+  background: rgba(24, 160, 88, 0.14);
+}
+.chip.mono,
+.mono,
+.stat-v.mono,
+.ver-id,
+.editor-path {
+  font-family: ui-monospace, SFMono-Regular, Consolas, 'Courier New', monospace;
 }
 .hero-actions {
   display: flex;
-  gap: 8px;
+  gap: 10px;
   flex-wrap: wrap;
   align-items: center;
-  padding-right: 16px;
 }
-.pane-lead {
-  margin: 0 0 12px;
-  font-size: 13px;
-  opacity: 0.7;
-}
-.kv {
-  display: grid;
-  gap: 8px;
-  font-size: 13px;
-}
-.kv span {
-  display: inline-block;
-  width: 88px;
-  opacity: 0.55;
-}
-.settings-form {
-  max-width: 520px;
-}
-.file-bar {
-  display: flex;
-  gap: 12px;
-  margin-bottom: 8px;
+.autostart {
+  display: inline-flex;
   align-items: center;
-}
-.path {
-  margin: 0 0 8px;
+  gap: 8px;
   font-size: 12px;
+  opacity: 0.8;
+}
+.tabs {
+  margin-top: 4px;
+}
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+.stat {
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--n-border-color);
+  background: rgba(127, 127, 127, 0.05);
+}
+.stat-k {
+  font-size: 12px;
+  opacity: 0.55;
+  margin-bottom: 6px;
+}
+.stat-v {
+  font-size: 15px;
+  font-weight: 600;
+  word-break: break-all;
+}
+.stat-v.live {
+  color: #18a058;
+}
+.sheet {
+  border: 1px solid var(--n-border-color);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.sheet-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(140px, 220px);
+  gap: 16px;
+  align-items: center;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--n-border-color);
+}
+.sheet-row:has(+ .sheet-foot) {
+  border-bottom: 0;
+}
+.sheet-name {
+  font-size: 14px;
+  font-weight: 560;
+}
+.sheet-hint {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.45;
+  opacity: 0.58;
+}
+.sheet-control {
+  justify-self: end;
+  width: 100%;
+  display: flex;
+  justify-content: flex-end;
+}
+.sheet-control :deep(.n-input) {
+  width: 100%;
+}
+.sheet-foot {
+  display: flex;
+  justify-content: flex-end;
+  padding: 12px 16px;
+  border-top: 1px solid var(--n-border-color);
+  background: rgba(127, 127, 127, 0.04);
+}
+.editor {
+  border: 1px solid var(--n-border-color);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.editor-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: rgba(127, 127, 127, 0.06);
+  border-bottom: 1px solid var(--n-border-color);
+}
+.editor-path {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  opacity: 0.62;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.editor-body :deep(textarea) {
   font-family: ui-monospace, SFMono-Regular, Consolas, 'Courier New', monospace;
-  opacity: 0.65;
+  font-size: 12.5px;
+  line-height: 1.55;
+  border-radius: 0;
 }
 .mono :deep(textarea) {
   font-family: ui-monospace, SFMono-Regular, Consolas, 'Courier New', monospace;
-  font-size: 12px;
+  font-size: 12.5px;
 }
-.ver-head {
+.ver-banner {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
   margin-bottom: 12px;
-  font-size: 13px;
+  border: 1px solid var(--n-border-color);
+  border-radius: 12px;
+  background: rgba(127, 127, 127, 0.05);
 }
 .ver-list {
   list-style: none;
   margin: 0;
   padding: 0;
   border: 1px solid var(--n-border-color);
-  border-radius: 8px;
+  border-radius: 12px;
   overflow: hidden;
 }
 .ver-row {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 14px;
+  padding: 11px 16px;
   border-bottom: 1px solid var(--n-border-color);
 }
 .ver-row:last-child {
   border-bottom: 0;
 }
+.ver-row.current {
+  background: rgba(24, 160, 88, 0.08);
+}
 .ver-id {
   flex: 1;
-  font-family: ui-monospace, SFMono-Regular, Consolas, 'Courier New', monospace;
+  min-width: 0;
   font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 640px) {
+  .hero {
+    flex-wrap: wrap;
+  }
+  .sheet-row {
+    grid-template-columns: 1fr;
+  }
+  .sheet-control {
+    justify-content: flex-start;
+  }
 }
 </style>
