@@ -103,6 +103,61 @@ func (h *HTTPVersionSource) LatestVersion(ctx context.Context) (string, error) {
 	return manifest.LatestVersion, nil
 }
 
+// DefaultUpdateRepo 是默认版本源仓库（斗拱开源发布仓；D-P09 源定稿落地）。
+const DefaultUpdateRepo = "xyztony999/dougong"
+
+// GitHubReleaseSource 经 GitHub Releases API 取最新 release 的 tag_name（D-P09）。
+// 此前版本源未装配（A-P8 延期），检查更新恒报 PANEL_005「版本源不可达」；本适配器
+// 接线后检查更新可用。BaseURL/Repo/Client 可注入（测试用 httptest）；缺省指向
+// api.github.com 的 DefaultUpdateRepo。GitHub API 要求 User-Agent，匿名限流 60 次/时
+// 对单次手动检查足够。
+type GitHubReleaseSource struct {
+	BaseURL string // 缺省 https://api.github.com
+	Repo    string // 缺省 DefaultUpdateRepo（owner/name）
+	Client  *http.Client
+}
+
+// LatestVersion 实现 VersionSource：GET /repos/{repo}/releases/latest → tag_name。
+func (g *GitHubReleaseSource) LatestVersion(ctx context.Context) (string, error) {
+	base := strings.TrimRight(g.BaseURL, "/")
+	if base == "" {
+		base = "https://api.github.com"
+	}
+	repo := g.Repo
+	if repo == "" {
+		repo = DefaultUpdateRepo
+	}
+	client := g.Client
+	if client == nil {
+		client = &http.Client{Timeout: UpdateCheckTimeout}
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/repos/"+repo+"/releases/latest", nil)
+	if err != nil {
+		return "", fmt.Errorf("new request: %w", err)
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", "dougong-panel-update-check")
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("fetch latest release: %w", err)
+	}
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil {
+			slog.WarnContext(ctx, "panel: update check close body", "err", cerr)
+		}
+	}()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("latest release status %d", resp.StatusCode)
+	}
+	var rel struct {
+		TagName string `json:"tag_name"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
+		return "", fmt.Errorf("decode release: %w", err)
+	}
+	return rel.TagName, nil
+}
+
 // ---- 语义化版本比较（semver 2.0.0 核心规则：MAJOR.MINOR.PATCH，可选先行版；
 // build metadata 忽略；无先行版 > 有先行版；数字标识 < 字母数字标识）----
 

@@ -212,7 +212,9 @@ func run(args []string) error {
 		panelsvc.WithSessionPolicy(panelsvc.SessionPolicy{
 			AbsoluteTimeout: absTimeout, IdleTimeout: idleTimeout,
 		}),
-		panelsvc.WithAcmeChannel(acmeGw, nginxxGw, panelDataDir))
+		panelsvc.WithAcmeChannel(acmeGw, nginxxGw, panelDataDir),
+		// 版本源接线（D-P09，A-P8 延期落地）：GitHub Releases 最新 tag，检查更新可用。
+		panelsvc.WithVersionSource(&panelsvc.GitHubReleaseSource{}))
 	bootCfg, err := panelSvc.Bootstrap(ctx)
 	if err != nil {
 		closeErr := db.Close()

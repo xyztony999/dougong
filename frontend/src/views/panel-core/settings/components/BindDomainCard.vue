@@ -22,6 +22,20 @@ const panelStore = usePanelStore()
 const bound = computed(() => props.detail.bindDomain.value)
 const effectTag = computed(() => dictItem(CONFIG_EFFECT_MODE, props.detail.bindDomain.effectMode))
 
+/** 刚绑定的域名（本地态）：通过 IP 绑定时，绑定后的配置刷新本身会被 HostGuard 404，
+ *  detail 拿不到新值——警示条须由本地态驱动，不能只靠刷新后的 bound。 */
+const noticeDomain = ref<string | null>(null)
+const noticeHost = computed(() => noticeDomain.value ?? bound.value)
+
+/** 绑定后的域名访问地址：沿用当前协议/端口/路径，仅把主机换成绑定域名。
+ *  绑定后 HostGuard 拒绝 IP 直连（404），给醒目链接由用户自行跳转——不自动跳，
+ *  避免域名尚未解析/配好时把用户锁在网页外（v0.6.2 拍板）。 */
+const boundAccessUrl = computed(() => {
+  if (noticeHost.value === null) return ''
+  const port = window.location.port ? `:${window.location.port}` : ''
+  return `${window.location.protocol}//${noticeHost.value}${port}${window.location.pathname}`
+})
+
 const formRef = ref<FormInst | null>(null)
 const form = ref<{ bindDomain: string }>({ bindDomain: '' })
 
@@ -68,8 +82,11 @@ async function onBindRequest(): Promise<void> {
 
 async function onBindConfirm(): Promise<void | false> {
   binding.value = true
+  const domain = form.value.bindDomain.trim()
   try {
-    await configUpdate({ bindDomain: form.value.bindDomain.trim() })
+    await configUpdate({ bindDomain: domain })
+    // 先记本地态再刷新：IP 访问时刷新会被 HostGuard 404，警示条仍须显示
+    noticeDomain.value = domain
     message.success('已绑定，立即生效')
     bindConfirmShow.value = false
     await panelStore.loadConfig()
@@ -86,6 +103,7 @@ async function onUnbind(): Promise<void> {
   unbinding.value = true
   try {
     await configUpdate({ bindDomain: null })
+    noticeDomain.value = null
     message.success('已解绑')
     await panelStore.loadConfig()
   } catch {
@@ -110,6 +128,11 @@ async function onUnbind(): Promise<void> {
       </div>
       <div v-else class="bind-value muted">未绑定 · IP 和任意域名都可打开面板</div>
     </div>
+
+    <n-alert v-if="noticeHost !== null" type="warning" title="请改用域名访问" class="bound-notice">
+      <div>IP 直连和其他域名已被拒绝（404）。请通过下面地址访问面板：</div>
+      <a :href="boundAccessUrl" class="bound-link mono">{{ boundAccessUrl }}</a>
+    </n-alert>
 
     <n-form
       ref="formRef"
@@ -210,5 +233,14 @@ async function onUnbind(): Promise<void> {
   margin: 4px 0 0;
   font-size: 12px;
   opacity: 0.65;
+}
+.bound-notice {
+  margin-bottom: 16px;
+}
+.bound-link {
+  display: inline-block;
+  margin-top: 6px;
+  word-break: break-all;
+  font-size: 14px;
 }
 </style>
