@@ -389,13 +389,14 @@ func TestUploadCertificate(t *testing.T) {
 	if res.Cert.Source != storepanel.CertSourceImported || res.Cert.Issuer == nil || *res.Cert.Issuer != fields.Issuer {
 		t.Fatalf("upload summary mismatch: %+v", res.Cert)
 	}
-	// https_mode 不变（默认 off）。
+	// 导入即启用（v0.5.2 拍板）：https_mode 自动切到 imported，模式标签与实际
+	// serve 的证书一致（此前导入不改模式，自签标签谎报）。
 	detail, err := svc.Detail(ctx)
 	if err != nil {
 		t.Fatalf("detail: %v", err)
 	}
-	if detail.HTTPS.Mode != storepanel.HTTPSModeOff {
-		t.Fatalf("upload must not change https_mode: %s", detail.HTTPS.Mode)
+	if detail.HTTPS.Mode != storepanel.HTTPSModeImported {
+		t.Fatalf("upload must activate imported mode: %s", detail.HTTPS.Mode)
 	}
 
 	// I-P06：响应零私钥材料。

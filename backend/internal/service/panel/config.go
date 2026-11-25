@@ -375,9 +375,11 @@ func (s *Service) RegenerateEntryPath(ctx context.Context, actor *authsvc.Identi
 // UploadCertificate POST /panel/config/upload-certificate（admin）：导入证书
 // 与私钥 PEM（D-P05：JSON 文本字段）。CertPairValidator 解析/配对校验失败
 // → PANEL_002（R-14）；处理：UPSERT panel_cert（source=imported，提取
-// issuer/notBefore/notAfter，D-P04 替换式）；https_mode 不变（模式切换走
-// update，api 2.3 两接口顺序协作）；审计 panel_cert_updated（object_type=
-// panel_cert，detail 不含 PEM 材料——I-P06）。
+// issuer/notBefore/notAfter，D-P04 替换式）；**导入即启用**（v0.5.2 拍板）：
+// 同事务把 https_mode 切到 imported——TLS 按连接热读取库里证书，导入后实际
+// serve 的就是这张，模式标签须与之一致（此前导入不改模式，自签标签谎报、
+// 且「重新生成自签」会覆盖导入证书）；审计 panel_cert_updated（object_type=
+// panel_cert，detail 不含 PEM 材料——I-P06）+ 模式变更 panel_config_changed。
 func (s *Service) UploadCertificate(ctx context.Context, actor *authsvc.Identity, req UploadCertificateRequest) (*UploadCertificateResult, error) {
 	now := s.now()
 	if strings.TrimSpace(req.CertPEM) == "" || strings.TrimSpace(req.KeyPEM) == "" {
@@ -404,11 +406,29 @@ func (s *Service) UploadCertificate(ctx context.Context, actor *authsvc.Identity
 		"notBefore": notBefore.Format(time.RFC3339),
 		"notAfter":  notAfter.Format(time.RFC3339),
 	}
+	cur, err := s.st.Config().Get(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("panel: upload cert get config: %w", err)
+	}
+	activate := cur.HTTPSMode != storepanel.HTTPSModeImported
 	err = s.withTx(ctx, func(tx *storepanel.TxStore) error {
 		if err := tx.Cert().Upsert(ctx, cert, now); err != nil {
 			return fmt.Errorf("panel: upsert imported cert: %w", err)
 		}
-		return tx.Audit().Append(ctx, auditEntry(actor, ActionPanelCertUpdated, ObjectTypePanelCert, detail), now)
+		if err := tx.Audit().Append(ctx, auditEntry(actor, ActionPanelCertUpdated, ObjectTypePanelCert, detail), now); err != nil {
+			return fmt.Errorf("panel: audit cert updated: %w", err)
+		}
+		if activate {
+			mode := storepanel.HTTPSModeImported
+			if err := tx.Config().Update(ctx, storepanel.ConfigChanges{HTTPSMode: &mode}, now); err != nil {
+				return fmt.Errorf("panel: activate imported mode: %w", err)
+			}
+			deltas := []fieldDelta{{Field: "httpsMode", Before: cur.HTTPSMode, After: mode}}
+			if err := tx.Audit().Append(ctx, auditEntry(actor, ActionPanelConfigChanged, ObjectTypePanelConfig, deltas), now); err != nil {
+				return fmt.Errorf("panel: audit mode activated: %w", err)
+			}
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, err

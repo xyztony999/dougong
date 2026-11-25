@@ -152,7 +152,7 @@ lang 为字符串非枚举（MVP 固定 `zh-CN` 单选项，api I-P08；多语�
 
 **按钮**：
 - `保存`（configUpdate {httpsMode}）：to imported 前置校验证书已导入（PANEL_003→提示「请先导入证书与私钥」）；to acme 前置校验 panel_cert.source=acme 且未过期（PANEL_003→提示「请先在下方『面板证书』Card 申请 ACME 证书」，api D-P14）；to self_signed 成功 toast「已保存，自签证书已生成」（api D-P06 即时生效）；to off 直接生效。
-- `导入证书`（certUpload {certPem, keyPem}，仅 imported 展开区可见）：PANEL_002→「证书解析失败或与私钥不配对，请检查 PEM 内容」（R-14）；后端解析前对 PEM 容错重排——粘贴产生的空白坏格式（标记与正文挤在一行、base64 夹空格）去掉空白按 64 折行后再解析，只修空白不放宽配对校验（v0.5.1）；成功 toast「证书已导入并记入审计」+ 摘要刷新；不改变 https_mode（两接口顺序协作：先导入后切模式，api 2.3）。
+- `导入证书`（certUpload {certPem, keyPem}，仅 imported 展开区可见）：PANEL_002→「证书解析失败或与私钥不配对，请检查 PEM 内容」（R-14）；后端解析前对 PEM 容错重排——粘贴产生的空白坏格式（标记与正文挤在一行、base64 夹空格）去掉空白按 64 折行后再解析，只修空白不放宽配对校验（v0.5.1）；**导入即启用**（v0.5.2 拍板）：后端同事务把 https_mode 切到 imported，成功 toast「证书已导入并启用」+ 摘要刷新 +「上传证书」卡片显示「正在使用」（TLS 热读取库里证书，导入后实际即用这张，模式标签与之一致；此前导入不改模式致「自签证书 正在使用」谎报、且「重新生成自签」会覆盖导入证书）。
 
 即时生效；Card 角标「即时生效」。
 
