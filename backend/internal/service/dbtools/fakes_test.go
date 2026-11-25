@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -317,7 +318,9 @@ func (f *fakeNginx) ReadFile(path string) (string, time.Time, error) {
 	if c, ok := f.files[path]; ok {
 		return c, time.Now(), nil
 	}
-	return "", time.Time{}, &os.PathError{Op: "read", Path: path, Err: os.ErrNotExist}
+	// 与真实 nginxx.Gateway.ReadFile 一致：以 %w 包装错误。替身若返回裸错误，
+	// os.IsNotExist 在测试里能用、却掩盖了服务层不拆包装的缺陷（首装读不到块误判读取失败）。
+	return "", time.Time{}, fmt.Errorf("nginxx: read %s: %w", path, &os.PathError{Op: "read", Path: path, Err: os.ErrNotExist})
 }
 
 type fakePanel struct {

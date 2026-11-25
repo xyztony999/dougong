@@ -3,6 +3,7 @@ package dbtools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -215,7 +216,7 @@ func (s *Service) injectToolLocations(ctx context.Context, toolType string, ref 
 func (s *Service) removeToolInjection(ctx context.Context, toolType string, ref siteRef) error {
 	content, _, err := s.nginx.ReadFile(ref.File)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, os.ErrNotExist) {
 			return nil // 落点文件已被外部移除——注入随之消亡，幂等
 		}
 		return fmt.Errorf("dbtools: read injection target %s: %w", ref.File, err)

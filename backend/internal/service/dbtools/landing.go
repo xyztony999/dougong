@@ -2,6 +2,7 @@ package dbtools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -50,7 +51,9 @@ func (s *Service) autoCreateLanding(ctx context.Context, pa PanelAccess) (siteRe
 				"reason": "域名联动刷新失败: " + rerr.Error()})
 		}
 		return landingRef(file, pa.BindDomain), nil
-	} else if !os.IsNotExist(rerr) {
+	} else if !errors.Is(rerr, os.ErrNotExist) {
+		// 注意用 errors.Is 而非 os.IsNotExist：nginxx.ReadFile 以 %w 包装错误，
+		// os.IsNotExist 不拆包装，会把「文件不存在」误判成读取失败（新服务器首装必踩）。
 		return siteRef{}, errcode.ErrDBTDeployOpFailed.WithData(map[string]any{
 			"reason": "读取自动落地块失败: " + rerr.Error()})
 	}
@@ -331,7 +334,7 @@ func (s *Service) cleanupAutoLanding(ctx context.Context, toolType string, ref s
 		}
 	}
 	if _, _, rerr := s.nginx.ReadFile(ref.File); rerr != nil {
-		if os.IsNotExist(rerr) {
+		if errors.Is(rerr, os.ErrNotExist) {
 			return nil // 块已不存在——清块成功（幂等）
 		}
 		return fmt.Errorf("dbtools: landing cleanup read %s: %w", ref.File, rerr)
