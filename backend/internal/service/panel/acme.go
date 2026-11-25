@@ -47,14 +47,15 @@ func (s *Service) CertStatus(ctx context.Context) (*CertStatusResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("panel: cert status get cert: %w", err)
 	}
+	issuer := liveIssuer(cert.Issuer, cert.CertPEM)
 	if st := CalcCertStatus(cert, s.now()); st != "" {
 		res.Cert = &CertStatusCert{
-			Source: cert.Source, Status: &st, Issuer: cert.Issuer,
+			Source: cert.Source, Status: &st, Issuer: issuer,
 			NotBefore: cert.NotBefore, NotAfter: cert.NotAfter, LastError: cert.LastError,
 		}
 	} else {
 		res.Cert = &CertStatusCert{ // source≠acme：status=null（无续期语义，D-P13）
-			Source: cert.Source, Issuer: cert.Issuer,
+			Source: cert.Source, Issuer: issuer,
 			NotBefore: cert.NotBefore, NotAfter: cert.NotAfter, LastError: cert.LastError,
 		}
 	}

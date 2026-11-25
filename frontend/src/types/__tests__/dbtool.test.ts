@@ -244,9 +244,9 @@ describe('v1.2 常量锚点（api v1.3 D-13/D-19 同值）', () => {
   })
   it('页头说明条含自动端口 18090 每请求会话校验+绑域名仅域名语义（PageSpec 4.1 v1.2）', () => {
     expect(DBTOOL_PAGE_INTRO).toContain('18090')
-    expect(DBTOOL_PAGE_INTRO).toContain('登录面板后才能访问')
-    expect(DBTOOL_PAGE_INTRO).toContain('绑定域名后则只能用域名访问')
-    expect(DBTOOL_PAGE_INTRO).toContain('表/文档浏览仍然可用')
+    expect(DBTOOL_PAGE_INTRO).toContain('登录面板后才能打开')
+    expect(DBTOOL_PAGE_INTRO).toContain('绑定域名后改走域名')
+    expect(DBTOOL_PAGE_INTRO).toContain('表和文档浏览不受影响')
   })
 })
 

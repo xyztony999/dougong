@@ -104,7 +104,7 @@ async function onCopy(text: string): Promise<void> {
       />
     </div>
     <p class="hint">
-      开启后未携带入口路径的访问将被拒绝（返回标准 404，属预期安全行为）；修改即时生效。
+      开启后，没带这段路径的访问会返回 404。改完立即生效。
     </p>
 
     <!-- 当前入口路径：enabled 时展示，readonly 完整可见 -->
@@ -135,7 +135,7 @@ async function onCopy(text: string): Promise<void> {
       :mask-closable="false"
       @positive-click="onEnableConfirm"
     >
-      开启后未携带入口路径的访问将被拒绝，请妥善保存路径。确认开启？
+      开启后，没带这段路径的访问会返回 404。先把路径存好。
     </n-modal>
 
     <!-- 路径大字展示 Modal -->
@@ -146,7 +146,7 @@ async function onCopy(text: string): Promise<void> {
       :mask-closable="false"
       style="width: 560px"
     >
-      <p class="modal-warn">请立即复制并妥善保存以下路径（未携带该路径的访问将被拒绝）：</p>
+      <p class="modal-warn">把这段路径存好。没带它的访问会返回 404。</p>
       <n-code :code="pathModalValue" class="path-modal-code" />
       <template #footer>
         <div class="actions">

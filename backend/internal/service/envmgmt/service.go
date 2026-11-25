@@ -12,10 +12,12 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/dougong/dougong/internal/adapter/envpack"
 	"github.com/dougong/dougong/internal/adapter/sysd"
+	"github.com/dougong/dougong/internal/errcode"
 	"github.com/dougong/dougong/internal/service/audit"
 	authsvc "github.com/dougong/dougong/internal/service/auth"
 	storeenv "github.com/dougong/dougong/internal/store/envmgmt"
@@ -29,6 +31,8 @@ type Service struct {
 	clock      func() time.Time
 	taskOutput *outputRing      // 采集回调（worker 内存态 ring 挂钩，D-08）
 	bootstrap  BootstrapGateway // db-mgmt 安装后配置就绪 OHS（v1.2，D-15；nil=未装配）
+	cfs        configFS         // 配置文件 IO（测试注入；生产 os/exec）
+	pinVersion sync.Map         // taskID → 指定版本（面板重启时在途任务会标 failed，不必落库）
 }
 
 // Options 构造选项（taskOutput 为测试注入钩子，生产用默认内存 ring；Bootstrap
@@ -37,6 +41,7 @@ type Options struct {
 	Clock      func() time.Time
 	TaskOutput *outputRing
 	Bootstrap  BootstrapGateway
+	ConfigFS   *ConfigFS
 }
 
 // New 构造服务。
@@ -47,6 +52,10 @@ func New(pack *envpack.Gateway, sysdGw *sysd.Gateway, store *storeenv.Store, opt
 	}
 	if s.taskOutput == nil {
 		s.taskOutput = newOutputRing()
+	}
+	s.cfs = prodConfigFS()
+	if opts.ConfigFS != nil {
+		s.cfs = opts.ConfigFS.asFS()
 	}
 	return s
 }
@@ -338,10 +347,14 @@ func (s *Service) EnvList(ctx context.Context) (*EnvListData, error) {
 // Install POST /env/env/install：通道（ENV_001）→ envType（ENV_002）→ 互斥
 // （ENV_003）→ action 实况判定（D-05）→ 创建 pending 与发起审计同事务 →
 // worker goroutine 异步执行（创建即触发，非轮询调度）。
-func (s *Service) Install(ctx context.Context, actor *authsvc.Identity, envType string) (*TaskCreatedData, error) {
+func (s *Service) Install(ctx context.Context, actor *authsvc.Identity, envType, version string) (*TaskCreatedData, error) {
 	entry := CatalogByType(envType)
 	if entry == nil {
 		return nil, errcodeInvalidEnvType()
+	}
+	if version != "" && !envpack.ValidPkgVersion(version) {
+		return nil, errcode.ErrValidation.WithFields(errcode.FieldError{
+			Field: "version", Message: "版本号不合法"})
 	}
 	ch := s.pack.DetectChannel()
 	if !ch.Available {
@@ -351,10 +364,17 @@ func (s *Service) Install(ctx context.Context, actor *authsvc.Identity, envType 
 	if _, inst, ok := s.probeInstalled(ctx, entry, ch.Family); ok && inst {
 		action = storeenv.ActionUpgrade // D-05：已装（多候选任一命中）=升级
 	}
+	detail := map[string]any{"envType": envType, "action": action}
+	if version != "" {
+		detail["version"] = version
+	}
 	taskID, err := s.createTask(ctx, actor, envType, action,
-		auditActionFor(action, false), map[string]any{"envType": envType, "action": action})
+		auditActionFor(action, false), detail)
 	if err != nil {
 		return nil, err
+	}
+	if version != "" {
+		s.pinVersion.Store(taskID, version)
 	}
 	s.dispatchWorker(taskID)
 	return &TaskCreatedData{TaskID: taskID, Action: action}, nil

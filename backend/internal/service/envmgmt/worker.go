@@ -121,7 +121,18 @@ func (s *Service) runTask(taskID int64) {
 	if task.Action == storeenv.ActionUninstall {
 		out, err = s.pack.Remove(ctx, ch.Family, pkg)
 	} else {
-		out, err = s.pack.Install(ctx, ch.Family, pkg)
+		ver := ""
+		if v, ok := s.pinVersion.LoadAndDelete(taskID); ok {
+			if s, ok := v.(string); ok {
+				ver = s
+			}
+		}
+		if ver != "" {
+			ring.append("[version] " + ver)
+			out, err = s.pack.InstallAtVersion(ctx, ch.Family, pkg, ver)
+		} else {
+			out, err = s.pack.Install(ctx, ch.Family, pkg)
+		}
 	}
 	ring.append(out)
 	if err != nil {

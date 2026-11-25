@@ -20,11 +20,24 @@ export function collectMenuPaths(items: readonly PanelMenuItem[]): Set<string> {
   return paths
 }
 
-/** 切换进行中且目标是菜单页 → 目标路径；否则 → 当前路由路径。 */
+/** 当前路径对应的菜单项：精确匹配，否则取最长前缀（/env/nginx → /env）。 */
+export function matchMenuPath(path: string, menuPaths: ReadonlySet<string>): string {
+  if (menuPaths.has(path)) return path
+  let best = ''
+  for (const p of menuPaths) {
+    if (p !== '' && path.startsWith(p + '/') && p.length > best.length) {
+      best = p
+    }
+  }
+  return best !== '' ? best : path
+}
+
+/** 切换进行中且目标是菜单页 → 目标路径；否则 → 当前路由（含子页前缀匹配）。 */
 export function resolveMenuValue(
   pendingPath: string | null,
   menuPaths: ReadonlySet<string>,
   routePath: string
 ): string {
-  return pendingPath !== null && menuPaths.has(pendingPath) ? pendingPath : routePath
+  if (pendingPath !== null && menuPaths.has(pendingPath)) return pendingPath
+  return matchMenuPath(routePath, menuPaths)
 }

@@ -6,7 +6,6 @@ import EntryPathCard from './components/EntryPathCard.vue'
 import HttpsCard from './components/HttpsCard.vue'
 import LangCard from './components/LangCard.vue'
 import ListenCard from './components/ListenCard.vue'
-import PanelCertCard from './components/PanelCertCard.vue'
 import SessionCard from './components/SessionCard.vue'
 import UpdateCheckCard from './components/UpdateCheckCard.vue'
 
@@ -72,7 +71,6 @@ onMounted(() => {
       <bind-domain-card :detail="panelStore.configDetail" />
       <div class="group-title">安全与证书</div>
       <https-card :detail="panelStore.configDetail" />
-      <panel-cert-card :detail="panelStore.configDetail" />
       <session-card :detail="panelStore.configDetail" />
       <div class="group-title">关于</div>
       <update-check-card :detail="panelStore.configDetail" />
@@ -92,7 +90,7 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  max-width: 760px;
+  max-width: 840px;
 }
 .loading {
   padding: 48px 0;

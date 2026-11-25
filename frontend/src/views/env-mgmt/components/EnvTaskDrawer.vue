@@ -61,7 +61,7 @@ function onFilterStatus(v: string | null): void {
         :show-icon="true"
         style="margin-bottom: 10px"
       >
-        有任务进行中，点击行「详情」查看实时输出（详情页 5s 自动刷新至终态）。
+        有任务进行中。点「详情」可看输出。
       </n-alert>
 
       <n-data-table

@@ -51,6 +51,12 @@ export interface PanelCertSummary {
   notAfter: string | null
 }
 
+/** 颁发者展示：空串/空白按未填写处理（导入证书 CN 为空时后端可能回空串） */
+export function certIssuerText(issuer: string | null | undefined): string {
+  const t = (issuer ?? '').trim()
+  return t !== '' ? t : '—'
+}
+
 export interface PanelListenConfig {
   scope: ListenScope
   address: string | null

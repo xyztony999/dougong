@@ -164,11 +164,11 @@ function onInstallClick(item: DbToolItem): void {
 /** 安装确认文案（PageSpec 4.1 v1.2：+自动建块说明——无面板域 nginx 落点时自动创建
  * 独立访问块〔端口 18090〕，安装成功后需放行该端口，api D-19） */
 function installIntroPhpmyadmin(catalogVersion: string): string {
-  return `将下载并安装 phpMyAdmin ${catalogVersion}（官方包，已做完整性校验，可能需要几分钟）。需要先装好 PHP-FPM 及扩展，缺少时会提示你去补装。如果你是用 IP 直连面板（没绑域名），会自动开放工具端口 ${DBTOOL_LANDING_PORT}，安装完成后记得在防火墙放行。`
+  return `安装 phpMyAdmin ${catalogVersion}。需要已安装 PHP-FPM 及相关扩展。用 IP 打开面板时会占用端口 ${DBTOOL_LANDING_PORT}，装完后在防火墙放行。`
 }
 
 function installIntroMongo(catalogVersion: string): string {
-  return `将安装 mongo-express ${catalogVersion} 并在本机创建服务（只监听本机，不对外）。会自动填入所选数据库的账号密码（加密保存、不显示）。需要先装好 Node.js。用 IP 直连面板时会自动开放工具端口 ${DBTOOL_LANDING_PORT}，安装完成后记得放行。`
+  return `安装 mongo-express ${catalogVersion}（本机服务，不对外）。需要已安装 Node.js，并选择一个 MongoDB 实例。用 IP 打开面板时会占用端口 ${DBTOOL_LANDING_PORT}。`
 }
 
 const phpmyadminCatalogVersion = computed(
@@ -197,7 +197,7 @@ async function onUpgrade(item: DbToolItem): Promise<void> {
 }
 
 function upgradeIntro(item: DbToolItem): string {
-  return `将把 ${item.displayName} 升级到最新版本 ${item.catalogVersion}（phpMyAdmin 保留原有配置；mongo-express 重装并重启，账号密码和访问地址不变）。`
+  return `升级 ${item.displayName} 到 ${item.catalogVersion}。phpMyAdmin 会保留现有配置；mongo-express 会重装并重启，账号和地址不变。`
 }
 
 /** ---- 卸载强确认（NModal 两段警示 + 输入工具显示名锁定，⚠️A5/D-15） ---- */

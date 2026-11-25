@@ -1,14 +1,20 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useMessage } from 'naive-ui'
-import type { FormInst, FormRules, SelectOption } from 'naive-ui'
-import { certUpload, configUpdate } from '@/api/panel'
+import type { FormInst, FormRules } from 'naive-ui'
+import { ApiError } from '@/api/http'
+import { certRequest, certRetryRenewal, certUpload, configUpdate } from '@/api/panel'
 import { useAuthStore } from '@/stores/auth'
 import { usePanelStore } from '@/stores/panel'
-import { CONFIG_EFFECT_MODE, HTTPS_MODE, PANEL_CERT_SOURCE, dictItem } from '@/types/enums'
+import {
+  CONFIG_EFFECT_MODE,
+  PANEL_CERT_SOURCE,
+  PANEL_CERT_STATUS,
+  dictItem
+} from '@/types/enums'
 import type { HttpsMode } from '@/types/enums'
 import type { PanelConfigDetail } from '@/types/panel'
-import { PANEL_ERROR_TEXT } from '@/types/panel'
+import { PANEL_ERROR_TEXT, certIssuerText } from '@/types/panel'
 import { formatDateTime } from '@/utils/format'
 
 const props = defineProps<{ detail: PanelConfigDetail }>()
@@ -16,47 +22,49 @@ const message = useMessage()
 const authStore = useAuthStore()
 const panelStore = usePanelStore()
 
-interface ModeFormData {
-  mode: HttpsMode | null
+interface ModeOption {
+  value: HttpsMode
+  title: string
+  desc: string
 }
 
-const modeForm = ref<ModeFormData>({ mode: null })
+const MODE_TILES: ModeOption[] = [
+  { value: 'off', title: '关闭', desc: '面板走明文 HTTP' },
+  { value: 'self_signed', title: '自签证书', desc: '浏览器会提示不安全' },
+  { value: 'imported', title: '上传证书', desc: '粘贴 PEM 证书和私钥' },
+  { value: 'acme', title: "Let's Encrypt", desc: '自动签发，需已绑域名' }
+]
+
+const selected = ref<HttpsMode>('off')
 
 watch(
-  () => props.detail,
-  (d) => {
-    modeForm.value = { mode: d.https.mode }
+  () => props.detail.https.mode,
+  (m) => {
+    selected.value = m
   },
   { immediate: true }
 )
 
-const mode = computed(() => modeForm.value.mode)
-
-const modeOptions: SelectOption[] = (Object.keys(HTTPS_MODE) as HttpsMode[]).map((value) => ({
-  label: HTTPS_MODE[value].label,
-  value
-}))
-
 const effectTag = computed(() => dictItem(CONFIG_EFFECT_MODE, props.detail.https.effectMode))
 const cert = computed(() => props.detail.https.cert)
-const showImportArea = computed(() => mode.value === 'imported' && authStore.isAdmin)
+const certStatus = computed(() => panelStore.certStatusData)
+const certLoading = computed(() => panelStore.certStatusLoading)
+const statusCert = computed(() => certStatus.value?.cert ?? null)
 
-const modeHint = computed(() => {
-  switch (mode.value) {
-    case 'self_signed':
-      return '保存后系统自动生成自签证书'
-    case 'imported':
-      return '需先导入证书与私钥，再保存切换为导入模式'
-    case 'acme':
-      return 'ACME 证书在下方「面板证书」Card 申请，申请成功后自动启用（勿在此手选）'
-    default:
-      return '关闭 HTTPS 后，面板以 HTTP 明文方式提供服务'
-  }
-})
+const acmeDomain = computed(
+  () => certStatus.value?.acme.domain ?? props.detail.bindDomain.value
+)
+const domainBound = computed(() => acmeDomain.value !== null && acmeDomain.value !== '')
 
 const certSourceTag = computed(() => {
   const c = cert.value
   return c === null ? null : dictItem(PANEL_CERT_SOURCE, c.source)
+})
+
+const certStatusTag = computed(() => {
+  const c = statusCert.value
+  if (c === null || c.source !== 'acme' || c.status === null) return null
+  return dictItem(PANEL_CERT_STATUS, c.status)
 })
 
 const validityText = computed(() => {
@@ -65,7 +73,6 @@ const validityText = computed(() => {
   return `${formatDateTime(c.notBefore)} ~ ${formatDateTime(c.notAfter)}`
 })
 
-/** notAfter 30 天内 → 橙色临近过期提示 */
 const expiringSoon = computed(() => {
   const na = cert.value?.notAfter ?? null
   if (na === null) return false
@@ -73,9 +80,14 @@ const expiringSoon = computed(() => {
   return !Number.isNaN(t) && t - Date.now() < 30 * 24 * 60 * 60 * 1000
 })
 
-const savingMode = ref(false)
+const lastError = computed(() => {
+  const c = statusCert.value
+  if (c === null || c.status !== 'renew_failed') return null
+  return c.lastError !== null && c.lastError !== '' ? c.lastError : null
+})
 
-/** to acme 前置：需 panel_cert.source=acme 且推算未过期（I-P04 v2.0 扩展/D-P14；服务端 PANEL_003 双保险） */
+const issuerText = computed(() => certIssuerText(cert.value?.issuer ?? statusCert.value?.issuer))
+
 function hasUsableAcmeCert(): boolean {
   const c = cert.value
   if (c === null || c.source !== 'acme' || c.notAfter === null) return false
@@ -83,31 +95,45 @@ function hasUsableAcmeCert(): boolean {
   return !Number.isNaN(t) && t > Date.now()
 }
 
-/** 保存模式（PANEL_003 前置分支文案：to imported→需先导入；to acme→引导面板证书 Card，PageSpec Card 4） */
-async function onSaveMode(): Promise<void> {
-  const target = mode.value ?? 'off'
-  if (target === 'imported' && cert.value === null) {
+const savingMode = ref(false)
+
+const hasImportedCert = computed(() => cert.value !== null && cert.value.source === 'imported')
+const canEnableImported = computed(
+  () => hasImportedCert.value && props.detail.https.mode !== 'imported'
+)
+const canEnableAcme = computed(
+  () => hasUsableAcmeCert() && props.detail.https.mode !== 'acme'
+)
+const showAcmeRequest = computed(() => !hasUsableAcmeCert())
+const replacingImport = ref(false)
+
+watch(selected, () => {
+  replacingImport.value = false
+})
+
+async function applyMode(target: HttpsMode): Promise<void> {
+  if (target === 'imported' && !hasImportedCert.value) {
     message.error(PANEL_ERROR_TEXT['PANEL_003'] ?? '请先导入证书与私钥')
     return
   }
   if (target === 'acme' && !hasUsableAcmeCert()) {
-    message.error('请先在下方「面板证书」Card 申请 ACME 证书')
+    message.error('请先申请 Let\'s Encrypt 证书')
     return
   }
   savingMode.value = true
   try {
     await configUpdate({ httpsMode: target })
-    if (target === 'self_signed') message.success('已保存，自签证书已生成')
-    else message.success('已保存')
+    if (target === 'self_signed') message.success('已启用自签证书')
+    else if (target === 'off') message.success('已关闭 HTTPS')
+    else if (target === 'imported') message.success('已启用导入的证书')
+    else message.success('已启用 Let\'s Encrypt')
     await panelStore.loadConfig()
   } catch {
-    // 错误已由拦截器统一提示（PANEL_002/003 等）
+    // 拦截器已提示
   } finally {
     savingMode.value = false
   }
 }
-
-/** ---- 导入证书（certUpload；I-P06：keyPem 零回显，成功后双清空） ---- */
 
 const importFormRef = ref<FormInst | null>(null)
 interface ImportFormData {
@@ -116,8 +142,6 @@ interface ImportFormData {
 }
 const importForm = ref<ImportFormData>({ certPem: '', keyPem: '' })
 const importing = ref(false)
-// 私钥文本域默认遮罩（CSS -webkit-text-security，多行粘贴不受影响），可临时显示核对。
-// 不用单行 password 框遮罩——那会把多行 PEM 的换行折成空格导致导入失败（v0.5.1 修复）。
 const keyRevealed = ref(false)
 
 const importRules: FormRules = {
@@ -134,138 +158,395 @@ async function onImport(): Promise<void> {
   importing.value = true
   try {
     await certUpload({ certPem: importForm.value.certPem, keyPem: importForm.value.keyPem })
-    message.success('证书已导入并记入审计')
+    await configUpdate({ httpsMode: 'imported' })
+    message.success('证书已导入并启用')
     importForm.value = { certPem: '', keyPem: '' }
     importFormRef.value?.restoreValidation()
-    await panelStore.loadConfig()
+    await Promise.all([panelStore.loadConfig(), panelStore.loadCertStatus()])
   } catch {
-    // PANEL_002 已由拦截器统一提示
+    // PANEL_002 由拦截器提示
   } finally {
     importing.value = false
   }
 }
+
+function dataString(err: ApiError, key: string): string | null {
+  if (typeof err.data !== 'object' || err.data === null) return null
+  const v = (err.data as Record<string, unknown>)[key]
+  return typeof v === 'string' && v !== '' ? v : null
+}
+
+function onActionError(err: unknown): void {
+  if (err instanceof ApiError) {
+    if (err.is('PANEL_009')) {
+      const reason = dataString(err, 'reason')
+      message.error(`签发失败${reason !== null ? `：${reason}` : ''}`)
+      return
+    }
+    if (err.is('PANEL_010')) {
+      message.error('当前状态无需重试')
+      return
+    }
+    if (err.is('PANEL_011')) {
+      const notAfter = dataString(err, 'notAfter')
+      message.error(
+        `已有有效证书（${notAfter !== null ? formatDateTime(notAfter) : ''} 到期），续期请点重试`
+      )
+      return
+    }
+    return
+  }
+  message.error('操作失败，请稍后重试')
+}
+
+const requesting = ref(false)
+const WAIT_HINT = '正在签发，经 nginx 验证域名，最长约 2 分钟'
+
+async function onRequest(): Promise<void> {
+  if (requesting.value) return
+  requesting.value = true
+  try {
+    await certRequest()
+    message.success('证书已签发，HTTPS 已切换')
+    await Promise.all([panelStore.loadCertStatus(), panelStore.loadConfig()])
+  } catch (err) {
+    onActionError(err)
+  } finally {
+    requesting.value = false
+  }
+}
+
+const retrying = ref(false)
+const retryVisible = computed(
+  () =>
+    authStore.isAdmin &&
+    statusCert.value !== null &&
+    statusCert.value.source === 'acme' &&
+    statusCert.value.status === 'renew_failed'
+)
+
+async function onRetry(): Promise<void> {
+  if (retrying.value) return
+  retrying.value = true
+  try {
+    await certRetryRenewal()
+    message.success('续期成功')
+    await Promise.all([panelStore.loadCertStatus(), panelStore.loadConfig()])
+  } catch (err) {
+    onActionError(err)
+  } finally {
+    retrying.value = false
+  }
+}
+
+function gotoBindCard(): void {
+  document.getElementById('panel-bind-domain-card')?.scrollIntoView({ behavior: 'smooth' })
+}
+
+function onSelectTile(mode: HttpsMode): void {
+  if (!authStore.isAdmin) return
+  selected.value = mode
+}
 </script>
 
 <template>
-  <n-card title="HTTPS 设置">
+  <n-card title="HTTPS">
     <template #header-extra>
       <n-tag :type="effectTag.tag" size="small" :bordered="false">{{ effectTag.label }}</n-tag>
     </template>
 
-    <n-form
-      :model="modeForm"
-      label-placement="top"
-      :disabled="!authStore.isAdmin"
-      style="max-width: 420px"
-    >
-      <n-form-item label="HTTPS 模式" path="mode">
-        <n-select v-model:value="modeForm.mode" :options="modeOptions" />
-      </n-form-item>
-    </n-form>
-    <p class="hint">{{ modeHint }}</p>
-
-    <!-- 证书导入区：仅 imported 模式且 admin 展开（readonly 不渲染，负空间） -->
-    <n-form
-      v-if="showImportArea"
-      ref="importFormRef"
-      :model="importForm"
-      :rules="importRules"
-      label-placement="top"
-      class="import-area"
-    >
-      <n-form-item label="证书 PEM" path="certPem">
-        <n-input
-          v-model:value="importForm.certPem"
-          type="textarea"
-          :rows="5"
-          placeholder="-----BEGIN CERTIFICATE-----&#10;…"
-          class="mono"
-        />
-      </n-form-item>
-      <!-- 私钥用多行文本域 + CSS 遮罩（-webkit-text-security）：单行 password 框粘贴多行 PEM
-           会把换行折成空格导致导入失败（v0.5.1 修复，回归 PageSpec「textarea + 粘贴态遮罩」设计）。
-           遮罩只影响显示、不影响多行粘贴；可点「显示私钥」临时核对。后端 normalizePEM 另对空白坏格式容错。 -->
-      <n-form-item label="私钥 PEM" path="keyPem">
-        <n-input
-          v-model:value="importForm.keyPem"
-          type="textarea"
-          :rows="5"
-          placeholder="-----BEGIN PRIVATE KEY-----&#10;…"
-          :class="['mono', { 'key-masked': !keyRevealed }]"
-        />
-        <n-button text size="tiny" class="key-toggle" @click="keyRevealed = !keyRevealed">
-          {{ keyRevealed ? '隐藏私钥' : '显示私钥' }}
-        </n-button>
-      </n-form-item>
-      <div class="actions">
-        <n-button type="primary" :loading="importing" @click="onImport">导入证书</n-button>
+    <div class="status-band">
+      <div class="status-kicker">当前证书</div>
+      <div v-if="cert === null && !certLoading" class="status-empty">未配置</div>
+      <div v-else class="status-grid">
+        <div>
+          <span class="k">来源</span>
+          <n-tag v-if="certSourceTag !== null" :type="certSourceTag.tag" size="small" :bordered="false">
+            {{ certSourceTag.label }}
+          </n-tag>
+          <span v-else>—</span>
+          <n-tag
+            v-if="certStatusTag !== null"
+            :type="certStatusTag.tag"
+            size="small"
+            :bordered="false"
+            class="ml"
+          >
+            {{ certStatusTag.label }}
+          </n-tag>
+        </div>
+        <div>
+          <span class="k">颁发者</span>
+          <span>{{ issuerText }}</span>
+        </div>
+        <div>
+          <span class="k">有效期</span>
+          <span>{{ validityText }}</span>
+          <n-tag v-if="expiringSoon" type="warning" size="small" :bordered="false" class="ml">
+            30 天内到期
+          </n-tag>
+        </div>
       </div>
-      <p class="hint">导入后证书摘要下方可见；私钥不会再次显示，成功后输入框自动清空。</p>
-    </n-form>
+    </div>
 
-    <!-- 当前证书摘要（来源/颁发者/有效期；无「查看私钥」入口，api 3.3 脱敏） -->
-    <n-descriptions title="当前证书" label-placement="left" :column="1" bordered size="small" class="cert-desc">
-      <n-descriptions-item label="来源">
-        <n-tag
-          v-if="certSourceTag !== null"
-          :type="certSourceTag.tag"
-          size="small"
-          :bordered="false"
+    <div class="tiles" role="listbox" :aria-disabled="!authStore.isAdmin">
+      <button
+        v-for="tile in MODE_TILES"
+        :key="tile.value"
+        type="button"
+        class="tile"
+        :class="{ active: selected === tile.value, current: detail.https.mode === tile.value }"
+        :disabled="!authStore.isAdmin"
+        @click="onSelectTile(tile.value)"
+      >
+        <span class="tile-title">{{ tile.title }}</span>
+        <span class="tile-desc">{{ tile.desc }}</span>
+        <span v-if="detail.https.mode === tile.value" class="tile-now">正在使用</span>
+      </button>
+    </div>
+
+    <div v-if="selected === 'off'" class="panel">
+      <p class="hint">关闭后面板以 HTTP 明文提供服务。</p>
+      <n-button
+        v-if="authStore.isAdmin"
+        :loading="savingMode"
+        :disabled="detail.https.mode === 'off'"
+        @click="applyMode('off')"
+      >
+        关闭 HTTPS
+      </n-button>
+    </div>
+
+    <div v-else-if="selected === 'self_signed'" class="panel">
+      <p class="hint">保存后立即生成自签证书。浏览器会提示不安全，适合内网或临时使用。</p>
+      <n-button
+        v-if="authStore.isAdmin"
+        type="primary"
+        :loading="savingMode"
+        @click="applyMode('self_signed')"
+      >
+        {{ detail.https.mode === 'self_signed' ? '重新生成自签证书' : '启用自签证书' }}
+      </n-button>
+    </div>
+
+    <div v-else-if="selected === 'imported'" class="panel">
+      <template v-if="hasImportedCert">
+        <p class="hint">已有导入的证书{{ issuerText !== '—' ? `（${issuerText}）` : '' }}。</p>
+        <div class="import-actions">
+          <n-button
+            v-if="authStore.isAdmin && canEnableImported"
+            type="primary"
+            :loading="savingMode"
+            @click="applyMode('imported')"
+          >
+            使用这张证书
+          </n-button>
+          <n-button
+            v-if="authStore.isAdmin && !replacingImport"
+            size="small"
+            @click="replacingImport = true"
+          >
+            更换证书
+          </n-button>
+        </div>
+      </template>
+      <n-form
+        v-if="authStore.isAdmin && (!hasImportedCert || replacingImport)"
+        ref="importFormRef"
+        :model="importForm"
+        :rules="importRules"
+        label-placement="top"
+      >
+        <n-form-item label="证书 PEM" path="certPem">
+          <n-input
+            v-model:value="importForm.certPem"
+            type="textarea"
+            :rows="5"
+            placeholder="-----BEGIN CERTIFICATE-----&#10;…"
+            class="mono"
+          />
+        </n-form-item>
+        <n-form-item label="私钥 PEM" path="keyPem">
+          <n-input
+            v-model:value="importForm.keyPem"
+            type="textarea"
+            :rows="5"
+            placeholder="-----BEGIN PRIVATE KEY-----&#10;…"
+            :class="['mono', { 'key-masked': !keyRevealed }]"
+          />
+          <n-button text size="tiny" class="key-toggle" @click="keyRevealed = !keyRevealed">
+            {{ keyRevealed ? '隐藏私钥' : '显示私钥' }}
+          </n-button>
+        </n-form-item>
+        <n-button type="primary" :loading="importing" @click="onImport">导入并启用</n-button>
+      </n-form>
+      <p v-if="!hasImportedCert || replacingImport" class="hint">私钥导入后不会再显示。成功后输入框会清空。</p>
+    </div>
+
+    <div v-else class="panel">
+      <n-alert v-if="!domainBound" type="info" :closable="false">
+        申请证书前先绑定访问域名
+        <n-button text type="primary" size="small" class="goto-bind" @click="gotoBindCard">
+          前往绑定
+        </n-button>
+      </n-alert>
+      <div v-else class="acme-meta">
+        <div><span class="k">域名</span><span class="mono">{{ acmeDomain }}</span></div>
+        <div><span class="k">验证</span>HTTP-01（走本机 nginx 80 端口）</div>
+        <div><span class="k">续期</span>到期前 30 天自动续，失败后可手动重试</div>
+      </div>
+      <n-alert v-if="lastError !== null" type="error" title="上次续期失败" :closable="false">
+        {{ lastError }}
+      </n-alert>
+      <div v-if="authStore.isAdmin" class="acme-actions">
+        <n-button
+          v-if="retryVisible"
+          type="warning"
+          ghost
+          :loading="retrying"
+          :disabled="requesting"
+          @click="onRetry"
         >
-          {{ certSourceTag.label }}
-        </n-tag>
-        <span v-else>—</span>
-      </n-descriptions-item>
-      <n-descriptions-item label="颁发者">{{ cert?.issuer ?? '—' }}</n-descriptions-item>
-      <n-descriptions-item label="有效期">
-        <span>{{ validityText }}</span>
-        <n-tag v-if="expiringSoon" type="warning" size="small" :bordered="false" class="expire-tag">
-          30 天内到期
-        </n-tag>
-      </n-descriptions-item>
-    </n-descriptions>
-
-    <div v-if="authStore.isAdmin" class="actions card-actions">
-      <n-button type="primary" :loading="savingMode" @click="onSaveMode">保存</n-button>
+          重试续期
+        </n-button>
+        <n-button
+          v-if="canEnableAcme"
+          type="primary"
+          :loading="savingMode"
+          :disabled="requesting || retrying"
+          @click="applyMode('acme')"
+        >
+          启用 Let's Encrypt
+        </n-button>
+        <n-button
+          v-if="showAcmeRequest"
+          type="primary"
+          :loading="requesting"
+          :disabled="!domainBound || retrying"
+          @click="onRequest"
+        >
+          申请证书
+        </n-button>
+      </div>
+      <p v-if="requesting || retrying" class="wait-hint">{{ WAIT_HINT }}</p>
     </div>
   </n-card>
 </template>
 
 <style scoped>
+.status-band {
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  border-radius: 8px;
+  border: 1px solid var(--n-border-color);
+  background: var(--n-color-embedded, rgba(127, 127, 127, 0.08));
+}
+.status-kicker {
+  font-size: 12px;
+  opacity: 0.55;
+  margin-bottom: 8px;
+}
+.status-empty {
+  font-size: 13px;
+  opacity: 0.7;
+}
+.status-grid {
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+}
+.k {
+  display: inline-block;
+  width: 52px;
+  opacity: 0.55;
+  font-size: 12px;
+}
+.ml {
+  margin-left: 8px;
+}
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.tile {
+  text-align: left;
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--n-border-color);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 76px;
+}
+.tile:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+.tile.active {
+  border-color: var(--n-primary-color, #18a058);
+  box-shadow: inset 0 0 0 1px var(--n-primary-color, #18a058);
+}
+.tile-title {
+  font-weight: 600;
+  font-size: 14px;
+}
+.tile-desc {
+  font-size: 12px;
+  opacity: 0.65;
+  line-height: 1.4;
+}
+.tile-now {
+  font-size: 11px;
+  opacity: 0.55;
+}
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
 .hint {
-  margin: 8px 0 12px;
+  margin: 0;
   font-size: 12px;
   opacity: 0.65;
 }
 .mono :deep(textarea),
-.mono :deep(input) {
+.mono :deep(input),
+span.mono {
   font-family: ui-monospace, SFMono-Regular, Consolas, 'Courier New', monospace;
   font-size: 12px;
 }
-/* 私钥遮罩：只改显示不改值，多行粘贴的换行原样保留（不支持的浏览器回退为明文，可点「显示私钥」核对） */
 .key-masked :deep(textarea) {
   -webkit-text-security: disc;
 }
 .key-toggle {
   margin-top: 4px;
 }
-.import-area {
-  padding: 12px;
-  border-radius: 4px;
-  margin-bottom: 12px;
+.acme-meta {
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
 }
-.cert-desc {
-  max-width: 560px;
+.import-actions,
+.acme-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
 }
-.expire-tag {
+.acme-actions {
+  justify-content: flex-end;
+}
+.goto-bind {
   margin-left: 8px;
 }
-.actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 12px;
-}
-.card-actions {
-  margin-top: 12px;
+.wait-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--n-warning-color, #d97600);
 }
 </style>

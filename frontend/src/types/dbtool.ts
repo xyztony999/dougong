@@ -266,7 +266,7 @@ export const DBTOOL_LANDING_PORT = 18090
 /** 页头说明条文案（PageSpec 4.1 v1.2：gating 安全口径 + 自动落地端口 18090 每请求会话校验
  * + 绑域名仅域名访问语义〔api D-19/D-20〕+ 轻量入口并存 Q3） */
 export const DBTOOL_PAGE_INTRO =
-  `在这里安装 phpMyAdmin、mongo-express 等工具来管理数据库（仅管理员可打开）。工具只在本机运行，登录面板后才能访问，不会直接暴露到公网。用 IP 直连面板时会自动开放工具端口 ${DBTOOL_LANDING_PORT}（需在防火墙/云安全组放行）；绑定域名后则只能用域名访问。数据库页里的表/文档浏览仍然可用。`
+  `安装 phpMyAdmin、mongo-express 管理数据库。工具只在本机运行，登录面板后才能打开。用 IP 访问面板时会占用端口 ${DBTOOL_LANDING_PORT}，需要在防火墙放行；绑定域名后改走域名。数据库页里的表和文档浏览不受影响。`
 
 /** 工具路径前缀（api D-13 TOOL_PATH_PREFIX_* 同值；访问地址展示引导用——
  * 实际打开 URL 以 dbtoolOpen 响应权威下发〔含端口/域名/signon 令牌片段〕，前端不拼接不修改，D-23） */

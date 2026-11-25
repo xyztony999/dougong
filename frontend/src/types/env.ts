@@ -78,5 +78,48 @@ export interface EnvServiceOpResult {
 /** 服务动作路径段（D-09：目录环境单元限定） */
 export type EnvServiceOp = 'start' | 'stop' | 'restart' | 'enable' | 'disable'
 
+/** GET /env/env/profile */
+export interface EnvConfigFileView {
+  id: string
+  label: string
+  path: string
+  exists: boolean
+}
+
+export interface EnvSettingView {
+  key: string
+  label: string
+  hint: string
+  type: 'text' | 'number' | 'switch' | string
+  value: string
+  fileId: string
+  options?: string[]
+}
+
+export interface EnvProfileData {
+  item: EnvItem
+  hasService: boolean
+  configFiles: EnvConfigFileView[]
+  settings: EnvSettingView[]
+  generatedAt: string
+}
+
+export interface EnvConfigFileContent {
+  fileId: string
+  path: string
+  content: string
+}
+
+export interface EnvVersionItem {
+  version: string
+  current: boolean
+}
+
+export interface EnvVersionListData {
+  envType: EnvType
+  current: string
+  versions: EnvVersionItem[]
+}
+
 /** DnsProvider 再导出（凭证管理在 site-mgmt 域；此处避免循环引用时直用 enums） */
 export type { DnsProvider }

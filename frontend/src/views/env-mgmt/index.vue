@@ -9,25 +9,24 @@
  * 索引+第三方源代配提示 ⚠️A10）；卸载强确认 NModal 两段警示（⚠️A6：本域服务
  * 实况+关联模块静态影响）+ 输入环境名锁定；服务操作组（D-09，单元全名 ⚠️A8）。
  */
-import { computed, h, onMounted, onUnmounted, ref } from 'vue'
-import { useDialog, useMessage } from 'naive-ui'
-import { NButton, NTag, NTooltip } from 'naive-ui'
-import type { DataTableColumns, SelectOption } from 'naive-ui'
-import { envInstall, envServiceOp, envUninstall } from '@/api/env'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { useMessage } from 'naive-ui'
+import { envInstall } from '@/api/env'
 import { ApiError } from '@/api/http'
 import { useAuthStore } from '@/stores/auth'
 import { useEnvStore } from '@/stores/env'
-import { BOOTSTRAP_STATUS, ENV_TASK_ACTION, ENV_TASK_STATUS, ENV_TYPE, PACKAGE_MANAGER_FAMILY, dictItem } from '@/types/enums'
+import { PACKAGE_MANAGER_FAMILY, dictItem } from '@/types/enums'
 import type { EnvItem } from '@/types/env'
-import type { EnvServiceOp, EnvTaskItem } from '@/types/env'
-import type { EnvTaskStatus, EnvType } from '@/types/enums'
-import { formatDateTime, formatTime } from '@/utils/format'
+import { formatTime } from '@/utils/format'
 import EnvTaskDrawer from './components/EnvTaskDrawer.vue'
+import { ENV_ACCENT, ENV_MONOGRAM } from './envMeta'
+import { envTaskColumns, envTypeOptions, statusOptions } from './taskColumns'
+import { useRouter } from 'vue-router'
 
 const authStore = useAuthStore()
 const store = useEnvStore()
 const message = useMessage()
-const dialog = useDialog()
+const router = useRouter()
 
 /** ---- 任务 Drawer ---- */
 
@@ -56,66 +55,13 @@ async function onInstall(item: EnvItem): Promise<void> {
   installing.value = item.envType
   try {
     const res = await envInstall(item.envType)
-    message.success(
-      res.action === 'upgrade'
-        ? '升级任务已创建（先刷新包索引，可能需要数分钟）'
-        : '安装任务已创建（先刷新包索引，可能需要数分钟）'
-    )
+    message.success(res.action === 'upgrade' ? '升级任务已创建' : '安装任务已创建')
     await store.refreshAfterWrite()
     viewRunningTask(res.taskId)
   } catch (e) {
     handleEnvError(e)
   } finally {
     installing.value = null
-  }
-}
-
-/** ---- 卸载强确认（NModal 两段警示 + 输入环境名锁定，⚠️A6/D-07） ---- */
-
-const uninstallTarget = ref<EnvItem | null>(null)
-const uninstallConfirmName = ref('')
-const uninstalling = ref(false)
-
-const uninstallConfirmOk = computed(
-  () => uninstallTarget.value !== null && uninstallConfirmName.value === uninstallTarget.value.displayName
-)
-
-function openUninstall(item: EnvItem): void {
-  uninstallTarget.value = item
-  uninstallConfirmName.value = ''
-}
-
-async function onUninstall(): Promise<void> {
-  const t = uninstallTarget.value
-  if (t === null) return
-  uninstalling.value = true
-  try {
-    const res = await envUninstall(t.envType)
-    message.success('卸载任务已创建（保留系统配置与数据目录）')
-    uninstallTarget.value = null
-    await store.refreshAfterWrite()
-    viewRunningTask(res.taskId)
-  } catch (e) {
-    handleEnvError(e)
-  } finally {
-    uninstalling.value = false
-  }
-}
-
-/** ---- 服务操作（NPopconfirm；ENV_006 失败原因如实呈现，D-09） ---- */
-
-const serviceBusy = ref<string | null>(null)
-
-async function onServiceOp(item: EnvItem, op: EnvServiceOp): Promise<void> {
-  serviceBusy.value = `${item.envType}:${op}`
-  try {
-    await envServiceOp(op, item.envType)
-    message.success('操作已执行')
-    void store.loadList()
-  } catch (e) {
-    handleEnvError(e)
-  } finally {
-    serviceBusy.value = null
   }
 }
 
@@ -135,14 +81,6 @@ function handleEnvError(e: unknown): void {
   if (e.is('ENV_004')) {
     message.error('环境未安装')
     void store.loadList()
-    return
-  }
-  if (e.is('ENV_006')) {
-    const reason = (e.data as Record<string, unknown> | null)?.reason
-    dialog.error({
-      title: '服务操作失败',
-      content: typeof reason === 'string' ? reason : '（服务端未返回原因）'
-    })
     return
   }
   message.error(e.message)
@@ -171,70 +109,7 @@ function installedText(item: EnvItem): { text: string; type: 'default' | 'succes
   return { text: `已安装 · ${item.version ?? ''}`, type: 'success' }
 }
 
-/** ---- 任务清单列（Drawer 历史 Tab 宿主列定义在此共享） ---- */
-
-const envTypeOptions: SelectOption[] = (Object.keys(ENV_TYPE) as EnvType[]).map((v) => ({
-  label: ENV_TYPE[v].label,
-  value: v
-}))
-const statusOptions: SelectOption[] = (Object.keys(ENV_TASK_STATUS) as EnvTaskStatus[]).map((v) => ({
-  label: ENV_TASK_STATUS[v].label,
-  value: v
-}))
-
-const taskColumns = computed<DataTableColumns<EnvTaskItem>>(() => [
-  { title: 'ID', key: 'id', width: 70 },
-  {
-    title: '环境',
-    key: 'envType',
-    width: 110,
-    render: (row) => dictItem(ENV_TYPE, row.envType).label
-  },
-  {
-    title: '动作',
-    key: 'action',
-    width: 90,
-    render: (row) => dictItem(ENV_TASK_ACTION, row.action).label
-  },
-  {
-    title: '状态',
-    key: 'status',
-    width: 110,
-    render: (row) =>
-      h(
-        NTag,
-        { type: dictItem(ENV_TASK_STATUS, row.status).tag, size: 'small', bordered: false },
-        { default: () => dictItem(ENV_TASK_STATUS, row.status).label }
-      )
-  },
-  {
-    title: '引导',
-    key: 'bootstrapStatus',
-    width: 90,
-    render: (row) => {
-      // null=无引导步骤（非数据库环境/卸载）→「—」不渲染角标（D-18）。
-      if (!row.bootstrapStatus) return '—'
-      const d = dictItem(BOOTSTRAP_STATUS, row.bootstrapStatus)
-      const tag = h(NTag, { type: d.tag, size: 'small', bordered: false }, { default: () => d.label })
-      if (!row.bootstrapNote) return tag
-      return h(NTooltip, { trigger: 'hover' }, { trigger: () => tag, default: () => row.bootstrapNote })
-    }
-  },
-  { title: '发起者', key: 'requestedBy', width: 100 },
-  { title: '发起时间', key: 'createdAt', width: 170, render: (row) => formatDateTime(row.createdAt) },
-  { title: '结束时间', key: 'finishedAt', width: 170, render: (row) => formatDateTime(row.finishedAt) },
-  {
-    title: '操作',
-    key: 'actions',
-    width: 80,
-    render: (row) =>
-      h(
-        NButton,
-        { size: 'small', text: true, type: 'primary', onClick: () => onDrawerTaskClick(row.id) },
-        { default: () => '详情' }
-      )
-  }
-])
+const taskColumns = computed(() => envTaskColumns(onDrawerTaskClick))
 
 onMounted(() => {
   void store.loadList()
@@ -269,84 +144,73 @@ onUnmounted(() => {
       </n-alert>
     </n-card>
 
-    <!-- 环境卡片网格（八条目 v1.1 +MongoDB、v1.3 +Node.js；readonly 操作区整区不渲染——ADR-018 负空间） -->
     <div class="grid">
-      <n-card v-for="item in store.items" :key="item.envType" size="small" class="env-card">
-        <template #header>
-          <span class="env-title">{{ item.displayName }}</span>
-          <n-tag v-if="item.runningTaskId !== null" type="info" size="small" class="env-task-tag">
-            任务进行中
-          </n-tag>
-        </template>
-        <template #header-extra>
-          <n-tag :type="installedText(item).type" size="small" :bordered="false">
-            {{ installedText(item).text }}
-          </n-tag>
-        </template>
-        <div class="env-desc">{{ item.description }}</div>
-        <!-- 未安装环境不渲染服务态行（v0.1.4：曾显示「已停止/自启关」误导）；
-             运行时型无服务单元（unitName=""，v1.3 Node ⚠️A17）整行不渲染——
-             null 服务态非「探测失败」语义，不呈现「服务态未探测」误导文案 -->
-        <div v-if="item.installed !== false && item.unitName !== ''" class="env-service">
-          <template v-if="item.serviceRunning !== null">
-            <n-tag :type="item.serviceRunning ? 'success' : 'default'" size="small" :bordered="false">
+      <article
+        v-for="item in store.items"
+        :key="item.envType"
+        class="env-tile"
+        :class="{ clickable: item.installed === true }"
+        @click="item.installed === true && router.push(`/env/${item.envType}`)"
+      >
+        <span class="rail" :style="{ background: ENV_ACCENT[item.envType] }"></span>
+        <div class="tile-body">
+          <div class="tile-head">
+            <span class="mono-mark" :style="{ color: ENV_ACCENT[item.envType] }">
+              {{ ENV_MONOGRAM[item.envType] }}
+            </span>
+            <div class="tile-id">
+              <div class="env-title">
+                {{ item.displayName }}
+                <n-tag v-if="item.runningTaskId !== null" type="info" size="small" :bordered="false">
+                  任务进行中
+                </n-tag>
+              </div>
+              <div class="env-desc">{{ item.description }}</div>
+            </div>
+            <n-tag :type="installedText(item).type" size="small" :bordered="false">
+              {{ installedText(item).text }}
+            </n-tag>
+          </div>
+          <div v-if="item.installed !== false && item.unitName !== ''" class="env-service">
+            <template v-if="item.serviceRunning !== null">
+              <span class="dot" :class="{ on: item.serviceRunning }"></span>
               {{ item.serviceRunning ? '运行中' : '已停止' }}
-            </n-tag>
-            <n-tag :type="item.serviceEnabled ? 'success' : 'default'" size="small" :bordered="false">
+              <span class="sep">·</span>
               自启{{ item.serviceEnabled ? '开' : '关' }}
-            </n-tag>
-          </template>
-          <span v-else class="env-unit-none">服务状态未知</span>
-        </div>
-        <template v-if="item.runningTaskId !== null" #action>
-          <n-button size="tiny" text type="primary" @click="viewRunningTask(item.runningTaskId ?? 0)">
-            查看任务
-          </n-button>
-        </template>
-        <template v-if="authStore.isAdmin && store.channel.available" #action>
-          <div class="env-actions">
-            <template v-if="item.installed === true">
-              <n-popconfirm @positive-click="onInstall(item)">
-                <template #trigger>
-                  <n-button size="small" :loading="installing === item.envType">升级</n-button>
-                </template>
-                将通过 {{ dictItem(PACKAGE_MANAGER_FAMILY, store.channel.family ?? 'apt').label }} 升级到最新版本（可能需要几分钟）。MongoDB、Docker CE（RHEL 系）、Node.js 需要官方软件源，面板会自动配置好。
-              </n-popconfirm>
-              <n-button size="small" type="error" ghost @click="openUninstall(item)">卸载</n-button>
-              <!-- 服务操作组仅对有服务单元的环境渲染（unitName 非空）；运行时型
-                   （v1.3 Node ⚠️A17，serviceState null/unitName=""）不渲染——
-                   后端 ServiceOp 对 node 拒绝 ENV_006 兜底，前端不呈现无效入口 -->
-              <template v-if="item.unitName !== ''">
-                <n-popconfirm @positive-click="onServiceOp(item, 'start')">
-                  <template #trigger><n-button size="small" :disabled="serviceBusy === `${item.envType}:start`">启动</n-button></template>
-                  启动 {{ item.unitName }}
-                </n-popconfirm>
-                <n-popconfirm @positive-click="onServiceOp(item, 'stop')">
-                  <template #trigger><n-button size="small" :disabled="serviceBusy === `${item.envType}:stop`">停止</n-button></template>
-                  停止 {{ item.unitName }}
-                </n-popconfirm>
-                <n-popconfirm @positive-click="onServiceOp(item, 'restart')">
-                  <template #trigger><n-button size="small" :disabled="serviceBusy === `${item.envType}:restart`">重启</n-button></template>
-                  重启 {{ item.unitName }}
-                </n-popconfirm>
-                <n-switch
-                  :value="item.serviceEnabled === true"
-                  :loading="serviceBusy === `${item.envType}:enable` || serviceBusy === `${item.envType}:disable`"
-                  @update:value="(v: boolean) => onServiceOp(item, v ? 'enable' : 'disable')"
-                />
-              </template>
             </template>
-            <template v-else-if="item.installed === false">
-              <n-popconfirm @positive-click="onInstall(item)">
+            <span v-else class="env-unit-none">服务状态未知</span>
+          </div>
+          <div class="tile-foot" @click.stop>
+            <n-button
+              v-if="item.runningTaskId !== null"
+              size="tiny"
+              text
+              type="primary"
+              @click="viewRunningTask(item.runningTaskId ?? 0)"
+            >
+              查看任务
+            </n-button>
+            <template v-if="authStore.isAdmin && store.channel.available">
+              <n-button
+                v-if="item.installed === true"
+                size="small"
+                type="primary"
+                @click="router.push(`/env/${item.envType}`)"
+              >
+                设置
+              </n-button>
+              <n-popconfirm v-else-if="item.installed === false" @positive-click="onInstall(item)">
                 <template #trigger>
-                  <n-button size="small" type="primary" :loading="installing === item.envType">安装</n-button>
+                  <n-button size="small" type="primary" :loading="installing === item.envType">
+                    安装
+                  </n-button>
                 </template>
-                将安装 {{ item.displayName }} 最新版本（可能需要几分钟）。MongoDB、Docker CE（RHEL 系）、Node.js 需要官方软件源，面板会自动配置好。
+                将安装 {{ item.displayName }}，大约几分钟。
               </n-popconfirm>
             </template>
           </div>
-        </template>
-      </n-card>
+        </div>
+      </article>
     </div>
 
     <!-- 任务 Drawer -->
@@ -358,47 +222,6 @@ onUnmounted(() => {
       @refresh="store.loadTasks(1)"
     />
 
-    <!-- 卸载强确认（两段警示 + 输入环境名锁定，⚠️A6/D-07） -->
-    <n-modal
-      :show="uninstallTarget !== null"
-      preset="card"
-      title="卸载环境（高危操作）"
-      style="width: 540px"
-      :mask-closable="false"
-      @update:show="(v: boolean) => { if (!v) uninstallTarget = null }"
-    >
-      <n-alert
-        v-if="uninstallTarget?.serviceRunning === true"
-        type="warning"
-        title="服务正在运行"
-        style="margin-bottom: 10px"
-      >
-        {{ uninstallTarget.displayName }} 服务当前正在运行，卸载将使其立即不可用。
-      </n-alert>
-      <n-alert type="error" title="关联模块影响" style="margin-bottom: 10px">
-        卸载后依赖它的功能将无法使用：Docker→容器管理；MySQL/MongoDB→数据库管理；nginx/PHP-FPM→网站管理；Node.js→数据库工具（mongo-express）。
-        请先确认相关数据已妥善处理（面板不会替你检查其他模块的数据）。
-      </n-alert>
-      <n-form label-placement="left" label-width="110">
-        <n-form-item label="确认输入">
-          <n-input
-            v-model:value="uninstallConfirmName"
-            :placeholder="`输入环境名 ${uninstallTarget?.displayName ?? ''} 确认`"
-          />
-        </n-form-item>
-      </n-form>
-      <n-alert type="info" :show-icon="true">
-        卸载会保留系统配置和数据目录，已配置的官方软件源也会保留（重装即可直接用）。任务在后台执行，进度可在「任务记录」中查看。
-      </n-alert>
-      <template #footer>
-        <div class="footer">
-          <n-button :disabled="uninstalling" @click="uninstallTarget = null">取消</n-button>
-          <n-button type="error" :disabled="!uninstallConfirmOk" :loading="uninstalling" @click="onUninstall">
-            确认卸载
-          </n-button>
-        </div>
-      </template>
-    </n-modal>
   </div>
 </template>
 
@@ -422,41 +245,99 @@ onUnmounted(() => {
 }
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 14px;
 }
-.env-card :deep(.n-card__content) {
-  min-height: 150px;
+.env-tile {
+  display: flex;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--n-border-color);
+  background: var(--n-color, transparent);
+  min-height: 148px;
+}
+.env-tile.clickable {
+  cursor: pointer;
+}
+.env-tile.clickable:hover {
+  border-color: rgba(24, 160, 88, 0.45);
+}
+.rail {
+  width: 4px;
+  flex-shrink: 0;
+}
+.tile-body {
+  flex: 1;
+  padding: 14px 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.tile-head {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.mono-mark {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: ui-monospace, SFMono-Regular, Consolas, 'Courier New', monospace;
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  background: rgba(127, 127, 127, 0.12);
+  flex-shrink: 0;
+}
+.tile-id {
+  flex: 1;
+  min-width: 0;
 }
 .env-title {
   font-weight: 600;
-}
-.env-task-tag {
-  margin-left: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 .env-desc {
-  font-size: 13px;
-  opacity: 0.85;
+  margin-top: 2px;
+  font-size: 12px;
+  opacity: 0.7;
+  line-height: 1.4;
 }
 .env-service {
-  margin-top: 10px;
+  font-size: 12px;
+  opacity: 0.8;
   display: flex;
-  gap: 8px;
   align-items: center;
+  gap: 6px;
+}
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #6b7280;
+}
+.dot.on {
+  background: #18a058;
+}
+.sep {
+  opacity: 0.4;
 }
 .env-unit-none {
   font-size: 12px;
   opacity: 0.55;
 }
-.env-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  align-items: center;
-}
-.footer {
+.tile-foot {
+  margin-top: auto;
   display: flex;
   justify-content: flex-end;
-  gap: 12px;
+  gap: 8px;
+  align-items: center;
 }
 </style>

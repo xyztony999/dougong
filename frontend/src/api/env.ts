@@ -5,12 +5,15 @@
  */
 import { request } from './http'
 import type {
+  EnvConfigFileContent,
   EnvListData,
+  EnvProfileData,
   EnvServiceOp,
   EnvServiceOpResult,
   EnvTaskCreated,
   EnvTaskDetail,
-  EnvTaskListData
+  EnvTaskListData,
+  EnvVersionListData
 } from '@/types/env'
 import type { EnvTaskStatus, EnvType } from '@/types/enums'
 
@@ -19,9 +22,46 @@ export function envList(): Promise<EnvListData> {
   return request<EnvListData>('/env/env/list')
 }
 
-/** envInstall：安装/升级（已装=升级幂等 D-05；异步任务 D-04；ENV_001/002/003） */
-export function envInstall(envType: EnvType): Promise<EnvTaskCreated> {
-  return request<EnvTaskCreated>('/env/env/install', { method: 'POST', body: { envType } })
+/** envInstall：安装/升级（已装=升级幂等 D-05；异步任务 D-04；ENV_001/002/003）
+ * version 可选：指定仓库版本（切换版本走同一通道） */
+export function envInstall(envType: EnvType, version?: string): Promise<EnvTaskCreated> {
+  return request<EnvTaskCreated>('/env/env/install', {
+    method: 'POST',
+    body: version ? { envType, version } : { envType }
+  })
+}
+
+export function envProfile(envType: EnvType): Promise<EnvProfileData> {
+  return request<EnvProfileData>('/env/env/profile', { query: { envType } })
+}
+
+export function envConfigFile(envType: EnvType, fileId: string): Promise<EnvConfigFileContent> {
+  return request<EnvConfigFileContent>('/env/env/config-file', { query: { envType, fileId } })
+}
+
+export function envSaveConfigFile(
+  envType: EnvType,
+  fileId: string,
+  content: string
+): Promise<{ fileId: string; path: string }> {
+  return request('/env/env/save-config-file', {
+    method: 'POST',
+    body: { envType, fileId, content }
+  })
+}
+
+export function envSaveSettings(
+  envType: EnvType,
+  values: Record<string, string>
+): Promise<{ envType: EnvType; keys: string[] }> {
+  return request('/env/env/save-settings', {
+    method: 'POST',
+    body: { envType, values }
+  })
+}
+
+export function envVersions(envType: EnvType): Promise<EnvVersionListData> {
+  return request<EnvVersionListData>('/env/env/versions', { query: { envType } })
 }
 
 /** envUninstall：卸载（保守 remove D-07；已装前置 ENV_004；强确认归前端） */

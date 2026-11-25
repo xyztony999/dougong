@@ -16,4 +16,8 @@ var (
 	ErrEnvTaskNotFound = New("ENV_005", "任务不存在")
 	// ErrEnvUnitOpFailed ENV_006 systemd 服务操作失败（D-09）；data.reason。
 	ErrEnvUnitOpFailed = New("ENV_006", "服务操作失败")
+	// ErrEnvConfigUnavailable ENV_007 配置文件不存在或环境未安装，无法读写。
+	ErrEnvConfigUnavailable = New("ENV_007", "配置文件不可用")
+	// ErrEnvConfigInvalid ENV_008 配置写入后校验失败（如 nginx -t）或取值不合法。
+	ErrEnvConfigInvalid = New("ENV_008", "配置未能保存")
 )

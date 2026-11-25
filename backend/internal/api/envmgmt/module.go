@@ -34,11 +34,16 @@ func (m *Module) Register(rg *gin.RouterGroup) {
 	readBoth := rg.Group("", middleware.AuthRequired(m.auth),
 		middleware.RequireRole(authsvc.RoleAdmin, authsvc.RoleReadonly))
 	readBoth.GET("/env/list", m.list)
+	readBoth.GET("/env/profile", m.profile)
+	readBoth.GET("/env/config-file", m.configFileGet)
+	readBoth.GET("/env/versions", m.versions)
 
 	write := rg.Group("", middleware.AuthRequired(m.auth),
 		middleware.CsrfGuard(), middleware.RequireRole(authsvc.RoleAdmin))
 	write.POST("/env/install", m.install)
 	write.POST("/env/uninstall", m.uninstall)
+	write.POST("/env/save-config-file", m.configFileSave)
+	write.POST("/env/save-settings", m.settingsSave)
 	write.POST("/service/start", m.serviceOp("start"))
 	write.POST("/service/stop", m.serviceOp("stop"))
 	write.POST("/service/restart", m.serviceOp("restart"))
@@ -51,6 +56,7 @@ func (m *Module) Register(rg *gin.RouterGroup) {
 
 type envRequest struct {
 	EnvType string `json:"envType"`
+	Version string `json:"version"`
 }
 
 func (m *Module) list(c *gin.Context) {
@@ -64,7 +70,7 @@ func (m *Module) install(c *gin.Context) {
 		response.Fail(c, bindError(err))
 		return
 	}
-	data, err := m.svc.Install(c.Request.Context(), identity(c), req.EnvType)
+	data, err := m.svc.Install(c.Request.Context(), identity(c), req.EnvType, req.Version)
 	respond(c, data, err)
 }
 
@@ -107,6 +113,52 @@ func (m *Module) taskDetail(c *gin.Context) {
 		return
 	}
 	data, err := m.svc.TaskDetail(c.Request.Context(), int64(taskID))
+	respond(c, data, err)
+}
+
+func (m *Module) profile(c *gin.Context) {
+	data, err := m.svc.EnvProfile(c.Request.Context(), c.Query("envType"))
+	respond(c, data, err)
+}
+
+func (m *Module) configFileGet(c *gin.Context) {
+	data, err := m.svc.ConfigFileGet(c.Request.Context(), c.Query("envType"), c.Query("fileId"))
+	respond(c, data, err)
+}
+
+func (m *Module) versions(c *gin.Context) {
+	data, err := m.svc.ListVersions(c.Request.Context(), c.Query("envType"))
+	respond(c, data, err)
+}
+
+type configFileSaveRequest struct {
+	EnvType string `json:"envType"`
+	FileID  string `json:"fileId"`
+	Content string `json:"content"`
+}
+
+func (m *Module) configFileSave(c *gin.Context) {
+	var req configFileSaveRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, bindError(err))
+		return
+	}
+	data, err := m.svc.ConfigFileSave(c.Request.Context(), identity(c), req.EnvType, req.FileID, req.Content)
+	respond(c, data, err)
+}
+
+type settingsSaveRequest struct {
+	EnvType string            `json:"envType"`
+	Values  map[string]string `json:"values"`
+}
+
+func (m *Module) settingsSave(c *gin.Context) {
+	var req settingsSaveRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, bindError(err))
+		return
+	}
+	data, err := m.svc.SettingsSave(c.Request.Context(), identity(c), req.EnvType, req.Values)
 	respond(c, data, err)
 }
 

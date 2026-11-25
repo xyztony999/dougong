@@ -43,4 +43,10 @@ describe('resolveMenuValue', () => {
   it('菜单还没加载出来时来了切换 → 不乱高亮', () => {
     expect(resolveMenuValue('/sites', new Set<string>(), '/monitoring')).toBe('/monitoring')
   })
+
+  it('环境设置等子页高亮父菜单', () => {
+    const paths = new Set(['/env', '/sites', '/files'])
+    expect(resolveMenuValue(null, paths, '/env/nginx')).toBe('/env')
+    expect(resolveMenuValue('/env/nginx', paths, '/env')).toBe('/env')
+  })
 })

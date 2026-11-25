@@ -42,10 +42,41 @@ func ValidateCertPair(certPEM, keyPEM string) (*CertFields, error) {
 		return nil, fmt.Errorf("cert/key mismatch: %w", err)
 	}
 	return &CertFields{
-		Issuer:    cert.Issuer.CommonName,
+		Issuer:    issuerDisplayName(cert),
 		NotBefore: cert.NotBefore.UTC(),
 		NotAfter:  cert.NotAfter.UTC(),
 	}, nil
+}
+
+// issuerDisplayName 签发者可读名：CN 优先，缺省取 Organization。
+// 不少 CA（含部分导入证书）把名字放在 O、CN 为空——只读 CN 会让面板摘要空白。
+func issuerDisplayName(c *x509.Certificate) string {
+	if c == nil {
+		return ""
+	}
+	if cn := strings.TrimSpace(c.Issuer.CommonName); cn != "" {
+		return cn
+	}
+	if len(c.Issuer.Organization) > 0 {
+		return strings.Join(c.Issuer.Organization, ", ")
+	}
+	return ""
+}
+
+// liveIssuer 读时补全颁发者：落库非空优先；否则从 PEM 现解（修存量导入证书 CN 为空的行）。
+func liveIssuer(stored *string, pem string) *string {
+	if stored != nil && strings.TrimSpace(*stored) != "" {
+		return stored
+	}
+	cert, err := parseCertificatePEM(pem)
+	if err != nil {
+		return stored
+	}
+	name := issuerDisplayName(cert)
+	if name == "" {
+		return stored
+	}
+	return &name
 }
 
 // parseCertificatePEM 解析首块 CERTIFICATE PEM。

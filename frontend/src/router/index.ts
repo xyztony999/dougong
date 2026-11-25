@@ -280,6 +280,12 @@ const router = createRouter({
           component: () => import('@/views/env-mgmt/index.vue'),
           meta: { title: '环境管理' }
         },
+        {
+          path: 'env/:envType',
+          name: 'env-detail',
+          component: () => import('@/views/env-mgmt/detail.vue'),
+          meta: { title: '环境设置' }
+        },
         // ---- app-mgmt：独立页面已取消（ADR-033）——项目面板并入网站管理页的
         // 「Python 项目」「Node 项目」分栏。旧地址 /app 保留为重定向，书签不失效。----
         {

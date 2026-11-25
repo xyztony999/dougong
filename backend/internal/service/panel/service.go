@@ -197,7 +197,7 @@ func (s *Service) buildDetail(ctx context.Context, cfg storepanel.Config) (*Deta
 	if err == nil {
 		certSummary = &CertSummary{
 			Source:    cert.Source,
-			Issuer:    cert.Issuer,
+			Issuer:    liveIssuer(cert.Issuer, cert.CertPEM),
 			NotBefore: cert.NotBefore,
 			NotAfter:  cert.NotAfter,
 		}
