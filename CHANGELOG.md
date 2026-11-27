@@ -2,7 +2,7 @@
 
 发布说明按版本倒序排列；每个版本的完整说明也会作为 GitHub Release 正文发布。
 
-## v0.7.0 - 2026-11-27
+## v0.6.3 - 2026-11-27
 
 登录安全适配：支持 passkey（无密码登录 + 密码后第二因素）、一次性恢复码、新设备识别。
 
@@ -27,7 +27,7 @@
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/xyztony999/dougong/main/install.sh | sudo bash
-dougong version   # 应为 v0.7.0
+dougong version   # 应为 v0.6.3
 ```
 
 ### 升级注意
