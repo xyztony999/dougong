@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -74,6 +75,7 @@ func toCreds(list []storeauth.WebauthnCredential) []webauthn.Credential {
 			ID:              c.CredentialID,
 			PublicKey:       c.PublicKey,
 			AttestationType: c.AttestationType,
+			Flags:           webauthn.CredentialFlagsFromMsgpByte(c.Flags),
 			Transport:       toTransports(c.Transports),
 			Authenticator: webauthn.Authenticator{
 				AAGUID:    c.AAGUID,
@@ -162,6 +164,7 @@ func (p *Provider) FinishRegistration(_ context.Context, token string, response 
 		AttestationType: cred.AttestationType,
 		AAGUID:          cred.Authenticator.AAGUID,
 		SignCount:       cred.Authenticator.SignCount,
+		Flags:           cred.Flags.MsgpByte(),
 		Transports:      fromTransports(cred.Transport),
 	}, nil
 }
@@ -189,20 +192,49 @@ func (p *Provider) BeginLogin(_ context.Context, userID int64, username string, 
 	return b, token, err
 }
 
-// FinishLogin 校验 assertion（凭据集由 service 层加载传入），返回凭据标识与新 sign_count。
-func (p *Provider) FinishLogin(_ context.Context, token string, response []byte, creds []storeauth.WebauthnCredential) ([]byte, uint32, error) {
+// FinishLogin 校验 assertion（凭据集由 service 层加载传入），返回凭据标识、新
+// sign_count 与应回写的 flags 原始字节。对 v0.6.3 遗留 flags=0 的凭据做一次性自愈：
+// 若因 BackupEligible 不一致失败且存储 flags 全零，按本次断言的 authenticator flags
+// 修补后重试一次（BE 标志本应注册时固化，旧行缺失故以首次断言为准回写）。
+func (p *Provider) FinishLogin(_ context.Context, token string, response []byte, creds []storeauth.WebauthnCredential) ([]byte, uint32, byte, error) {
 	e, err := p.take(token)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, 0, err
 	}
 	parsed, err := protocol.ParseCredentialRequestResponseBytes(response)
 	if err != nil {
-		return nil, 0, fmt.Errorf("webauthnx: parse assertion: %w", err)
+		return nil, 0, 0, fmt.Errorf("webauthnx: parse assertion: %w", err)
 	}
 	u := waUser{id: e.userID, name: "", creds: toCreds(creds)}
-	cred, err := p.w.ValidateLogin(u, *e.data, parsed)
-	if err != nil {
-		return nil, 0, fmt.Errorf("webauthnx: validate login: %w", err)
+	cred, verr := p.w.ValidateLogin(u, *e.data, parsed)
+	if verr != nil && isBackupEligibleInconsistency(verr) && allFlagsZero(creds) {
+		flagsByte := byte(parsed.Response.AuthenticatorData.Flags)
+		patched := make([]storeauth.WebauthnCredential, len(creds))
+		copy(patched, creds)
+		for i := range patched {
+			patched[i].Flags = flagsByte
+		}
+		u2 := waUser{id: e.userID, name: "", creds: toCreds(patched)}
+		if cred2, err2 := p.w.ValidateLogin(u2, *e.data, parsed); err2 == nil {
+			return cred2.ID, cred2.Authenticator.SignCount, flagsByte, nil
+		}
+		return nil, 0, 0, fmt.Errorf("webauthnx: validate login: %w", verr)
 	}
-	return cred.ID, cred.Authenticator.SignCount, nil
+	if verr != nil {
+		return nil, 0, 0, fmt.Errorf("webauthnx: validate login: %w", verr)
+	}
+	return cred.ID, cred.Authenticator.SignCount, cred.Flags.MsgpByte(), nil
+}
+
+func isBackupEligibleInconsistency(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "Backup Eligible flag inconsistency")
+}
+
+func allFlagsZero(creds []storeauth.WebauthnCredential) bool {
+	for _, c := range creds {
+		if c.Flags != 0 {
+			return false
+		}
+	}
+	return true
 }

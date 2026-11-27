@@ -2,9 +2,9 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v1.3 |
+| 版本 | v1.4 |
 | 状态 | 稳定 |
-| 最后更新 | 2026-11-27（v1.3 登录安全增量：passkey/恢复码/新设备，§4.6） |
+| 最后更新 | 2026-11-27（v1.4 passkey 可用性修正：flags 持久化+旧行自愈、Origin 放宽登记，§4.6） |
 | 输入 | prd-account-auth.md v1.0（完备性检查通过）、domain-model.md v1.0、d0-clarification-account-auth.md |
 | 接口规约 | 无激活技术栈（ACTIVE_STACKS 为空）——按通用 REST/JSON 契约设计；认证=HttpOnly Cookie 会话 + CSRF token（R-02/ADR-019）；鉴权=RBAC 两角色边界矩阵（ADR-018） |
 
@@ -531,7 +531,7 @@ CREATE TABLE IF NOT EXISTS init_state (
 
 > 来源 d0-clarification-account-auth-login-security-2026-11-27.md。用户拍板：passkey 双形态（无密码 + 第二因素）+ 恢复码 + 登录保护强化。WebAuthn 库 go-webauthn/webauthn（纯 Go）。不改动会话 Cookie/CSRF/RBAC 架构。
 
-**数据表（迁移 019）**：`panel_user_webauthn`（1:N 凭据：credential_id BLOB UNIQUE/public_key BLOB/attestation_type/aaguid/sign_count/transports/name/created_at/last_used_at）；`panel_user_recovery_codes`（code_hash UNIQUE(user,hash)/used_at NULL=未用/created_at）；`panel_user_devices`（device_hash UNIQUE(user,hash)/user_agent/first_seen/last_seen）。私钥永不落库；恢复码哈希存储、只展示一次。
+**数据表（迁移 019/020）**：`panel_user_webauthn`（1:N 凭据：credential_id BLOB UNIQUE/public_key BLOB/attestation_type/aaguid/sign_count/flags/transports/name/created_at/last_used_at；flags=认证器 flags 原始字节，迁移 020 补列，旧行默认 0）；`panel_user_recovery_codes`（code_hash UNIQUE(user,hash)/used_at NULL=未用/created_at）；`panel_user_devices`（device_hash UNIQUE(user,hash)/user_agent/first_seen/last_seen）。私钥永不落库；恢复码哈希存储、只展示一次。
 
 **接口**（前缀 /auth；包络同 3.4；会话守卫沿用 3.1）：
 
@@ -552,6 +552,8 @@ CREATE TABLE IF NOT EXISTS init_state (
 
 **新设备识别**：设备 cookie `dg_device`（HttpOnly/SameSite=Strict/Path=/）+ UA 哈希=device_hash；登录成功 upsert，首次→审计 detail.new_device=true 并响应 newDevice 标记。失败锁定沿用 R-01。
 
+**WebAuthn 校验规则**：RP ID=访问 Host 去端口（IP 不支持 passkey，需域名+HTTPS）；允许 Origin 放宽为同主机多形态（https/http × 带端口/不带端口——CDN/反向代理可能归一化或剥离 Origin 端口，v0.6.4）；begin/finish 的 session data 存服务端进程内（一次性 token，5min TTL，跨请求共享）。注册即持久化认证器 flags 原始字节（`CredentialFlags.MsgpByte`，含 BackupEligible），断言成功后随 sign_count/last_used 回写；迁移 020 前的旧行 flags=0 视为「未知」，若因 BE 不一致被拒则按本次断言自愈重试一次并回写（v0.6.5，用户无须重新注册）；已存 flags 而 BE 不一致仍拒（换认证器/克隆属真异常）。
+
 **错误码**：新增 AUTH_015（WebAuthn 校验失败）、AUTH_016（恢复码无效/已用）、AUTH_017（凭据不存在）等（编号接力，前端文案映射同步）。
 
 ## 6. 更新记录
@@ -565,6 +567,7 @@ CREATE TABLE IF NOT EXISTS init_state (
 | v1.1 | 2026-11-12 | interface_changed | Gate 1 W3 修正：/auth/audit-log/list 与 /auth/audit-log/export 的 query 补 objectId?（等值匹配），对齐 PRD T4"对象标识"筛选维度；接口数不变 18 | 4 |
 | v1.2 | 2026-11-19 | rule_added（OHS 消费登记） | db-tools 集成联动登记（api-db-tools.md v1.0 D-11 消费方，同轮提供方登记沿 v2.2 先例）：SessionAuthService.VerifyWs OHS 消费方 +db-tools gating（工具路径 auth_request 内部端点 /dbtool/gate/verify 由 db-tools 自持，复用同 I-11 只读判定不续期——避免工具静态资源逐请求滑动续期写放大）；**本模块零新增 HTTP 接口/零 DDL 变更/零错误码变更**（gating 端点归 db-tools，会话校验能力既有）；1.5/3.2/4.2.5/5.1 消费登记同步；表头版本订正（v1.1 W2/W3 行早在 6.1 而表头滞后 v1.0，本轮升 v1.2 一并闭环） | 1.5 / 3.2 / 4.2.5 / 5.1 |
 | v1.3 | 2026-11-27 | interface_added / table_added / rule_added / field_added | 登录安全增量（d0-clarification-account-auth-login-security-2026-11-27，用户拍板 passkey 双形态+恢复码+登录保护）：**新增 §4.6**——10 接口（webauthn register-begin/finish/list/delete、login-begin/finish、passkey-verify、recovery-codes generate/get、recovery-login）；3 新表（panel_user_webauthn/recovery_codes/devices，迁移 019）；登录流变更（密码后无 TOTP 有 passkey→requiresPasskey 二因素；无密码 passkey 登录；恢复码登录）；新设备识别（dg_device cookie+UA 哈希，newDevice 标记+审计）；错误码 +AUTH_015~018；WebAuthn 库 go-webauthn（纯 Go），session token 服务端内存 5min；私钥/恢复码哈希不落明文（I-P06 同口径） | 4.6 / 3.4 / 5.x |
+| v1.4 | 2026-11-27 | field_added / rule_changed | passkey 实机可用性修正（用户服务器 Cloudflare 橙云实测 AUTH_015）：`panel_user_webauthn` +flags 列（迁移 020，认证器 flags 原始字节）——v1.3 注册未持久化 flags，登录时库内 BackupEligible 恒为 false，而可同步 passkey 断言 BE=true，go-webauthn 判「Backup Eligible flag inconsistency」拒登；断言成功后 flags 随 sign_count 回写，旧行 flags=0 遇 BE 不一致自愈重试一次（免重新注册），已存 flags 的不一致仍拒；同时把 v0.6.4 已上线的 RPOrigins 同主机多形态放宽补登记入 §4.6 校验规则 | 4.6 |
 
 ### 6.2 变更类型词汇表
 

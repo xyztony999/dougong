@@ -217,7 +217,7 @@ func (s *Service) assertPasskey(ctx context.Context, u storeauth.User, token str
 	if err != nil {
 		return nil, fmt.Errorf("auth: assert list: %w", err)
 	}
-	credID, signCount, err := p.FinishLogin(ctx, token, response, creds)
+	credID, signCount, flags, err := p.FinishLogin(ctx, token, response, creds)
 	if err != nil {
 		slog.WarnContext(ctx, "auth: webauthn assert", "err", err, "user", u.Username)
 		if rerr := s.recordLoginFailure(ctx, u, s.now(), meta, "passkey"); rerr != nil {
@@ -225,10 +225,10 @@ func (s *Service) assertPasskey(ctx context.Context, u storeauth.User, token str
 		}
 		return nil, errcode.ErrWebAuthnInvalid
 	}
-	// 更新匹配凭据的 sign_count/last_used（防克隆计数回退由适配器校验）。
+	// 更新匹配凭据的 sign_count/flags/last_used（flags 回写使 v0.6.3 旧行自愈持久化）。
 	for _, c := range creds {
 		if string(c.CredentialID) == string(credID) {
-			if err := s.st.Webauthn().Touch(ctx, c.ID, signCount, formatTimeNow(s.now())); err != nil {
+			if err := s.st.Webauthn().Touch(ctx, c.ID, signCount, flags, formatTimeNow(s.now())); err != nil {
 				return nil, fmt.Errorf("auth: webauthn touch: %w", err)
 			}
 			break

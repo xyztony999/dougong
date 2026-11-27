@@ -17,9 +17,9 @@ func (r *WebauthnRepo) Create(ctx context.Context, c WebauthnCredential) (int64,
 		return 0, wrapErr("webauthn marshal transports", err)
 	}
 	res, err := r.x.ExecContext(ctx,
-		`INSERT INTO panel_user_webauthn (user_id, credential_id, public_key, attestation_type, aaguid, sign_count, transports, name, created_at, last_used_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		c.UserID, c.CredentialID, c.PublicKey, c.AttestationType, c.AAGUID, c.SignCount, string(transports), c.Name,
+		`INSERT INTO panel_user_webauthn (user_id, credential_id, public_key, attestation_type, aaguid, sign_count, flags, transports, name, created_at, last_used_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		c.UserID, c.CredentialID, c.PublicKey, c.AttestationType, c.AAGUID, c.SignCount, c.Flags, string(transports), c.Name,
 		formatTime(c.CreatedAt), formatTimePtr(c.LastUsedAt))
 	if err != nil {
 		return 0, wrapErr("webauthn create", err)
@@ -31,7 +31,7 @@ func (r *WebauthnRepo) Create(ctx context.Context, c WebauthnCredential) (int64,
 // ListByUser 取用户全部凭据（创建序）。
 func (r *WebauthnRepo) ListByUser(ctx context.Context, userID int64) ([]WebauthnCredential, error) {
 	rows, err := r.x.QueryContext(ctx,
-		`SELECT id, user_id, credential_id, public_key, attestation_type, aaguid, sign_count, transports, name, created_at, last_used_at
+		`SELECT id, user_id, credential_id, public_key, attestation_type, aaguid, sign_count, flags, transports, name, created_at, last_used_at
 		 FROM panel_user_webauthn WHERE user_id = ? ORDER BY id`, userID)
 	if err != nil {
 		return nil, wrapErr("webauthn list", err)
@@ -51,7 +51,7 @@ func (r *WebauthnRepo) ListByUser(ctx context.Context, userID int64) ([]Webauthn
 // GetByID 取单条（须属该用户，删/校验用）；无行返回 sql.ErrNoRows。
 func (r *WebauthnRepo) GetByID(ctx context.Context, userID, id int64) (WebauthnCredential, error) {
 	row := r.x.QueryRowContext(ctx,
-		`SELECT id, user_id, credential_id, public_key, attestation_type, aaguid, sign_count, transports, name, created_at, last_used_at
+		`SELECT id, user_id, credential_id, public_key, attestation_type, aaguid, sign_count, flags, transports, name, created_at, last_used_at
 		 FROM panel_user_webauthn WHERE id = ? AND user_id = ?`, id, userID)
 	c, err := scanWebauthn(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -63,16 +63,16 @@ func (r *WebauthnRepo) GetByID(ctx context.Context, userID, id int64) (WebauthnC
 // GetByCredentialID 按凭据标识取（断言后更新 sign_count 用）。
 func (r *WebauthnRepo) GetByCredentialID(ctx context.Context, credentialID []byte) (WebauthnCredential, error) {
 	row := r.x.QueryRowContext(ctx,
-		`SELECT id, user_id, credential_id, public_key, attestation_type, aaguid, sign_count, transports, name, created_at, last_used_at
+		`SELECT id, user_id, credential_id, public_key, attestation_type, aaguid, sign_count, flags, transports, name, created_at, last_used_at
 		 FROM panel_user_webauthn WHERE credential_id = ?`, credentialID)
 	return scanWebauthn(row)
 }
 
-// Touch 更新 sign_count/last_used_at（time.Time 由调用方传入 RFC3339 字符串）。
-func (r *WebauthnRepo) Touch(ctx context.Context, id int64, signCount uint32, lastUsed string) error {
+// Touch 更新 sign_count/flags/last_used_at（断言成功；flags 用于旧行自愈回写）。
+func (r *WebauthnRepo) Touch(ctx context.Context, id int64, signCount uint32, flags uint8, lastUsed string) error {
 	_, err := r.x.ExecContext(ctx,
-		`UPDATE panel_user_webauthn SET sign_count = ?, last_used_at = ? WHERE id = ?`,
-		signCount, lastUsed, id)
+		`UPDATE panel_user_webauthn SET sign_count = ?, flags = ?, last_used_at = ? WHERE id = ?`,
+		signCount, flags, lastUsed, id)
 	return wrapErr("webauthn touch", err)
 }
 
@@ -98,11 +98,13 @@ func scanWebauthn(row rowScanner) (WebauthnCredential, error) {
 	var transports string
 	var aaguid []byte
 	var createdAt, lastUsed any
-	err := row.Scan(&c.ID, &c.UserID, &c.CredentialID, &c.PublicKey, &c.AttestationType, &aaguid, &c.SignCount, &transports, &c.Name, &createdAt, &lastUsed)
+	var flags int
+	err := row.Scan(&c.ID, &c.UserID, &c.CredentialID, &c.PublicKey, &c.AttestationType, &aaguid, &c.SignCount, &flags, &transports, &c.Name, &createdAt, &lastUsed)
 	if err != nil {
 		return WebauthnCredential{}, wrapErr("webauthn scan", err)
 	}
 	c.AAGUID = aaguid
+	c.Flags = uint8(flags)
 	ct, err := scanTime(createdAt)
 	if err != nil {
 		return WebauthnCredential{}, err

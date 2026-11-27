@@ -21,12 +21,80 @@ func (fakeWA) FinishRegistration(_ context.Context, _ string, _ []byte) (storeau
 func (fakeWA) BeginLogin(_ context.Context, _ int64, _ string, _ []storeauth.WebauthnCredential) ([]byte, string, error) {
 	return []byte(`{"publicKey":{}}`), "logtok", nil
 }
-func (fakeWA) FinishLogin(_ context.Context, _ string, _ []byte, _ []storeauth.WebauthnCredential) ([]byte, uint32, error) {
-	return []byte("cred-1"), 1, nil
+func (fakeWA) FinishLogin(_ context.Context, _ string, _ []byte, _ []storeauth.WebauthnCredential) ([]byte, uint32, byte, error) {
+	return []byte("cred-1"), 1, 0, nil
 }
 
 func withFakeWA(svc *Service) {
 	svc.wa = func(rpID string, origins []string) WebAuthnProvider { return fakeWA{} }
+}
+
+// flagsWA 让注册/断言返回指定 flags 原始字节（校验落库与回写）。
+type flagsWA struct {
+	fakeWA
+	regFlags    byte
+	assertFlags byte
+	signCount   uint32
+}
+
+func (f flagsWA) FinishRegistration(_ context.Context, _ string, _ []byte) (storeauth.WebauthnCredential, error) {
+	return storeauth.WebauthnCredential{
+		CredentialID: []byte("cred-flags"), PublicKey: []byte("pk"), SignCount: 0, Flags: f.regFlags,
+	}, nil
+}
+
+func (f flagsWA) FinishLogin(_ context.Context, _ string, _ []byte, _ []storeauth.WebauthnCredential) ([]byte, uint32, byte, error) {
+	return []byte("cred-flags"), f.signCount, f.assertFlags, nil
+}
+
+// flags 原始字节须注册即落库，并在断言成功后随 sign_count 回写（旧行 flags=0 自愈即靠此持久化）。
+// v0.6.4 前未持久化 → 可同步 passkey（BE=1）登录被判 BackupEligible 不一致而拒。
+func TestWebauthnFlagsPersistedAndWrittenBack(t *testing.T) {
+	svc, st, _ := newTestService(t)
+	ctx := context.Background()
+	_, _ = bootstrapAdmin(t, svc, "admin", "admin12345")
+	id := &Identity{UserID: 1, Username: "admin", Role: "admin"}
+
+	const regFlags = byte(0x4D)  // UP|UV|BE|AT：注册时认证器上报的原始字节
+	const liveFlags = byte(0x0D) // UP|UV|BE：断言时无 AT 位
+
+	svc.wa = func(string, []string) WebAuthnProvider {
+		return flagsWA{regFlags: regFlags, assertFlags: liveFlags, signCount: 7}
+	}
+	registerPasskey(t, svc, id)
+
+	creds, err := st.Webauthn().ListByUser(ctx, 1)
+	if err != nil || len(creds) != 1 {
+		t.Fatalf("list: %v %d", err, len(creds))
+	}
+	if creds[0].Flags != regFlags {
+		t.Fatalf("persisted flags = %#x, want %#x", creds[0].Flags, regFlags)
+	}
+
+	// 密码 → 二因素 passkey 登录，成功后须把断言侧 flags 与 sign_count 写回。
+	out, err := svc.Login(ctx, LoginRequest{Username: "admin", Password: "admin12345"}, waMeta())
+	if err != nil || !out.RequiresPasskey {
+		t.Fatalf("login: %v %+v", err, out)
+	}
+	if _, err := svc.PasskeyVerify(ctx, WebAuthnLoginFinishRequest{
+		LoginTicket: out.LoginTicket, Token: "logtok", Credential: json.RawMessage(`{}`),
+	}, waMeta()); err != nil {
+		t.Fatalf("passkey verify: %v", err)
+	}
+
+	got, err := st.Webauthn().GetByID(ctx, 1, creds[0].ID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.Flags != liveFlags {
+		t.Fatalf("flags after assert = %#x, want %#x", got.Flags, liveFlags)
+	}
+	if got.SignCount != 7 {
+		t.Fatalf("signCount = %d, want 7", got.SignCount)
+	}
+	if got.LastUsedAt == nil {
+		t.Fatal("lastUsedAt not set")
+	}
 }
 
 func waMeta() RequestMeta {

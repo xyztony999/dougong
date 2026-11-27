@@ -43,7 +43,7 @@ type WebAuthnProvider interface {
 	BeginRegistration(ctx context.Context, userID int64, username string, existing []storeauth.WebauthnCredential) (options []byte, token string, err error)
 	FinishRegistration(ctx context.Context, token string, response []byte) (storeauth.WebauthnCredential, error)
 	BeginLogin(ctx context.Context, userID int64, username string, creds []storeauth.WebauthnCredential) (options []byte, token string, err error)
-	FinishLogin(ctx context.Context, token string, response []byte, creds []storeauth.WebauthnCredential) (credentialID []byte, signCount uint32, err error)
+	FinishLogin(ctx context.Context, token string, response []byte, creds []storeauth.WebauthnCredential) (credentialID []byte, signCount uint32, flags byte, err error)
 }
 
 // WebAuthnFactory 按请求 RP ID（绑定域名或 Host 去端口）与 Origin 构造 provider。

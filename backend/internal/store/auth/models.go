@@ -54,6 +54,8 @@ type TotpCredential struct {
 
 // WebauthnCredential 对应 panel_user_webauthn 行（1:N passkey 凭据）。
 // 私钥永不落库；PublicKey 为 COSE 公钥；CredentialID 为凭据标识（UNIQUE）。
+// Flags 为注册时 authenticator flags 原始字节（CredentialFlags.MsgpByte）——登录时
+// go-webauthn 比对 BackupEligible 一致性需要它（v0.6.4 修复；0=旧行未知，登录自愈）。
 type WebauthnCredential struct {
 	ID              int64
 	UserID          int64
@@ -62,6 +64,7 @@ type WebauthnCredential struct {
 	AttestationType string
 	AAGUID          []byte
 	SignCount       uint32
+	Flags           uint8
 	Transports      []string
 	Name            string
 	CreatedAt       time.Time

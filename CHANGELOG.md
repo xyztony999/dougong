@@ -2,6 +2,32 @@
 
 发布说明按版本倒序排列；每个版本的完整说明也会作为 GitHub Release 正文发布。
 
+## v0.6.5 - 2026-11-27
+
+修复：passkey 登录提示「passkey 验证失败，请重试或用密码登录」——注册时漏存认证器标志位。
+
+### 变更内容
+
+**修复：passkey 登录被拒（BackupEligible 标志不一致）**
+- v0.6.3/v0.6.4 注册 passkey 时只保存了 ID、公钥和签名计数，漏存认证器上报的标志位（flags，其中 BackupEligible 表示「这个 passkey 会不会同步备份」）。登录校验时服务端按「不会同步」处理，而手机、密码管理器里的 passkey 大多会同步，两边对不上就被当成异常拒绝（服务日志：Backup Eligible flag inconsistency detected during login validation）
+- 现在注册即保存标志位，每次 passkey 登录成功后随之更新
+
+**升级前注册的 passkey 自动补全，不用重新注册**
+- 老数据缺这一项：首次登录若因此被拒，会按本次认证器上报的值补一次并存下来，之后按正常规则校验
+- 已存过标志位、两边仍对不上的照旧拒绝（换了认证器、passkey 被复制属于真异常）
+
+### 安装与升级
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/xyztony999/dougong/main/install.sh | sudo bash
+dougong version   # 应为 v0.6.5
+```
+
+### 升级注意
+
+- 本版包含数据库迁移 020（给 passkey 表补一列 flags，默认 0），升级自动执行，不动现有数据；稳妥起见升级前备份 /var/lib/dougong
+- 升级后直接用原来的 passkey 登录即可，无需重新注册；若仍提示验证失败，请把 `journalctl -u dougong | grep -i webauthn` 的输出发来
+
 ## v0.6.4 - 2026-11-27
 
 修复：经 Cloudflare 等反向代理使用 passkey 时验证失败。
