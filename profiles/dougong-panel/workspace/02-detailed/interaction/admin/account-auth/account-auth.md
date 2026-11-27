@@ -2,9 +2,9 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v1.0 |
+| 版本 | v1.4 |
 | 状态 | 稳定 |
-| 最后更新 | 2026-11-12 |
+| 最后更新 | 2026-11-27 |
 | 用户类型 | admin（另含全用户公共页：初始化向导/登录，readonly 文档引用本文定义） |
 | 唯一数据源 | 02-detailed/api/api-account-auth.md v1.0 |
 | 组件体系 | Vue 3 + Naive UI（knowledge/architecture-choices 栈版本表；无激活栈 profile，不使用 vue3-engine 栈 Scm* 组件） |
@@ -43,8 +43,18 @@
 | sessionRevoke | POST | /auth/session/revoke | session-list | admin | ✓ |
 | auditList | GET | /auth/audit-log/list | audit-log-list | admin+readonly | — |
 | auditExport | GET | /auth/audit-log/export | audit-log-list | admin | — |
+| webauthnRegisterBegin | POST | /auth/webauthn/register-begin | profile-self | 本人会话 | ✓ |
+| webauthnRegisterFinish | POST | /auth/webauthn/register-finish | profile-self | 本人会话 | ✓ |
+| webauthnList | GET | /auth/webauthn/list | profile-self | 本人会话 | — |
+| webauthnDelete | POST | /auth/webauthn/delete | profile-self | 本人会话 | ✓ |
+| webauthnLoginBegin | POST | /auth/webauthn/login-begin | login | 公开 | — |
+| webauthnLoginFinish | POST | /auth/webauthn/login-finish | login | 公开 | — |
+| passkeyVerify | POST | /auth/session/passkey-verify | login（二步） | 公开（凭 ticket） | — |
+| recoveryGenerate | POST | /auth/recovery-codes/generate | profile-self | 本人会话 | ✓ |
+| recoveryCount | GET | /auth/recovery-codes | profile-self | 本人会话 | — |
+| recoveryLogin | POST | /auth/session/recovery-login | login | 公开 | — |
 
-> S7 一致性：18 Action 与 api-account-auth.md 18 接口一一对应（session/login、session/logout 等一接口一 Action，无未覆盖接口、无虚构接口）。
+> S7 一致性：28 Action 与 api-account-auth.md 28 接口一一对应（v1.4 +10 登录安全：passkey 注册/管理/登录/二因素 + 恢复码生成/计数/登录；无未覆盖接口、无虚构接口）。
 
 ## 第 3 节 字典 Key 清单
 
@@ -227,6 +237,18 @@
 
 **按钮组合**：master_data 惯例 保存/取消（各 Card 独立提交，无跨 Card 草稿态）。
 
+### 5.4 登录安全增量（v1.4，passkey/恢复码）
+
+**登录页（5.2 扩展）**：
+- 「使用 passkey 登录」文字按钮（需先填用户名；浏览器支持 passkey 时显示）：webauthnLoginBegin → navigator.credentials.get → webauthnLoginFinish → 会话（无密码）。
+- 密码登录后若返回 `requiresPasskey`（AUTH_007 带标记，无 TOTP 但有 passkey）：显示「用 passkey 验证」按钮 → webauthnLoginBegin → get → passkeyVerify(ticket) → 会话（二因素，与 TOTP 两步同构）。
+- 「用恢复码登录」切换：显示恢复码输入框 + 提交 → recoveryLogin → 会话（一次性消耗）。
+- 不支持 passkey 的环境（非安全上下文/无域名）隐藏 passkey 按钮；后端对 IP 访问返回 AUTH_018 提示改用 HTTPS 域名。
+
+**个人安全设置（5.3 扩展，Card 3/4）**：
+- Card 3 Passkey：列表（名称/添加时间）+「添加 passkey」（register-begin → credentials.create → register-finish）+ 每行删除（NPopconfirm）；不支持时提示。
+- Card 4 恢复码：剩余数量 tag +「生成/重新生成」（NPopconfirm 警告旧码作废）→ 弹窗一次性展示 10 个明文码 + 复制；关闭后不可再查看（I-P06 同口径）。
+
 ## 第 6 节 详情页
 
 本模块无独立详情路由页（列表行内弹窗承载：新增/重置密码/审计详情 JSON/TOTP 绑定弹窗）。无审批记录 Card、无子表 Card。
@@ -274,5 +296,6 @@
 | v1.1 | 2026-11-12 | field_added | audit-log-list 筛选区补"对象标识"（objectId eq），对齐 API query 修订（Gate 1 W3 修正）；W4 动态码提交字段统一为 totpSecret+totpCode | 4.3 |
 | v1.2 | 2026-11-16 | copy_revision | 首启 UI 缺陷修复增量：全局 dark 背景同步/响应式跟随/暗色对比度（App.vue 装配，独立页 5.1/5.2 受益）；5.1/5.2 说明文案净化（去「不阻断/单向/ADR-017/经 CLI」术语表述，功能语义不变）——UI 文案未在本 PageSpec 逐字锁定，Action/契约/校验零变更 | 5.1/5.2 |
 | v1.3 | 2026-11-16 | copy_revision / structural | 增量 D4（v0.1.2 用户反馈第 5/6 项）：侧栏菜单分组化登记（「用户与安全」分组四子项两角色，经 panel-core ModuleMenuRegistry 补全——实现回归本节既有设计，修复 /users 不可达）；顶栏标题=当前页面标题（替换硬编码「账户与安全基座」业务域显示名）；路由 meta +title 四项；列表页加载失败态规范（loadError NAlert+重试，修复正文空白缺陷）；Action/字典/接口契约零变化 |
+| v1.4 | 2026-11-27 | interface_added / structural | 登录安全增量 D4（数据源 api-account-auth.md v1.3 §4.6，d0-clarification-account-auth-login-security-2026-11-27）：**+10 Action**（passkey 注册 begin/finish、列表、删除、无密码登录 begin/finish、二因素 passkeyVerify、恢复码生成/计数/登录）；5.2 登录页 +passkey 无密码/二因素/恢复码三入口；5.3 个人安全 +Card 3 Passkey 管理 +Card 4 恢复码（一次性展示）；S7 18→28 一一对应；字典/路由零变化 |
 
 > FX 质量清单说明：FX-001~FX-141 逐条清单文件未随引擎 0.5.2 payload 发布（find 验证无 checklist.md），本节按分册 9 节结构逐节落实，并以第 8 节 10 项全局一致性自查替代可机械执行部分；全量 141 项留待 Gate 1 validation 执行。

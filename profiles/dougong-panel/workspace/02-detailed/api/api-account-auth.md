@@ -2,9 +2,9 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v1.2 |
+| 版本 | v1.3 |
 | 状态 | 稳定 |
-| 最后更新 | 2026-11-19（v1.2 db-tools gating OHS 消费登记，零 HTTP/DDL 变更；表头版本订正——v1.1 Gate 1 W2/W3 修正行早已在 6.1 而表头滞后 v1.0） |
+| 最后更新 | 2026-11-27（v1.3 登录安全增量：passkey/恢复码/新设备，§4.6） |
 | 输入 | prd-account-auth.md v1.0（完备性检查通过）、domain-model.md v1.0、d0-clarification-account-auth.md |
 | 接口规约 | 无激活技术栈（ACTIVE_STACKS 为空）——按通用 REST/JSON 契约设计；认证=HttpOnly Cookie 会话 + CSRF token（R-02/ADR-019）；鉴权=RBAC 两角色边界矩阵（ADR-018） |
 
@@ -527,6 +527,33 @@ CREATE TABLE IF NOT EXISTS init_state (
 );
 ```
 
+### 4.6 登录安全增量（v1.3，2026-11-27，passkey/恢复码/新设备识别）
+
+> 来源 d0-clarification-account-auth-login-security-2026-11-27.md。用户拍板：passkey 双形态（无密码 + 第二因素）+ 恢复码 + 登录保护强化。WebAuthn 库 go-webauthn/webauthn（纯 Go）。不改动会话 Cookie/CSRF/RBAC 架构。
+
+**数据表（迁移 019）**：`panel_user_webauthn`（1:N 凭据：credential_id BLOB UNIQUE/public_key BLOB/attestation_type/aaguid/sign_count/transports/name/created_at/last_used_at）；`panel_user_recovery_codes`（code_hash UNIQUE(user,hash)/used_at NULL=未用/created_at）；`panel_user_devices`（device_hash UNIQUE(user,hash)/user_agent/first_seen/last_seen）。私钥永不落库；恢复码哈希存储、只展示一次。
+
+**接口**（前缀 /auth；包络同 3.4；会话守卫沿用 3.1）：
+
+| 接口 | 方法 | 权限 | 说明 |
+|------|------|------|------|
+| /auth/webauthn/register-begin | POST | 会话 | 返回 creation options + 一次性 session token（5min） |
+| /auth/webauthn/register-finish | POST | 会话 | {token, credential, name} → 存凭据 + 审计 webauthn_registered |
+| /auth/webauthn/list | GET | 会话 | 本人凭据列表（id/name/aaguid/created/last_used，不含公钥） |
+| /auth/webauthn/delete | POST | 会话 | {id} 删除本人凭据 + 审计 |
+| /auth/webauthn/login-begin | POST | 公开 | {username} → assertion options + token；用户不存在统一 AUTH_001（不枚举） |
+| /auth/webauthn/login-finish | POST | 公开 | {token, credential} → 无密码登录签发会话 + 审计 + 新设备识别 |
+| /auth/session/passkey-verify | POST | 公开凭 ticket | 密码后第二因素 passkey 断言 → 会话（D-02 两步同构） |
+| /auth/recovery-codes/generate | POST | 会话 | 作废旧未用码，生成 10 个一次性码明文返回一次 + 审计 |
+| /auth/recovery-codes | GET | 会话 | 剩余未用码数量 |
+| /auth/session/recovery-login | POST | 公开 | {username, code} → 消耗一码签发会话 + 审计；失败计数 R-01 |
+
+**登录流变更**：密码登录成功后——启用 TOTP→现有 TOTP 两步；否则有≥1 passkey→签发 login_ticket 返回 `requiresPasskey:true`（AUTH_007 同构）→passkey-verify；皆无→直接会话。登录页另提供「使用 passkey 登录」（无密码）入口。
+
+**新设备识别**：设备 cookie `dg_device`（HttpOnly/SameSite=Strict/Path=/）+ UA 哈希=device_hash；登录成功 upsert，首次→审计 detail.new_device=true 并响应 newDevice 标记。失败锁定沿用 R-01。
+
+**错误码**：新增 AUTH_015（WebAuthn 校验失败）、AUTH_016（恢复码无效/已用）、AUTH_017（凭据不存在）等（编号接力，前端文案映射同步）。
+
 ## 6. 更新记录
 
 ### 6.1 变更记录
@@ -537,6 +564,7 @@ CREATE TABLE IF NOT EXISTS init_state (
 | v1.1 | 2026-11-12 | rule_changed | Gate 1 W2 修正：D-10 会话有效期配置载体由"策略表单行配置"改为面板配置文件（internal/config，重启生效 MVP），5 表 DDL 不变；两个固定值（审计保留 90 天/密码最小 8 位）明确为编译期常量 | 1.3 / 3.4 |
 | v1.1 | 2026-11-12 | interface_changed | Gate 1 W3 修正：/auth/audit-log/list 与 /auth/audit-log/export 的 query 补 objectId?（等值匹配），对齐 PRD T4"对象标识"筛选维度；接口数不变 18 | 4 |
 | v1.2 | 2026-11-19 | rule_added（OHS 消费登记） | db-tools 集成联动登记（api-db-tools.md v1.0 D-11 消费方，同轮提供方登记沿 v2.2 先例）：SessionAuthService.VerifyWs OHS 消费方 +db-tools gating（工具路径 auth_request 内部端点 /dbtool/gate/verify 由 db-tools 自持，复用同 I-11 只读判定不续期——避免工具静态资源逐请求滑动续期写放大）；**本模块零新增 HTTP 接口/零 DDL 变更/零错误码变更**（gating 端点归 db-tools，会话校验能力既有）；1.5/3.2/4.2.5/5.1 消费登记同步；表头版本订正（v1.1 W2/W3 行早在 6.1 而表头滞后 v1.0，本轮升 v1.2 一并闭环） | 1.5 / 3.2 / 4.2.5 / 5.1 |
+| v1.3 | 2026-11-27 | interface_added / table_added / rule_added / field_added | 登录安全增量（d0-clarification-account-auth-login-security-2026-11-27，用户拍板 passkey 双形态+恢复码+登录保护）：**新增 §4.6**——10 接口（webauthn register-begin/finish/list/delete、login-begin/finish、passkey-verify、recovery-codes generate/get、recovery-login）；3 新表（panel_user_webauthn/recovery_codes/devices，迁移 019）；登录流变更（密码后无 TOTP 有 passkey→requiresPasskey 二因素；无密码 passkey 登录；恢复码登录）；新设备识别（dg_device cookie+UA 哈希，newDevice 标记+审计）；错误码 +AUTH_015~018；WebAuthn 库 go-webauthn（纯 Go），session token 服务端内存 5min；私钥/恢复码哈希不落明文（I-P06 同口径） | 4.6 / 3.4 / 5.x |
 
 ### 6.2 变更类型词汇表
 
