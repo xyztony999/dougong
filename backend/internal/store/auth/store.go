@@ -25,6 +25,15 @@ func (s *Store) Sessions() *SessionRepo { return &SessionRepo{x: s.db} }
 // Totp 返回 panel_user_totp 仓储。
 func (s *Store) Totp() *TotpRepo { return &TotpRepo{x: s.db} }
 
+// Webauthn 返回 panel_user_webauthn 仓储。
+func (s *Store) Webauthn() *WebauthnRepo { return &WebauthnRepo{x: s.db} }
+
+// Recovery 返回 panel_user_recovery_codes 仓储。
+func (s *Store) Recovery() *RecoveryRepo { return &RecoveryRepo{x: s.db} }
+
+// Devices 返回 panel_user_devices 仓储。
+func (s *Store) Devices() *DeviceRepo { return &DeviceRepo{x: s.db} }
+
 // Audit 返回 audit_log 仓储。
 func (s *Store) Audit() *AuditRepo { return &AuditRepo{x: s.db} }
 
@@ -71,6 +80,15 @@ func (t *TxStore) Sessions() *SessionRepo { return &SessionRepo{x: t.tx} }
 
 // Totp 返回事务内 panel_user_totp 仓储。
 func (t *TxStore) Totp() *TotpRepo { return &TotpRepo{x: t.tx} }
+
+// Webauthn 返回事务内 panel_user_webauthn 仓储。
+func (t *TxStore) Webauthn() *WebauthnRepo { return &WebauthnRepo{x: t.tx} }
+
+// Recovery 返回事务内 panel_user_recovery_codes 仓储。
+func (t *TxStore) Recovery() *RecoveryRepo { return &RecoveryRepo{x: t.tx} }
+
+// Devices 返回事务内 panel_user_devices 仓储。
+func (t *TxStore) Devices() *DeviceRepo { return &DeviceRepo{x: t.tx} }
 
 // Audit 返回事务内 audit_log 仓储。
 func (t *TxStore) Audit() *AuditRepo { return &AuditRepo{x: t.tx} }

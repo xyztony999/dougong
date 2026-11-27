@@ -56,6 +56,7 @@ import (
 	"github.com/dougong/dougong/internal/adapter/sysd"
 	"github.com/dougong/dougong/internal/adapter/sysuser"
 	"github.com/dougong/dougong/internal/adapter/toolx"
+	"github.com/dougong/dougong/internal/adapter/webauthnx"
 	"github.com/dougong/dougong/internal/api"
 	appapi "github.com/dougong/dougong/internal/api/appmgmt"
 	authapi "github.com/dougong/dougong/internal/api/auth"
@@ -196,7 +197,15 @@ func run(args []string) error {
 		return errors.Join(err, closeErr)
 	}
 	authSvc := authsvc.New(repo, hasher, authsvc.NewTotpService(nil),
-		authsvc.SessionPolicy{AbsoluteTimeout: absTimeout, IdleTimeout: idleTimeout})
+		authsvc.SessionPolicy{AbsoluteTimeout: absTimeout, IdleTimeout: idleTimeout},
+		authsvc.WithWebAuthnFactory(func(rpID string, origins []string) authsvc.WebAuthnProvider {
+			p, err := webauthnx.New(rpID, origins)
+			if err != nil {
+				slog.Warn("webauthn config invalid", "rpID", rpID, "err", err)
+				return nil
+			}
+			return p
+		}))
 	auditSvc := auditsvc.New(repo.Audit(), time.Now)
 
 	// panel-core 启动自检（I-P01）：panel_config 单例落库（缺失时随机高位

@@ -3,7 +3,9 @@
 package auth
 
 import (
+	"crypto/rand"
 	"encoding/csv"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -80,8 +82,14 @@ func (h *Handler) Login(c *gin.Context) {
 			gin.H{"loginTicket": outcome.LoginTicket}))
 		return
 	}
+	if outcome.RequiresPasskey {
+		// AUTH_007 同构：requiresPasskey 标记，前端走 passkey 二阶段。
+		response.FailWith(c, errcode.ErrTotpRequired.WithData(
+			gin.H{"loginTicket": outcome.LoginTicket, "requiresPasskey": true}))
+		return
+	}
 	h.setSessionCookie(c, outcome.Session.RawToken, outcome.Session.MaxAgeSec)
-	response.OK(c, gin.H{"csrfToken": outcome.Session.CsrfToken, "user": outcome.Session.User})
+	response.OK(c, gin.H{"csrfToken": outcome.Session.CsrfToken, "user": outcome.Session.User, "newDevice": outcome.Session.NewDevice})
 }
 
 // TOTPVerify POST /auth/session/totp-verify（二阶段换会话）。
@@ -391,7 +399,35 @@ func strOrEmpty(p *string) string {
 // ---- 助手 ----
 
 func (h *Handler) meta(c *gin.Context) authsvc.RequestMeta {
-	return authsvc.RequestMeta{SourceIP: c.ClientIP(), UserAgent: c.Request.UserAgent()}
+	return authsvc.RequestMeta{
+		SourceIP:     c.ClientIP(),
+		UserAgent:    c.Request.UserAgent(),
+		Host:         c.Request.Host,
+		Origin:       c.GetHeader("Origin"),
+		DeviceCookie: h.deviceCookie(c),
+	}
+}
+
+// deviceCookie 读 dg_device；缺失则生成并下发（长期 HttpOnly），供新设备识别。
+func (h *Handler) deviceCookie(c *gin.Context) string {
+	if v, err := c.Cookie(authsvc.DeviceCookieName); err == nil && v != "" {
+		return v
+	}
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return ""
+	}
+	v := hex.EncodeToString(b)
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     authsvc.DeviceCookieName,
+		Value:    v,
+		Path:     "/",
+		MaxAge:   400 * 24 * 3600,
+		HttpOnly: true,
+		Secure:   h.cookieSecure,
+		SameSite: http.SameSiteStrictMode,
+	})
+	return v
 }
 
 func (h *Handler) setSessionCookie(c *gin.Context, token string, maxAge int) {

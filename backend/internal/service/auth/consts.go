@@ -31,6 +31,8 @@ const (
 	LoginTicketTTL = 5 * time.Minute
 	// SessionCookieName 会话 Cookie 名（§3.1：HttpOnly dg_session）。
 	SessionCookieName = "dg_session"
+	// DeviceCookieName 设备识别 Cookie 名（登录保护强化：HttpOnly dg_device，长期）。
+	DeviceCookieName = "dg_device"
 	// CSRFHeader CSRF 请求头（§3.1）。
 	CSRFHeader = "X-CSRF-Token"
 )

@@ -15,6 +15,9 @@ type Store interface {
 	Users() *storeauth.UserRepo
 	Sessions() *storeauth.SessionRepo
 	Totp() *storeauth.TotpRepo
+	Webauthn() *storeauth.WebauthnRepo
+	Recovery() *storeauth.RecoveryRepo
+	Devices() *storeauth.DeviceRepo
 	Init() *storeauth.InitRepo
 	Audit() *storeauth.AuditRepo
 	BeginTx(ctx context.Context) (*storeauth.TxStore, error)
@@ -32,3 +35,16 @@ type TotpVerifier interface {
 	GenerateSecret() (string, error)
 	OtpauthURI(secret, account string) string
 }
+
+// WebAuthnProvider 是 WebAuthn/passkey 协议领域服务（adapter/webauthnx 实现，
+// 测试可注入 fake）。begin 返回 options JSON + 一次性 token；finish 凭 token 取回
+// 服务端 session data 校验。凭据集由 service 层从仓储加载传入（断言匹配用）。
+type WebAuthnProvider interface {
+	BeginRegistration(ctx context.Context, userID int64, username string, existing []storeauth.WebauthnCredential) (options []byte, token string, err error)
+	FinishRegistration(ctx context.Context, token string, response []byte) (storeauth.WebauthnCredential, error)
+	BeginLogin(ctx context.Context, userID int64, username string, creds []storeauth.WebauthnCredential) (options []byte, token string, err error)
+	FinishLogin(ctx context.Context, token string, response []byte, creds []storeauth.WebauthnCredential) (credentialID []byte, signCount uint32, err error)
+}
+
+// WebAuthnFactory 按请求 RP ID（绑定域名或 Host 去端口）与 Origin 构造 provider。
+type WebAuthnFactory func(rpID string, origins []string) WebAuthnProvider

@@ -1,6 +1,9 @@
 package auth
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // DTO（camelCase JSON；时间 RFC3339 UTC 由 time.Time 默认编码满足）。
 
@@ -18,6 +21,7 @@ type SessionIssued struct {
 	MaxAgeSec int       `json:"-"`
 	ExpiresAt time.Time `json:"-"`
 	User      UserBrief `json:"user"`
+	NewDevice bool      `json:"newDevice"`
 }
 
 // LoginRequest POST /auth/session/login 入参（code 字段已废弃，D-02 两步式）。
@@ -32,11 +36,13 @@ type TOTPVerifyRequest struct {
 	Code        string `json:"code" binding:"required"`
 }
 
-// LoginOutcome 登录结果：RequiresTOTP=true 时前端凭 LoginTicket 走二阶段。
+// LoginOutcome 登录结果：RequiresTOTP=true 时前端凭 LoginTicket 走 TOTP 二阶段；
+// RequiresPasskey=true 时凭 LoginTicket 走 passkey 二阶段（无 TOTP 但有 passkey）。
 type LoginOutcome struct {
-	RequiresTOTP bool
-	LoginTicket  string
-	Session      *SessionIssued
+	RequiresTOTP    bool
+	RequiresPasskey bool
+	LoginTicket     string
+	Session         *SessionIssued
 }
 
 // SessionItem 会话清单行（脱敏：不含 token 哈希与 csrf_token）。
@@ -93,4 +99,63 @@ type InitStatus struct {
 type TotpSetupResponse struct {
 	OtpauthURI string `json:"otpauthUri"`
 	Secret     string `json:"secret"`
+}
+
+// ---- 登录安全增量（passkey/恢复码，v0.7.0）----
+
+// WebAuthnBeginResponse register-begin/login-begin 响应：options 为协议 JSON
+// （publicKey），token 为一次性会话凭证（finish 携带）。
+type WebAuthnBeginResponse struct {
+	Options json.RawMessage `json:"options"`
+	Token   string          `json:"token"`
+}
+
+// WebAuthnRegisterFinishRequest register-finish 入参。
+type WebAuthnRegisterFinishRequest struct {
+	Token      string          `json:"token" binding:"required"`
+	Credential json.RawMessage `json:"credential" binding:"required"`
+	Name       string          `json:"name"`
+}
+
+// WebAuthnLoginBeginRequest login-begin 入参（用户名定位凭据）。
+type WebAuthnLoginBeginRequest struct {
+	Username string `json:"username" binding:"required"`
+}
+
+// WebAuthnLoginFinishRequest login-finish / passkey-verify 入参。
+// 无密码流用 Username+Token；二因素流用 LoginTicket+Token。
+type WebAuthnLoginFinishRequest struct {
+	Username    string          `json:"username"`
+	Token       string          `json:"token"`
+	LoginTicket string          `json:"loginTicket"`
+	Credential  json.RawMessage `json:"credential" binding:"required"`
+}
+
+// WebAuthnCredentialItem 凭据清单行（脱敏：不含公钥）。
+type WebAuthnCredentialItem struct {
+	ID         int64      `json:"id"`
+	Name       string     `json:"name"`
+	CreatedAt  time.Time  `json:"createdAt"`
+	LastUsedAt *time.Time `json:"lastUsedAt"`
+}
+
+// WebAuthnDeleteRequest delete 入参。
+type WebAuthnDeleteRequest struct {
+	ID int64 `json:"id" binding:"required"`
+}
+
+// RecoveryCodesResponse generate 响应（明文仅此一次下发）。
+type RecoveryCodesResponse struct {
+	Codes []string `json:"codes"`
+}
+
+// RecoveryCountResponse 剩余未用码数。
+type RecoveryCountResponse struct {
+	Remaining int `json:"remaining"`
+}
+
+// RecoveryLoginRequest recovery-login 入参。
+type RecoveryLoginRequest struct {
+	Username string `json:"username" binding:"required"`
+	Code     string `json:"code" binding:"required"`
 }

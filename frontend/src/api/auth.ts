@@ -167,3 +167,53 @@ export async function exportAuditLog(filter: AuditFilter): Promise<void> {
   anchor.click()
   URL.revokeObjectURL(url)
 }
+
+/** ---- 登录安全增量（passkey/恢复码，v0.7.0） ---- */
+
+export interface WebAuthnBeginData {
+  options: unknown
+  token: string
+}
+export interface WebAuthnCredentialItem {
+  id: number
+  name: string
+  createdAt: string
+  lastUsedAt: string | null
+}
+export interface RecoveryCodesData {
+  codes: string[]
+}
+export interface RecoveryCountData {
+  remaining: number
+}
+
+export function webauthnRegisterBegin(): Promise<WebAuthnBeginData> {
+  return request<WebAuthnBeginData>('/auth/webauthn/register-begin', { method: 'POST', body: {} })
+}
+export function webauthnRegisterFinish(req: { token: string; credential: unknown; name: string }): Promise<WebAuthnCredentialItem> {
+  return request<WebAuthnCredentialItem>('/auth/webauthn/register-finish', { method: 'POST', body: req })
+}
+export function webauthnList(): Promise<{ items: WebAuthnCredentialItem[] }> {
+  return request<{ items: WebAuthnCredentialItem[] }>('/auth/webauthn/list')
+}
+export function webauthnDelete(req: { id: number }): Promise<void> {
+  return request<void>('/auth/webauthn/delete', { method: 'POST', body: req })
+}
+export function webauthnLoginBegin(req: { username: string }): Promise<WebAuthnBeginData> {
+  return request<WebAuthnBeginData>('/auth/webauthn/login-begin', { method: 'POST', body: req, silentAuth: true })
+}
+export function webauthnLoginFinish(req: { username: string; token: string; credential: unknown }): Promise<LoginResultData> {
+  return request<LoginResultData>('/auth/webauthn/login-finish', { method: 'POST', body: req, silentAuth: true })
+}
+export function passkeyVerify(req: { loginTicket: string; token: string; credential: unknown }): Promise<LoginResultData> {
+  return request<LoginResultData>('/auth/session/passkey-verify', { method: 'POST', body: req, silentAuth: true })
+}
+export function recoveryGenerate(): Promise<RecoveryCodesData> {
+  return request<RecoveryCodesData>('/auth/recovery-codes/generate', { method: 'POST', body: {} })
+}
+export function recoveryCount(): Promise<RecoveryCountData> {
+  return request<RecoveryCountData>('/auth/recovery-codes')
+}
+export function recoveryLogin(req: { username: string; code: string }): Promise<LoginResultData> {
+  return request<LoginResultData>('/auth/session/recovery-login', { method: 'POST', body: req, silentAuth: true })
+}

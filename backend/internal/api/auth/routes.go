@@ -38,6 +38,11 @@ func (m *Module) Register(rg *gin.RouterGroup) {
 	pub.POST("/init/wizard", m.h.InitWizard)
 	pub.POST("/session/login", m.h.Login)
 	pub.POST("/session/totp-verify", m.h.TOTPVerify)
+	// 登录安全增量（v0.7.0）：passkey 无密码流 + 二因素 + 恢复码登录（公开）。
+	pub.POST("/webauthn/login-begin", m.h.WebAuthnLoginBegin)
+	pub.POST("/webauthn/login-finish", m.h.WebAuthnLoginFinish)
+	pub.POST("/session/passkey-verify", m.h.PasskeyVerify)
+	pub.POST("/session/recovery-login", m.h.RecoveryLogin)
 
 	// 会话组（AuthRequired：I-11 校验 + 滑动续期）。
 	sess := rg.Group("", middleware.AuthRequired(m.svc))
@@ -47,6 +52,9 @@ func (m *Module) Register(rg *gin.RouterGroup) {
 	sess.GET("/audit-log/list", m.h.AuditList)
 	// admin 专属 GET：审计导出（解释性决策，ADR-018）。
 	sess.GET("/audit-log/export", middleware.RequireRole(authsvc.RoleAdmin), m.h.AuditExport)
+	// 登录安全增量：passkey/恢复码 查询（会话）。
+	sess.GET("/webauthn/list", m.h.WebAuthnList)
+	sess.GET("/recovery-codes", m.h.RecoveryCount)
 
 	// 变更组（CsrfGuard：POST 一律 CSRF 校验，R-02）。
 	write := sess.Group("", middleware.CsrfGuard())
@@ -59,6 +67,11 @@ func (m *Module) Register(rg *gin.RouterGroup) {
 	write.POST("/user/create", middleware.RequireRole(authsvc.RoleAdmin), m.h.CreateUser)
 	write.POST("/user/delete", middleware.RequireRole(authsvc.RoleAdmin), m.h.DeleteUser)
 	write.POST("/user/reset-password", middleware.RequireRole(authsvc.RoleAdmin), m.h.ResetPassword)
+	// 登录安全增量：passkey 注册/管理 + 恢复码生成（会话+CSRF）。
+	write.POST("/webauthn/register-begin", m.h.WebAuthnRegisterBegin)
+	write.POST("/webauthn/register-finish", m.h.WebAuthnRegisterFinish)
+	write.POST("/webauthn/delete", m.h.WebAuthnDelete)
+	write.POST("/recovery-codes/generate", m.h.RecoveryGenerate)
 }
 
 // 编译期断言：Module 实现 api.Module 契约（后续模块同构挂载）。

@@ -16,7 +16,11 @@ type Identity struct {
 }
 
 // RequestMeta 是登录/会话签发时的请求元数据（会话清单展示用）。
+// Host/Origin 供 WebAuthn RP ID/Origin 构造；DeviceCookie 供新设备识别（dg_device）。
 type RequestMeta struct {
-	SourceIP  string
-	UserAgent string
+	SourceIP     string
+	UserAgent    string
+	Host         string
+	Origin       string
+	DeviceCookie string
 }

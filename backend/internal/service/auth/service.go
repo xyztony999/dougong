@@ -23,6 +23,7 @@ type Service struct {
 	tickets *ticketStore
 	clock   func() time.Time
 	rand    io.Reader
+	wa      WebAuthnFactory
 }
 
 // Option 是 Service 可选注入（测试用时钟/随机源）。
@@ -42,6 +43,15 @@ func WithRand(r io.Reader) Option {
 	return func(s *Service) {
 		if r != nil {
 			s.rand = r
+		}
+	}
+}
+
+// WithWebAuthnFactory 注入 WebAuthn provider 工厂（main 装配 webauthnx；测试注入 fake）。
+func WithWebAuthnFactory(f WebAuthnFactory) Option {
+	return func(s *Service) {
+		if f != nil {
+			s.wa = f
 		}
 	}
 }
@@ -140,6 +150,17 @@ func (s *Service) issueSessionWithLoginAudit(ctx context.Context, u storeauth.Us
 		detail := map[string]any{"sourceIp": meta.SourceIP}
 		if totpUsed {
 			detail["totp"] = true
+		}
+		// 新设备识别（登录保护强化）：device_hash=sha256(UA|设备cookie)，首次→标记+审计字段。
+		if meta.DeviceCookie != "" {
+			newDev, derr := tx.Devices().Touch(ctx, u.ID, deviceHash(meta.UserAgent, meta.DeviceCookie), meta.UserAgent, formatTimeNow(now))
+			if derr != nil {
+				return derr
+			}
+			issued.NewDevice = newDev
+			if newDev {
+				detail["new_device"] = true
+			}
 		}
 		return tx.Audit().Append(ctx, loginAuditEntry(u, audit.ActionLoginSuccess, audit.ResultSuccess, detail), now)
 	})

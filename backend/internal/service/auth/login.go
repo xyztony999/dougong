@@ -76,6 +76,25 @@ func (s *Service) Login(ctx context.Context, req LoginRequest, meta RequestMeta)
 		return &LoginOutcome{RequiresTOTP: true, LoginTicket: ticket}, nil
 	}
 
+	// 无 TOTP 但有 passkey → 密码后 passkey 二因素（D-02 同构，requiresPasskey）。
+	n, err := s.st.Webauthn().CountByUser(ctx, u.ID)
+	if err != nil {
+		return nil, fmt.Errorf("auth: login webauthn count: %w", err)
+	}
+	if n > 0 {
+		ticket, err := newTicketToken(s.rand)
+		if err != nil {
+			return nil, fmt.Errorf("auth: login passkey ticket: %w", err)
+		}
+		if u.FailCount > 0 {
+			if err := s.resetFailCount(ctx, u.ID, now); err != nil {
+				return nil, err
+			}
+		}
+		s.tickets.issue(ticket, u.ID, u.Username, now.Add(LoginTicketTTL))
+		return &LoginOutcome{RequiresPasskey: true, LoginTicket: ticket}, nil
+	}
+
 	issued, err := s.issueSessionWithLoginAudit(ctx, u, meta, now, false)
 	if err != nil {
 		return nil, err

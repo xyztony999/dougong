@@ -52,6 +52,41 @@ type TotpCredential struct {
 	ConfirmedAt *time.Time
 }
 
+// WebauthnCredential 对应 panel_user_webauthn 行（1:N passkey 凭据）。
+// 私钥永不落库；PublicKey 为 COSE 公钥；CredentialID 为凭据标识（UNIQUE）。
+type WebauthnCredential struct {
+	ID              int64
+	UserID          int64
+	CredentialID    []byte
+	PublicKey       []byte
+	AttestationType string
+	AAGUID          []byte
+	SignCount       uint32
+	Transports      []string
+	Name            string
+	CreatedAt       time.Time
+	LastUsedAt      *time.Time
+}
+
+// RecoveryCode 对应 panel_user_recovery_codes 行（一次性恢复码，哈希存储）。
+type RecoveryCode struct {
+	ID        int64
+	UserID    int64
+	CodeHash  string
+	UsedAt    *time.Time
+	CreatedAt time.Time
+}
+
+// UserDevice 对应 panel_user_devices 行（新设备识别，device_hash=sha256(UA+设备cookie)）。
+type UserDevice struct {
+	ID          int64
+	UserID      int64
+	DeviceHash  string
+	UserAgent   string
+	FirstSeenAt time.Time
+	LastSeenAt  time.Time
+}
+
 // Session 对应 panel_session 行；Username 由 JOIN panel_user 填充（清单展示用）。
 // 有效期为计算态（D-03）：RevokedAt==nil 且当前时刻早于 ExpiresAt 与 IdleExpiresAt。
 type Session struct {

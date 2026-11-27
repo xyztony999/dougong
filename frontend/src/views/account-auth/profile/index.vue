@@ -6,6 +6,8 @@ import { passwordChange, userList } from '@/api/auth'
 import { useAuthStore } from '@/stores/auth'
 import TotpBindModal from './components/TotpBindModal.vue'
 import TotpDisableModal from './components/TotpDisableModal.vue'
+import PasskeyCard from './components/PasskeyCard.vue'
+import RecoveryCard from './components/RecoveryCard.vue'
 
 const message = useMessage()
 const authStore = useAuthStore()
@@ -144,6 +146,9 @@ onMounted(() => {
 
     <totp-bind-modal v-model:show="showBind" @enabled="onTotpEnabled" />
     <totp-disable-modal v-model:show="showDisable" @disabled="onTotpDisabled" />
+
+    <passkey-card />
+    <recovery-card />
   </div>
 </template>
 

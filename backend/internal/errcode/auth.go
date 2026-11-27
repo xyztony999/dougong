@@ -31,6 +31,14 @@ var (
 	ErrTicketInvalid = New("AUTH_013", "二次验证凭证无效或已过期")
 	// ErrSelfDelete AUTH_014 不能删除当前登录账户（D-09）。
 	ErrSelfDelete = New("AUTH_014", "不能删除当前登录账户")
+	// ErrWebAuthnInvalid AUTH_015 passkey 校验失败（注册/断言）。
+	ErrWebAuthnInvalid = New("AUTH_015", "passkey 校验失败，请重试")
+	// ErrRecoveryInvalid AUTH_016 恢复码无效或已使用（计一次失败）。
+	ErrRecoveryInvalid = New("AUTH_016", "恢复码无效或已使用")
+	// ErrCredentialNotFound AUTH_017 passkey 凭据不存在。
+	ErrCredentialNotFound = New("AUTH_017", "passkey 不存在")
+	// ErrWebAuthnUnavailable AUTH_018 当前访问地址不支持 passkey（需 HTTPS/有效域名）。
+	ErrWebAuthnUnavailable = New("AUTH_018", "当前访问地址不支持 passkey，请改用 HTTPS 域名访问")
 )
 
 // 跨模块公共错误标识（前端 http.ts 对 NOT_FOUND 有既有处理分支）。
