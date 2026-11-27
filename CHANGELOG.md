@@ -2,6 +2,27 @@
 
 发布说明按版本倒序排列；每个版本的完整说明也会作为 GitHub Release 正文发布。
 
+## v0.6.4 - 2026-11-27
+
+修复：经 Cloudflare 等反向代理使用 passkey 时验证失败。
+
+### 变更内容
+
+**修复：反代/CDN 后 passkey 验证失败（AUTH_015）**
+- 浏览器 WebAuthn 的 origin 带非默认端口（如 :2083），而反向代理/CDN 转发给源站的 Origin 头可能被归一化或去掉端口，服务端此前只接受单一 origin，校验不通过。现在允许同主机的多种 origin 形态（带/不带端口、http/https），经 Cloudflare 橙云可正常使用 passkey
+- 服务端现在会把 WebAuthn 校验失败的真实原因写入日志（journalctl 可见），便于排查
+
+### 安装与升级
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/xyztony999/dougong/main/install.sh | sudo bash
+dougong version   # 应为 v0.6.4
+```
+
+### 升级注意
+
+- 仅修复 passkey 的 origin 校验，无数据库迁移；若之前已注册 passkey，升级后直接重试登录即可，无需重新注册
+
 ## v0.6.3 - 2026-11-27
 
 登录安全适配：支持 passkey（无密码登录 + 密码后第二因素）、一次性恢复码、新设备识别。

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -23,7 +24,23 @@ func (s *Service) provider(meta RequestMeta) (WebAuthnProvider, error) {
 	if i := strings.LastIndex(rpID, ":"); i > 0 {
 		rpID = rpID[:i]
 	}
-	p := s.wa(rpID, []string{meta.Origin})
+	// 允许的 origin 放宽为同主机的多种形态：反向代理/CDN（如 Cloudflare 橙云）可能
+	// 归一化或剥离 Origin 头的端口，而浏览器 clientData 的 origin 带非默认端口，
+	// 单一 origin 会校验失败（AUTH_015）。同主机不同 scheme/端口视为等价。
+	seen := map[string]bool{}
+	var origins []string
+	add := func(o string) {
+		if o != "" && !seen[o] {
+			seen[o] = true
+			origins = append(origins, o)
+		}
+	}
+	add(meta.Origin)
+	for _, scheme := range []string{"https", "http"} {
+		add(scheme + "://" + meta.Host)
+		add(scheme + "://" + rpID)
+	}
+	p := s.wa(rpID, origins)
 	if p == nil {
 		return nil, errcode.ErrWebAuthnUnavailable
 	}
@@ -55,6 +72,7 @@ func (s *Service) RegisterFinish(ctx context.Context, id *Identity, req WebAuthn
 	}
 	cred, err := p.FinishRegistration(ctx, req.Token, req.Credential)
 	if err != nil {
+		slog.WarnContext(ctx, "auth: webauthn register finish", "err", err)
 		return nil, errcode.ErrWebAuthnInvalid
 	}
 	now := s.now()
@@ -201,6 +219,7 @@ func (s *Service) assertPasskey(ctx context.Context, u storeauth.User, token str
 	}
 	credID, signCount, err := p.FinishLogin(ctx, token, response, creds)
 	if err != nil {
+		slog.WarnContext(ctx, "auth: webauthn assert", "err", err, "user", u.Username)
 		if rerr := s.recordLoginFailure(ctx, u, s.now(), meta, "passkey"); rerr != nil {
 			return nil, rerr
 		}

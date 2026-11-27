@@ -171,4 +171,39 @@ func TestWebAuthnListDelete(t *testing.T) {
 	}
 }
 
+// provider 的允许 origin 须含同主机多形态（CDN/反代可能归一化或剥离 Origin 端口）。
+func TestWebAuthnProviderTolerantOrigins(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	var gotRP string
+	var gotOrigins []string
+	svc.wa = func(rpID string, origins []string) WebAuthnProvider {
+		gotRP, gotOrigins = rpID, origins
+		return fakeWA{}
+	}
+	meta := RequestMeta{Host: "panel.example.com:2083", Origin: "https://panel.example.com:2083"}
+	if _, err := svc.provider(meta); err != nil {
+		t.Fatalf("provider: %v", err)
+	}
+	if gotRP != "panel.example.com" {
+		t.Fatalf("rpID = %q", gotRP)
+	}
+	want := []string{
+		"https://panel.example.com:2083",
+		"https://panel.example.com",
+		"http://panel.example.com:2083",
+		"http://panel.example.com",
+	}
+	for _, w := range want {
+		found := false
+		for _, o := range gotOrigins {
+			if o == w {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("origins %v missing %q", gotOrigins, w)
+		}
+	}
+}
+
 var _ = errcode.ErrWebAuthnInvalid
