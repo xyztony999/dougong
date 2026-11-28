@@ -133,8 +133,14 @@ func TestInstallPHPMyAdminChain(t *testing.T) {
 	signon := string(f.deploy.files[filepath.Join(svc.toolDir, "phpmyadmin", "signon.php")])
 	if !strings.Contains(signon, "http://127.0.0.1:8687/dbtool/signon/verify") ||
 		!strings.Contains(signon, InternalSecretHeader) ||
-		!strings.Contains(signon, "PMA_single_signon_user") {
+		// v0.6.9：SignonScript 契约——PMA include 后调用 get_login_credentials
+		//（AuthenticationSignon.php:156 单参调用，$dgPass 须带默认值）。
+		!strings.Contains(signon, "function get_login_credentials($dgUser, $dgPass = '')") ||
+		!strings.Contains(signon, "return array($dgData['data']['user'], $dgData['data']['password'])") {
 		t.Fatalf("signon.php content invalid")
+	}
+	if !phpSingleQuoteBalance(signon) {
+		t.Fatalf("signon.php 单引号字符串未配平:\n%s", signon)
 	}
 	// setup/ 移除（加固）。
 	if _, ok := f.deploy.files[filepath.Join(svc.toolDir, "phpmyadmin", "setup", "index.php")]; ok {

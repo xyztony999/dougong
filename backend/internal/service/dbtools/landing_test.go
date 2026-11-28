@@ -666,8 +666,13 @@ func TestAutoLandingTLSInstall(t *testing.T) {
 	}
 	signon := string(f.deploy.files[filepath.Join(svc.toolDir, "phpmyadmin", "signon.php")])
 	if !strings.Contains(signon, "curl_init('https://127.0.0.1:8687/dbtool/signon/verify')") ||
-		!strings.Contains(signon, "CURLOPT_SSL_VERIFYPEER => false") {
+		!strings.Contains(signon, "CURLOPT_SSL_VERIFYPEER => false") ||
+		// v0.6.9：SignonScript 契约（PMA 单参调用，$dgPass 须带默认值）。
+		!strings.Contains(signon, "function get_login_credentials($dgUser, $dgPass = '')") {
 		t.Fatalf("signon.php TLS 回调形态缺失:\n%s", signon)
+	}
+	if !phpSingleQuoteBalance(signon) {
+		t.Fatalf("signon.php 单引号字符串未配平:\n%s", signon)
 	}
 }
 

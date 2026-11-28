@@ -168,46 +168,48 @@ func signonURLExprPanelPort(pa PanelAccess, staticBase string) string {
 		strconv.Itoa(pa.ListenPort) + phpEscape(prefix) + "' . $dgToolInstance"
 }
 
-// signonPHP SignonScript（PHP 服务端 loopback 回调面板 signon/verify；
-// 凭据响应仅服务端通道设 $_SESSION，永不进浏览器，D-09/D-11；W4：转发
-// dg_session cookie 供 sessionDigest 绑定校验 + dg_tool_instance 供实例
-// 绑定校验）。verifyURL 为 https（TLS 面板，v0.6.9）时 curl 关闭证书校验
-// ——面板证书为托管形态（Origin CA/自签）无系统 CA 链，安全由回环地址+
-// 内部秘密头承载（同 gate proxy_ssl_verify off 口径）。
+// signonPHP SignonScript（PHP 服务端 loopback 回调面板 signon/verify；凭据
+// 响应仅服务端通道消费永不进浏览器，D-09/D-11；W4：转发 dg_session cookie
+// 供 sessionDigest 绑定校验 + dg_tool_instance 供实例绑定校验）。
+// v0.6.9 实机修复（两处）：①SignonScript 契约=phpMyAdmin include 后调用
+// get_login_credentials()（AuthenticationSignon.php:156 单参调用）——原「文件
+// 作用域 curl+写 $_SESSION」形态缺该函数，PMA include 即 fatal → 裸 "Error"
+// 页；函数须定义 $dgPass 默认值（PMA 单参调用，否则 ArgumentCountError）；
+// ②verifyURL 为 https（TLS 面板）时 curl 关闭证书校验——面板证书为托管
+// 形态（Origin CA/自签）无系统 CA 链，安全由回环地址+内部秘密头承载（同
+// gate proxy_ssl_verify off 口径）。
 func signonPHP(verifyURL, secret string) string {
 	tlsOpts := ""
 	if strings.HasPrefix(verifyURL, "https://") {
 		tlsOpts = `
-    CURLOPT_SSL_VERIFYPEER => false,
-    CURLOPT_SSL_VERIFYHOST => 0,`
+        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_SSL_VERIFYHOST => 0,`
 	}
 	return `<?php
-/* dougong panel db-tools generated — signon loopback callback (server-side only). */
-$dgToken = isset($_GET['dg_signon']) ? $_GET['dg_signon'] : '';
-$dgSession = isset($_COOKIE['dg_session']) ? $_COOKIE['dg_session'] : '';
-$dgInstance = isset($_COOKIE['` + ToolInstanceCookie + `']) ? $_COOKIE['` + ToolInstanceCookie + `'] : '';
-$dgPayload = json_encode(array('token' => $dgToken, 'session' => $dgSession, 'instanceCookie' => $dgInstance));
-$dgCh = curl_init('` + phpEscape(verifyURL) + `');
-curl_setopt_array($dgCh, array(
-    CURLOPT_POST => true,
-    CURLOPT_POSTFIELDS => $dgPayload,
-    CURLOPT_HTTPHEADER => array('Content-Type: application/json', '` + InternalSecretHeader + `: ` + phpEscape(secret) + `'),
-    CURLOPT_RETURNTRANSFER => true,
-    CURLOPT_TIMEOUT => 10,
-    CURLOPT_CONNECTTIMEOUT => 5,` + tlsOpts + `
-));
-$dgResp = curl_exec($dgCh);
-curl_close($dgCh);
-$dgData = json_decode((string)$dgResp, true);
-if (is_array($dgData) && isset($dgData['code']) && $dgData['code'] === 0 && isset($dgData['data']['user'])) {
-    $_SESSION['PMA_single_signon_user'] = $dgData['data']['user'];
-    $_SESSION['PMA_single_signon_password'] = $dgData['data']['password'];
-    if (isset($dgData['data']['host']) && $dgData['data']['host'] !== '') {
-        $_SESSION['PMA_single_signon_host'] = $dgData['data']['host'];
+/* dougong panel db-tools generated — signon loopback callback (server-side only).
+   phpMyAdmin SignonScript contract: define get_login_credentials() returning
+   array(user, password) — called with a single argument (defaults required). */
+function get_login_credentials($dgUser, $dgPass = '') {
+    $dgToken = isset($_GET['dg_signon']) ? $_GET['dg_signon'] : '';
+    $dgSession = isset($_COOKIE['dg_session']) ? $_COOKIE['dg_session'] : '';
+    $dgInstance = isset($_COOKIE['` + ToolInstanceCookie + `']) ? $_COOKIE['` + ToolInstanceCookie + `'] : '';
+    $dgPayload = json_encode(array('token' => $dgToken, 'session' => $dgSession, 'instanceCookie' => $dgInstance));
+    $dgCh = curl_init('` + phpEscape(verifyURL) + `');
+    curl_setopt_array($dgCh, array(
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => $dgPayload,
+        CURLOPT_HTTPHEADER => array('Content-Type: application/json', '` + InternalSecretHeader + `: ` + phpEscape(secret) + `'),
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 10,
+        CURLOPT_CONNECTTIMEOUT => 5,` + tlsOpts + `
+    ));
+    $dgResp = curl_exec($dgCh);
+    curl_close($dgCh);
+    $dgData = json_decode((string)$dgResp, true);
+    if (is_array($dgData) && isset($dgData['code']) && $dgData['code'] === 0 && isset($dgData['data']['user'])) {
+        return array($dgData['data']['user'], $dgData['data']['password']);
     }
-    if (isset($dgData['data']['port']) && (int)$dgData['data']['port'] > 0) {
-        $_SESSION['PMA_single_signon_port'] = (int)$dgData['data']['port'];
-    }
+    return array($dgUser, $dgPass);
 }
 `
 }
