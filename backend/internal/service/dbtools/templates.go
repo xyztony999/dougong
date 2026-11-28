@@ -136,12 +136,16 @@ $cfg['SaveDir'] = '';
 
 // signonURLExpr 构造 SignonURL PHP 表达式（instanceId 经 dg_tool_instance
 // cookie 动态拼接，D-06 v1.2；base 含 entryPath——reopen 为面板后端 API）。
+// v0.6.9 实机修复：URL 串的结构性闭合引号不得进 phpEscape——此前把
+// `?instanceId='` 的收尾引号一并转义成 \'，生成的字符串字面量永不闭合，
+// 吞掉下一行直至 $cfg['Servers'] 的引号处炸出 parse error（PHP-FPM 实机
+// php -l 证实）；正确形态=转义仅覆盖 URL 前缀，闭合引号+拼接裸露在外。
 func signonURLExpr(base, entryPath string, dynamicHost bool) string {
-	suffix := entryPath + SignonReopenPath + "?instanceId=' . $dgToolInstance"
+	prefix := entryPath + SignonReopenPath + "?instanceId="
 	if dynamicHost {
-		return "$dgScheme . '://' . $_SERVER['HTTP_HOST'] . '" + phpEscape(suffix)
+		return "$dgScheme . '://' . $_SERVER['HTTP_HOST'] . '" + phpEscape(prefix) + "' . $dgToolInstance"
 	}
-	return "'" + phpEscape(base+suffix)
+	return "'" + phpEscape(base+prefix) + "' . $dgToolInstance"
 }
 
 // signonURLExprPanelPort 自动落地块形态 SignonURL 表达式（v1.3，A-DBT11
@@ -149,18 +153,19 @@ func signonURLExpr(base, entryPath string, dynamicHost bool) string {
 // 监听端口而非工具落地端口 18090）：staticBase 非空（已绑域名安装期烘焙）
 // →静态基址；否则动态——HTTP_HOST 去端口（工具以 IP:18090 访问，HTTP_HOST
 // 携工具端口不可直用）+面板端口拼接；scheme 按面板 HTTPS 态（pa.HTTPSEnabled，
-// 工具落地块恒 http 不决定面板 scheme）。
+// 工具落地块恒 http 不决定面板 scheme）。结构引号不进 phpEscape（同
+// signonURLExpr v0.6.9 修复）。
 func signonURLExprPanelPort(pa PanelAccess, staticBase string) string {
 	scheme := "http"
 	if pa.HTTPSEnabled {
 		scheme = "https"
 	}
-	suffix := pa.EntryPath + SignonReopenPath + "?instanceId=' . $dgToolInstance"
+	prefix := pa.EntryPath + SignonReopenPath + "?instanceId="
 	if staticBase != "" {
-		return "'" + phpEscape(staticBase+suffix)
+		return "'" + phpEscape(staticBase+prefix) + "' . $dgToolInstance"
 	}
 	return "'" + scheme + "' . '://' . preg_replace('/:\\d+$/', '', $_SERVER['HTTP_HOST']) . ':" +
-		strconv.Itoa(pa.ListenPort) + phpEscape(suffix)
+		strconv.Itoa(pa.ListenPort) + phpEscape(prefix) + "' . $dgToolInstance"
 }
 
 // signonPHP SignonScript（PHP 服务端 loopback 回调面板 signon/verify；

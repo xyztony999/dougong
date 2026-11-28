@@ -1232,3 +1232,5 @@
 - [x] A-DBT18 实现裁定：证书校验豁免仅限回环目标（gate 上游 127.0.0.1+秘密头+会话校验三重防护不变；不涉任何公网 TLS 目标）；刷新对账不触及 location 字节——既有 HTTPS+自动块装机需卸载重装（或手工补丁）重新烘焙 gate/signon，v0.6.9 起新装机原生正确
 
 - [x] T03 · mongo bind 修复（实机裁定升级：config.default.js grep 证实 1.0.0 **bind host 无 env 支持**——env 写任何变量名都回落 localhost，Node 17+ 解析 ::1 只监听 IPv6 回环 ss 实证、nginx 127.0.0.1 proxy_pass 502）：templates.go +mongoExpressConfigJS（包根 config.js 覆盖 require config.default 后钉死 site.host=127.0.0.1/port=8081）+unit 移除 bind env 行；consts.go +MongoExpressConfigFileName；deploy.go install/upgrade 在 npm install 后重写 config.js 0644（StartUnit/RestartUnit 前）；deploy_test.go 断言 config.js 三锚点+unit 无 bind env
+
+- [x] T04 · templates.go SignonURL 表达式结构引号修正（实机 php -l 取证：`unexpected identifier "Servers"` line 13——原 suffix 携 `?instanceId='` 结构引号进 phpEscape，字符串永不闭合吞下一行；修=URL 前缀进转义、闭合引号+` . $dgToolInstance` 裸露，signonURLExpr/signonURLExprPanelPort 四分支全改）+phpSingleQuoteBalance 静态配平回归锁（unbound/bound/TLS/deploy 四用例）——substring 断言查不出坏 PHP 的教训入案

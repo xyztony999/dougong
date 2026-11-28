@@ -123,6 +123,9 @@ func TestInstallPHPMyAdminChain(t *testing.T) {
 			t.Fatalf("config.inc.php missing %q", want)
 		}
 	}
+	if !phpSingleQuoteBalance(cfg) {
+		t.Fatalf("config.inc.php 单引号字符串未配平（v0.6.9 结构引号回归锁）:\n%s", cfg)
+	}
 	if f.deploy.modes[filepath.Join(svc.toolDir, "phpmyadmin", "config.inc.php")] != 0o644 {
 		t.Fatal("config.inc.php should be 0644 (PHP-FPM worker readable, A-DBT5)")
 	}

@@ -135,6 +135,30 @@ func TestAutoLandingInstallUnbound(t *testing.T) {
 	if strings.Contains(cfg, ":18090") {
 		t.Fatal("SignonURL 不得指向工具落地端口（reopen 为面板后端 API）")
 	}
+	if !phpSingleQuoteBalance(cfg) {
+		t.Fatalf("config.inc.php 单引号字符串未配平（v0.6.9 结构引号回归锁）:\n%s", cfg)
+	}
+}
+
+// phpSingleQuoteBalance PHP 单引号字符串配平校验（v0.6.9 回归锁：生成
+// config.inc.php 的 SignonURL 结构性闭合引号曾因 phpEscape 一并转义成
+// \'，字符串字面量永不闭合、吞掉下一行直至 $cfg['Servers'] 引号处炸
+// parse error——phpMyAdmin 实机 "Failed to read configuration file!" +
+// php -l `unexpected identifier "Servers"` 实证；静态扫描 EOF 必须在
+// 字符串外）。
+func phpSingleQuoteBalance(s string) bool {
+	inStr := false
+	for i := 0; i < len(s); i++ {
+		switch {
+		case inStr && s[i] == '\\':
+			i++ // 转义下一字符（\' 与 \\ 均不终止字符串）
+		case inStr && s[i] == '\'':
+			inStr = false
+		case !inStr && s[i] == '\'':
+			inStr = true
+		}
+	}
+	return !inStr
 }
 
 // TestAutoLandingInstallBound 已绑域名 0 匹配自动建块（D-20）：
@@ -163,6 +187,9 @@ func TestAutoLandingInstallBound(t *testing.T) {
 	cfg := string(f.deploy.files[filepath.Join(svc.toolDir, "phpmyadmin", "config.inc.php")])
 	if !strings.Contains(cfg, "http://tools.example.test:8687") {
 		t.Fatalf("SignonURL 静态面板基址缺失:\n%s", cfg)
+	}
+	if !phpSingleQuoteBalance(cfg) {
+		t.Fatalf("config.inc.php 单引号字符串未配平（v0.6.9 结构引号回归锁）:\n%s", cfg)
 	}
 	// Open URL 端口分支（D-23：BindDomain 优先）。
 	inst := int64(9)
@@ -627,6 +654,9 @@ func TestAutoLandingTLSInstall(t *testing.T) {
 	cfg := string(f.deploy.files[filepath.Join(svc.toolDir, "phpmyadmin", "config.inc.php")])
 	if !strings.Contains(cfg, "https://tools.example.test:8687") {
 		t.Fatalf("SignonURL 面板基址缺失:\n%s", cfg)
+	}
+	if !phpSingleQuoteBalance(cfg) {
+		t.Fatalf("config.inc.php 单引号字符串未配平（v0.6.9 结构引号回归锁）:\n%s", cfg)
 	}
 	// TLS 面板回环形态（v0.6.9 实机修复）：gate 子请求 https+proxy_ssl_verify
 	// off；signon.php https+curl 校验豁免（Go TLS 监听对明文回环回 400）。

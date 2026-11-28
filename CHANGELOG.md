@@ -4,9 +4,13 @@
 
 ## v0.6.9 - 2026-11-29
 
-修复：面板启用 HTTPS 时，phpMyAdmin / mongo-express 打开报 500 的问题（上一版 2087 修复的收尾）。
+修复：面板启用 HTTPS 时工具访问全链路的三处问题——phpMyAdmin 配置文件生成语法错误（500 之前的「配置读取失败」）、gating 回环调用 500、mongo-express 只监听 IPv6 回环 502（上一版 2087 修复的收尾）。
 
 ### 变更内容
+
+**修复：phpMyAdmin 配置文件生成语法错误（「Failed to read configuration file!」）**
+- 面板生成的 phpMyAdmin 配置里，重认证跳转地址的表达式把结构性闭合引号也转义了，生成的 PHP 字符串永不闭合、吞掉下一行——phpMyAdmin 报配置读取失败（该文件只在装完工具后第一次真正打开时才被 PHP 加载，所以此前一直没暴露）
+- 已修正生成逻辑，并加静态配平回归锁；升级后需重装一次 phpMyAdmin（或按 Release 附带说明改一行）
 
 **修复：HTTPS 面板下工具 gating 回环调用 500**
 - 上一版让工具落地块加上了 2087 HTTPS 监听，但面板内部的会话校验子请求（gating）与 phpMyAdmin 重认证回调仍按明文 `http://127.0.0.1:端口` 发往面板——面板是 HTTPS 监听时，Go 会对该请求回 400（"Client sent an HTTP request to an HTTPS server"），nginx 转成 500 给浏览器
