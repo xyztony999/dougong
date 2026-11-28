@@ -2,7 +2,8 @@
 import { computed, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMessage, useThemeVars } from 'naive-ui'
-import type { FormInst, FormRules } from 'naive-ui'
+import type { FormInst, FormRules, InputInst } from 'naive-ui'
+import { FingerPrintOutline } from '@vicons/ionicons5'
 import { login, passkeyVerify, recoveryLogin, totpVerify, webauthnLoginBegin, webauthnLoginFinish } from '@/api/auth'
 import { ApiError } from '@/api/http'
 import { useAuthStore } from '@/stores/auth'
@@ -23,6 +24,7 @@ const themeVars = useThemeVars()
 const hintColor = computed(() => themeVars.value.textColor2)
 
 const formRef = ref<FormInst | null>(null)
+const usernameInput = ref<InputInst | null>(null)
 const username = ref('')
 const password = ref('')
 const code = ref('')
@@ -35,7 +37,12 @@ const loginTicket = ref<string | null>(null)
 const remainingLabel = ref<string | null>(null)
 let lockTimer: ReturnType<typeof setInterval> | null = null
 
+/** 登录方式（分段切换；用户名为三种方式共用，放最上面） */
+type LoginMode = 'password' | 'passkey' | 'recovery'
+const mode = ref<LoginMode>('password')
+
 const inTotpStage = computed(() => loginTicket.value !== null)
+const inPasskeyStage = computed(() => passkeyTicket.value !== null)
 const locked = computed(() => remainingLabel.value !== null)
 const submitText = computed(() => {
   if (locked.value) return `账户已锁定（${remainingLabel.value}）`
@@ -45,9 +52,9 @@ const submitText = computed(() => {
 const rules = computed<FormRules>(() => ({
   username: { required: true, message: '请输入用户名', trigger: 'blur' },
   password:
-    inTotpStage.value
-      ? {}
-      : { required: true, message: '请输入密码', trigger: 'blur' },
+    !inTotpStage.value && mode.value === 'password'
+      ? { required: true, message: '请输入密码', trigger: 'blur' }
+      : {},
   code: inTotpStage.value
     ? {
         required: true,
@@ -55,7 +62,11 @@ const rules = computed<FormRules>(() => ({
         trigger: ['blur', 'input'],
         pattern: /^\d{6}$/
       }
-    : {}
+    : {},
+  recovery:
+    mode.value === 'recovery'
+      ? { required: true, message: '请输入恢复码', trigger: 'blur' }
+      : {}
 }))
 
 function updateRemaining(deadline: number): boolean {
@@ -87,6 +98,40 @@ function stopLockCountdown(): void {
 onUnmounted(() => {
   stopLockCountdown()
 })
+
+function switchMode(next: string): void {
+  mode.value = next as LoginMode
+  // 清掉上一个方式残留的校验提示，避免切回来时旧报错还挂着
+  formRef.value?.restoreValidation()
+}
+
+/** 回车提交：按当前所处步骤/方式分派 */
+function onKeyEnter(): void {
+  if (passkeyTicket.value !== null) {
+    void onPasskeyVerify()
+    return
+  }
+  if (inTotpStage.value) {
+    void onSubmit()
+    return
+  }
+  if (mode.value === 'passkey') {
+    void onPasskeyLogin()
+    return
+  }
+  if (mode.value === 'recovery') {
+    void onRecoveryLogin()
+    return
+  }
+  void onSubmit()
+}
+
+/** 二因素中途放弃：回到密码方式重新登录（ticket 仅内存，丢弃即失效） */
+function resetSecondStage(): void {
+  loginTicket.value = null
+  passkeyTicket.value = null
+  code.value = ''
+}
 
 async function onSubmit(): Promise<void> {
   if (locked.value || submitting.value) return
@@ -138,11 +183,10 @@ async function onSubmit(): Promise<void> {
   }
 }
 
-// ---- passkey / 恢复码（v0.7.0 登录安全增量）----
+// ---- passkey / 恢复码（登录安全增量）----
 const supportsPasskey = passkeySupported()
 /** 密码后 passkey 二因素的 ticket（requiresPasskey） */
 const passkeyTicket = ref<string | null>(null)
-const recoveryStage = ref(false)
 const recoveryCode = ref('')
 
 /** 取断言凭据（login-begin → navigator.credentials.get）。 */
@@ -155,10 +199,12 @@ async function getAssertion(user: string): Promise<{ token: string; credential: 
   return { token: begin.token, credential: serializeAssertion(cred) }
 }
 
-/** 无密码登录：用户名 + passkey。 */
+/** 无密码登录：用户名 + passkey。用户名是三种方式共用的第一格，没填就先提示并聚焦。 */
 async function onPasskeyLogin(): Promise<void> {
-  if (submitting.value || username.value === '') {
-    if (username.value === '') message.info('请先输入用户名')
+  if (submitting.value) return
+  if (username.value === '') {
+    message.info('请先输入用户名')
+    usernameInput.value?.focus()
     return
   }
   submitting.value = true
@@ -170,6 +216,7 @@ async function onPasskeyLogin(): Promise<void> {
     void router.replace('/')
   } catch (e) {
     if (e instanceof ApiError && e.is('AUTH_015')) message.error('passkey 验证失败，请重试或用密码登录')
+    else if (e instanceof ApiError && e.is('AUTH_017')) message.error('该账户还没有注册 passkey，可改用密码登录')
   } finally {
     submitting.value = false
   }
@@ -194,8 +241,14 @@ async function onPasskeyVerify(): Promise<void> {
 
 /** 恢复码登录。 */
 async function onRecoveryLogin(): Promise<void> {
-  if (submitting.value || recoveryCode.value === '' || username.value === '') {
-    message.info('请输入用户名和恢复码')
+  if (submitting.value) return
+  if (username.value === '') {
+    message.info('请先输入用户名')
+    usernameInput.value?.focus()
+    return
+  }
+  if (recoveryCode.value === '') {
+    message.info('请输入恢复码')
     return
   }
   submitting.value = true
@@ -218,79 +271,111 @@ async function onRecoveryLogin(): Promise<void> {
     <n-card class="card" title="登录斗拱面板">
       <n-form
         ref="formRef"
-        :model="{ username, password, code }"
+        :model="{ username, password, code, recoveryCode }"
         :rules="rules"
         label-placement="top"
-        @keyup.enter="onSubmit"
+        @keyup.enter="onKeyEnter"
       >
         <n-form-item label="用户名" path="username">
           <n-input
+            ref="usernameInput"
             v-model:value="username"
-            :disabled="inTotpStage"
+            :disabled="inTotpStage || inPasskeyStage"
             placeholder="用户名"
           />
         </n-form-item>
-        <n-form-item label="密码" path="password">
-          <n-input
-            v-model:value="password"
-            type="password"
-            show-password-on="click"
-            :disabled="inTotpStage"
-            placeholder="密码"
-          />
-        </n-form-item>
-        <n-form-item v-if="inTotpStage" label="TOTP 动态码" path="code">
-          <n-input
-            v-model:value="code"
-            placeholder="6 位数字动态码"
-            maxlength="6"
-            inputmode="numeric"
-          />
-        </n-form-item>
-        <n-button
-          type="primary"
-          block
-          attr-type="submit"
-          :loading="submitting"
-          :disabled="locked"
-          @click="onSubmit"
-        >
-          {{ submitText }}
-        </n-button>
 
-        <!-- passkey 二因素（密码后 requiresPasskey） -->
-        <n-button
-          v-if="passkeyTicket"
-          type="primary"
-          block
-          style="margin-top: 8px"
-          :loading="submitting"
-          @click="onPasskeyVerify"
-        >
-          用 passkey 验证
-        </n-button>
-
-        <!-- 恢复码登录（passkey/TOTP 丢失时的兜底） -->
-        <template v-if="recoveryStage">
-          <n-form-item label="恢复码" path="recovery" style="margin-top: 8px">
-            <n-input v-model:value="recoveryCode" placeholder="如 1A2B-3C4D-5E6F-7G8H" />
+        <!-- 二因素步骤（选定方式后的第二步）：只保留当前步骤的动作与「返回重新登录」 -->
+        <template v-if="inTotpStage">
+          <n-form-item label="TOTP 动态码" path="code">
+            <n-input
+              v-model:value="code"
+              placeholder="6 位数字动态码"
+              maxlength="6"
+              inputmode="numeric"
+            />
           </n-form-item>
-          <n-button block :loading="submitting" @click="onRecoveryLogin">用恢复码登录</n-button>
+          <n-button
+            type="primary"
+            block
+            attr-type="submit"
+            :loading="submitting"
+            :disabled="locked"
+            @click="onSubmit"
+          >
+            {{ submitText }}
+          </n-button>
+          <div class="alt-actions">
+            <n-button text @click="resetSecondStage">返回重新登录</n-button>
+          </div>
+        </template>
+        <template v-else-if="inPasskeyStage">
+          <n-button
+            type="primary"
+            block
+            :loading="submitting"
+            @click="onPasskeyVerify"
+          >
+            <n-icon :component="FingerPrintOutline" class="btn-icon" />
+            用 passkey 验证
+          </n-button>
+          <p class="method-hint">验证本机的指纹、面部或安全密钥</p>
+          <div class="alt-actions">
+            <n-button text @click="resetSecondStage">返回重新登录</n-button>
+          </div>
         </template>
 
-        <div class="alt-actions">
-          <n-button
-            v-if="supportsPasskey && !inTotpStage && !passkeyTicket && !recoveryStage"
-            text
-            type="primary"
-            @click="onPasskeyLogin"
-          >
-            使用 passkey 登录
-          </n-button>
-          <n-button text @click="recoveryStage = !recoveryStage">
-            {{ recoveryStage ? '返回密码登录' : '用恢复码登录' }}
-          </n-button>
-        </div>
+        <!-- 登录方式分段切换（密码 / passkey / 恢复码），各方式一份完整表单 -->
+        <n-tabs v-else :value="mode" type="segment" size="small" class="mode-tabs" @update:value="switchMode">
+          <n-tab-pane name="password" tab="密码">
+            <n-form-item label="密码" path="password" class="pane-first">
+              <n-input
+                v-model:value="password"
+                type="password"
+                show-password-on="click"
+                placeholder="密码"
+              />
+            </n-form-item>
+            <n-button
+              type="primary"
+              block
+              attr-type="submit"
+              :loading="submitting"
+              :disabled="locked"
+              @click="onSubmit"
+            >
+              {{ submitText }}
+            </n-button>
+          </n-tab-pane>
+          <n-tab-pane v-if="supportsPasskey" name="passkey" tab="passkey">
+            <n-button
+              type="primary"
+              block
+              :loading="submitting"
+              :disabled="locked"
+              class="pane-first"
+              @click="onPasskeyLogin"
+            >
+              <n-icon :component="FingerPrintOutline" class="btn-icon" />
+              使用 passkey 登录
+            </n-button>
+            <p class="method-hint">验证本机的指纹、面部或安全密钥</p>
+          </n-tab-pane>
+          <n-tab-pane name="recovery" tab="恢复码">
+            <n-form-item label="恢复码" path="recovery" class="pane-first">
+              <n-input v-model:value="recoveryCode" placeholder="如 1A2B-3C4D-5E6F-7G8H" />
+            </n-form-item>
+            <n-button
+              type="primary"
+              block
+              :loading="submitting"
+              :disabled="locked"
+              @click="onRecoveryLogin"
+            >
+              登录
+            </n-button>
+          </n-tab-pane>
+        </n-tabs>
       </n-form>
       <p class="hint">本面板不提供注册与找回密码；重置请使用命令行或联系其他管理员。</p>
     </n-card>
@@ -318,10 +403,26 @@ async function onRecoveryLogin(): Promise<void> {
   font-size: 12px;
   color: v-bind(hintColor);
 }
+.method-hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: v-bind(hintColor);
+}
+/* 分段条与首格之间留呼吸，窗格自带的上内边距收掉 */
+.mode-tabs {
+  margin-top: 4px;
+}
+.mode-tabs :deep(.n-tab-pane) {
+  padding-top: 12px;
+}
+.pane-first {
+  margin-bottom: 12px;
+}
+.btn-icon {
+  margin-right: 6px;
+  font-size: 18px;
+}
 .alt-actions {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
   margin-top: 10px;
 }
 </style>

@@ -2,9 +2,9 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v1.4 |
+| 版本 | v1.5 |
 | 状态 | 稳定 |
-| 最后更新 | 2026-11-27 |
+| 最后更新 | 2026-11-28（v1.5 登录页分段切换改版，§5.2） |
 | 用户类型 | admin（另含全用户公共页：初始化向导/登录，readonly 文档引用本文定义） |
 | 唯一数据源 | 02-detailed/api/api-account-auth.md v1.4 |
 | 组件体系 | Vue 3 + Naive UI（knowledge/architecture-choices 栈版本表；无激活栈 profile，不使用 vue3-engine 栈 Scm* 组件） |
@@ -201,20 +201,21 @@
 
 **进入条件**：initialized=true（否则重定向 /init-wizard）；已登录访问 → 重定向框架首页。
 
-**表单**：
+**结构（v1.5 分段切换）**：用户名输入框常驻页首——三种登录方式共用，切换方式保留已填内容；其下为登录方式分段切换（NTabs type=segment：密码 / passkey / 恢复码；浏览器不支持 passkey 时隐藏该段），每段一份完整表单，同屏只呈现当前方式，切换清空上一方式残留校验提示；底部固定说明「本面板不提供注册与找回密码；重置请使用命令行或联系其他管理员。」
 
-| 字段 | 组件 | 校验 |
-|------|------|------|
-| 用户名 | NInput | 必填 |
-| 密码 | NInput type=password | 必填；回车提交 |
-| 动态码（条件显隐） | NInput | 6 位数字；仅 AUTH_007 返回后展开（二步式，D-02） |
+**各方式表单与提交**：
 
-**交互流**：
+| 段 | 字段/动作 | 校验 | 提交 |
+|------|------|------|------|
+| 密码 | 密码 NInput type=password +「登录」主按钮 | 必填；回车提交 | login → AUTH_007 二步（见下） |
+| passkey | 「使用 passkey 登录」主按钮（指纹图标）+ 说明行「验证本机的指纹、面部或安全密钥」 | 未填用户名 → 提示「请先输入用户名」并聚焦用户名框 | webauthnLoginBegin → navigator.credentials.get → webauthnLoginFinish → 会话（无密码） |
+| 恢复码 | 恢复码 NInput（占位示例 1A2B-3C4D-5E6F-7G8H）+「登录」主按钮 | 必填（* 标记）；未填提示并聚焦 | recoveryLogin → 会话（一次性消耗） |
 
-1. login 提交 → code=0：进入框架首页；AUTH_007：`data.loginTicket` 存内存（不落 localStorage，R-02），展开动态码输入框，密码框禁用，显示"请输入 TOTP 动态码"；AUTH_005：通用错误"用户名或密码错误"（防枚举，api D-06 语境）；AUTH_004：锁定倒计时文案"账户已锁定，剩余 mm:ss"（remainingSeconds）+ 禁用提交按钮至期满。
-2. totpVerify 提交 → code=0：进入框架首页；AUTH_006：动态码错误提示（计一次失败）；AUTH_013：ticket 失效 → 收起动态码框恢复密码框，提示重新登录。
+**二因素步骤（AUTH_007 后独占内容区，隐藏分段条）**：TOTP 账户——动态码输入框 +「验证动态码」；requiresPasskey 账户（无 TOTP 有 passkey）——「用 passkey 验证」按钮（指纹图标）+ 说明行。两态均提供「返回重新登录」（丢弃内存中的 loginTicket 回到方式选择）；用户名保留并置灰。二步式 ticket 仅内存不落 localStorage（R-02，D-02）。
 
-**按钮**：`登录`（两态：登录 / 验证动态码）；无注册/找回（单机面板，重置经 CLI 或其他管理员）。
+**错误与锁定**：AUTH_005 通用「用户名或密码错误」（防枚举，api D-06 语境）；AUTH_004 锁定倒计时「账户已锁定，剩余 mm:ss」（remainingSeconds）+ 禁用提交至期满；AUTH_006 动态码错误（计一次失败）；AUTH_013 ticket 失效 → 提示重新登录；AUTH_015 passkey 验证失败（可重试或改用密码）；AUTH_016 恢复码无效或已使用；AUTH_017 账户未注册 passkey（提示改用密码）；AUTH_018 当前地址不支持 passkey（IP 直连，提示绑定域名启用 HTTPS）。
+
+**回车提交**：按当前所处方式/步骤分派——密码段=login、passkey 段=passkey 无密码登录、恢复码段=recoveryLogin、TOTP 步=totpVerify、passkey 二因素步=passkeyVerify。无注册/找回（单机面板，重置经 CLI 或其他管理员）。
 
 ### 5.3 个人安全设置（profile-self）— 路由 /profile（admin+readonly 共用，readonly 复用）
 
@@ -237,9 +238,9 @@
 
 **按钮组合**：master_data 惯例 保存/取消（各 Card 独立提交，无跨 Card 草稿态）。
 
-### 5.4 登录安全增量（v1.4，passkey/恢复码）
+### 5.4 登录安全增量（v1.4，passkey/恢复码；v1.5 登录页交互已并入 5.2）
 
-**登录页（5.2 扩展）**：
+**登录页（5.2 扩展，v1.5 起以 5.2 分段切换承载，此处保留能力口径）**：
 - 「使用 passkey 登录」文字按钮（需先填用户名；浏览器支持 passkey 时显示）：webauthnLoginBegin → navigator.credentials.get → webauthnLoginFinish → 会话（无密码）。
 - 密码登录后若返回 `requiresPasskey`（AUTH_007 带标记，无 TOTP 但有 passkey）：显示「用 passkey 验证」按钮 → webauthnLoginBegin → get → passkeyVerify(ticket) → 会话（二因素，与 TOTP 两步同构）。
 - 「用恢复码登录」切换：显示恢复码输入框 + 提交 → recoveryLogin → 会话（一次性消耗）。
@@ -297,5 +298,6 @@
 | v1.2 | 2026-11-16 | copy_revision | 首启 UI 缺陷修复增量：全局 dark 背景同步/响应式跟随/暗色对比度（App.vue 装配，独立页 5.1/5.2 受益）；5.1/5.2 说明文案净化（去「不阻断/单向/ADR-017/经 CLI」术语表述，功能语义不变）——UI 文案未在本 PageSpec 逐字锁定，Action/契约/校验零变更 | 5.1/5.2 |
 | v1.3 | 2026-11-16 | copy_revision / structural | 增量 D4（v0.1.2 用户反馈第 5/6 项）：侧栏菜单分组化登记（「用户与安全」分组四子项两角色，经 panel-core ModuleMenuRegistry 补全——实现回归本节既有设计，修复 /users 不可达）；顶栏标题=当前页面标题（替换硬编码「账户与安全基座」业务域显示名）；路由 meta +title 四项；列表页加载失败态规范（loadError NAlert+重试，修复正文空白缺陷）；Action/字典/接口契约零变化 |
 | v1.4 | 2026-11-27 | interface_added / structural | 登录安全增量 D4（数据源 api-account-auth.md v1.3 §4.6，d0-clarification-account-auth-login-security-2026-11-27）：**+10 Action**（passkey 注册 begin/finish、列表、删除、无密码登录 begin/finish、二因素 passkeyVerify、恢复码生成/计数/登录）；5.2 登录页 +passkey 无密码/二因素/恢复码三入口；5.3 个人安全 +Card 3 Passkey 管理 +Card 4 恢复码（一次性展示）；S7 18→28 一一对应；字典/路由零变化 |
+| v1.5 | 2026-11-28 | structural | 登录页交互改版（用户拍板「顶部分段切换」）：用户名常驻 + NTabs segment 三段（密码/passkey/恢复码，passkey 不支持时整段隐藏）各配完整表单，同屏单方式；passkey 升级为带指纹图标的主按钮（未填用户名聚焦提示）；恢复码段不再残留密码框；AUTH_007 二因素步骤独占内容区（隐藏分段条）+「返回重新登录」；错误文案页面级补 AUTH_015/016/017/018；回车按方式/步骤分派；Action/字典/路由零变化（S7 28↔28 不变）；readonly v1.3 承载公共页引用 | 5.2 / 5.4 |
 
 > FX 质量清单说明：FX-001~FX-141 逐条清单文件未随引擎 0.5.2 payload 发布（find 验证无 checklist.md），本节按分册 9 节结构逐节落实，并以第 8 节 10 项全局一致性自查替代可机械执行部分；全量 141 项留待 Gate 1 validation 执行。
