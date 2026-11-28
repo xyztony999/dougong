@@ -6,7 +6,7 @@
 | 状态 | 稳定 |
 | 最后更新 | 2026-11-27 |
 | 用户类型 | admin（另含全用户公共页：初始化向导/登录，readonly 文档引用本文定义） |
-| 唯一数据源 | 02-detailed/api/api-account-auth.md v1.0 |
+| 唯一数据源 | 02-detailed/api/api-account-auth.md v1.4 |
 | 组件体系 | Vue 3 + Naive UI（knowledge/architecture-choices 栈版本表；无激活栈 profile，不使用 vue3-engine 栈 Scm* 组件） |
 | 确认方式 | headless run：7 项交互确认依据 D3 契约 + ADR-017/018/019 + FL v1.0 推导，标注于各节 |
 

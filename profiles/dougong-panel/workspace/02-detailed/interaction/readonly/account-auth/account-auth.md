@@ -2,11 +2,11 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本 | v1.1 |
+| 版本 | v1.2 |
 | 状态 | 稳定 |
-| 最后更新 | 2026-11-16 |
+| 最后更新 | 2026-11-28（v1.2 登录安全增量：公共页引 §5.4 + 自助 Action 补齐） |
 | 用户类型 | readonly |
-| 唯一数据源 | 02-detailed/api/api-account-auth.md v1.0 |
+| 唯一数据源 | 02-detailed/api/api-account-auth.md v1.4 |
 | 公共页定义 | 复用 admin 文档（../admin/account-auth/account-auth.md 第 5.1/5.2/5.3 节）：初始化向导、登录页、个人安全设置 |
 | 边界依据 | ADR-018：全可看（含审计日志）+ 禁一切变更 + 禁 Web 终端 + 禁上传下载 |
 | 组件体系 | Vue 3 + Naive UI（同 admin 文档） |
@@ -25,12 +25,12 @@
 
 | Action | 方法 | 路径 | 页面 | 说明 |
 |--------|------|------|------|------|
-| login / totpVerify / sessionCurrent | — | 同 admin 第 2 节 | 公共页复用 | — |
+| login / totpVerify / sessionCurrent / webauthnLoginBegin / webauthnLoginFinish / passkeyVerify / recoveryLogin | — | 同 admin 第 2 节 | 公共页复用 | 登录安全三入口两角色同等（无密码 passkey / 二因素 / 恢复码登录） |
 | logout | POST | /auth/session/logout | 顶栏 | ✓CSRF |
 | userList | GET | /auth/user/list | user-list | 只读视图 |
 | sessionList | GET | /auth/session/list | session-list | 只读视图 |
 | auditList | GET | /auth/audit-log/list | audit-log-list | 只读视图（ADR-018 含审计） |
-| pwdChange / totpSetup / totpEnable / totpDisable | POST | 同 admin 第 2 节 | profile-self | 自助凭证操作不受变更禁令限制（FL 附录B 行业惯例） |
+| pwdChange / totpSetup / totpEnable / totpDisable / webauthnRegisterBegin / webauthnRegisterFinish / webauthnList / webauthnDelete / recoveryGenerate / recoveryCount | POST/GET | 同 admin 第 2 节 | profile-self | 自助凭证操作不受变更禁令限制（FL 附录B 行业惯例）；passkey/恢复码管理为本人自助 |
 
 **负空间（readonly 不可见 Action，ADR-018 矩阵）**：userCreate / userDelete / userResetPwd / sessionRevoke / auditExport——前端按 role===admin 隐藏入口 + 后端 AUTH_008 双保险；越界直达请求返回 403 语义页提示边界原因。
 
@@ -57,7 +57,7 @@
 
 ## 第 5 节 表单页
 
-- **登录页 / 初始化向导 / 个人安全设置**：与 admin 版第 5.1/5.2/5.3 节定义完全一致（公共页，readonly 文档不重复定义；修改密码与 TOTP 绑定解绑为自助凭证操作，不受变更禁令限制）。
+- **登录页 / 初始化向导 / 个人安全设置**：与 admin 版第 5.1/5.2/5.3/5.4 节定义完全一致（公共页，readonly 文档不重复定义；修改密码/TOTP/passkey/恢复码为自助凭证操作，不受变更禁令限制；登录页 passkey 按钮按环境支持度显示，v1.2 随 admin v1.4）。
 
 ## 第 6 节 详情页
 
@@ -81,6 +81,7 @@
 | 4 | CSRF/token 纪律同 admin（第 8 节 3/4 项） | ✅ |
 | 5 | 自助凭证操作纳入范围且标注依据 | ✅ 第 2 节 |
 | 6 | 字典同源 enums.ts | ✅ |
+| 7 | 登录安全自助 Action（passkey/恢复码）两角色同等，未误入负空间 | ✅ 第 2 节 |
 
 ## 第 9 节 文档版本与变更记录
 
@@ -88,5 +89,5 @@
 |------|------|---------|------|
 | v1.0 | 2026-11-12 | initial | 首次生成：只读视角 3 列表页（去操作列/导出）+ 公共页引用；负空间 5 Action 标注 |
 | v1.1 | 2026-11-16 | copy_revision | 增量 D4 随 admin v1.3：侧栏「用户与安全」分组只读可达（用户管理只读视图/在线会话/审计日志/个人安全设置，两角色同组）；顶栏标题=当前页面标题（D-P18）；列表加载失败态 NAlert+重试同 admin 规范；负空间与 Action 零变化 |
-
+| v1.2 | 2026-11-28 | interface_added | 登录安全增量随 admin v1.4/api v1.3~v1.4：公共页引 admin §5.4（登录页 passkey 无密码/二因素/恢复码三入口；个人安全 Passkey 卡与恢复码卡）；第 2 节 Action 补齐 10 个登录安全动作（登录侧 3 + profile-self 侧 7，均两角色同等自助）；负空间仍 5 个（登录安全不含 admin 专属动作）；字典/路由零变化 |
 > FX 清单执行方式同 admin 文档第 9 节注记（清单文件未随 payload 发布，按 9 节结构落实 + 第 8 节自查；全量留待 Gate 1）。
