@@ -381,7 +381,7 @@ func (s *Service) installPHPMyAdmin(ctx context.Context, task storedbt.Task, rin
 			"reason": "工具 location 注入失败: " + err.Error()})
 	}
 	ring.append("[inject] " + ref.File + " server#" + fmt.Sprintf("%d", ref.Index))
-	appendLandingHint(ring, ref)
+	appendLandingHint(ring, ref, s.landingTLSPort(ctx, pa) != 0)
 	return &storedbt.Tool{
 		ToolType: storedbt.ToolPHPMyAdmin, InstalledVersion: PHPMyAdminVersion,
 		DeployPath: dest, SiteRef: marshalSiteRef(ref), CredCipher: cipher,
@@ -471,7 +471,7 @@ func (s *Service) installMongoExpress(ctx context.Context, task storedbt.Task, r
 		return nil, errcode.ErrDBTDeployOpFailed.WithData(map[string]any{
 			"reason": "工具 location 注入失败: " + err.Error()})
 	}
-	appendLandingHint(ring, ref)
+	appendLandingHint(ring, ref, s.landingTLSPort(ctx, pa) != 0)
 	cipher, err := s.vault.Encrypt(marshalToolCreds(toolCredJSON{BasicAuthPassword: password}))
 	if err != nil {
 		return nil, err
@@ -715,13 +715,15 @@ func (s *Service) InternalSecret() (string, error) {
 	return strings.TrimSpace(string(b)), nil
 }
 
-// toolBaseHost 工具 URL 基址（v1.3 D-23 端口分支）：
+// toolBaseHost 工具 URL 基址（v1.3 D-23 端口分支；v1.4 D-24 +TLS）：
 // port≠0（自动落地块）→ scheme://hostname:port——hostname=BindDomain 优先
 // （PanelAccess 实时读），否则 requestHost 去端口（open/reopen 浏览器语境；
-// 安装期无请求语境且未绑域名→动态回退沿 A-DBT6）；
+// 安装期无请求语境且未绑域名→动态回退沿 A-DBT6）；tlsPort≠0（自动块已具
+// listen 2087 ssl 落盘实况，lazyRefreshLanding 判定）→ https://hostname:
+// tlsPort 覆盖（HTTPS 面板会话 cookie Secure 位要求工具同 https 协议族）；
 // port=0（既有面板域块 80/443）沿旧形态：落点具体域名优先 → bind_domain →
 // 请求 Host → 动态 PHP Host 回退。
-func (s *Service) toolBaseHost(ref siteRef, pa PanelAccess, requestHost string) (base string, dynamic bool) {
+func (s *Service) toolBaseHost(ref siteRef, pa PanelAccess, requestHost string, tlsPort int) (base string, dynamic bool) {
 	if ref.Port != 0 {
 		host := pa.BindDomain
 		if host == "" {
@@ -733,7 +735,11 @@ func (s *Service) toolBaseHost(ref siteRef, pa PanelAccess, requestHost string) 
 		if host == "" {
 			return "", true
 		}
-		return ref.Scheme + "://" + net.JoinHostPort(host, strconv.Itoa(ref.Port)), false
+		scheme, port := ref.Scheme, ref.Port
+		if tlsPort != 0 && ref.AutoCreated {
+			scheme, port = "https", tlsPort
+		}
+		return scheme + "://" + net.JoinHostPort(host, strconv.Itoa(port)), false
 	}
 	host := ref.ServerName
 	if host == "" {
@@ -756,7 +762,7 @@ func (s *Service) toolBaseHost(ref siteRef, pa PanelAccess, requestHost string) 
 // 落地块恒 http 不决定面板 scheme）。
 func (s *Service) signonBaseHost(ref siteRef, pa PanelAccess) (base string, dynamic bool) {
 	if ref.Port == 0 {
-		return s.toolBaseHost(ref, pa, "")
+		return s.toolBaseHost(ref, pa, "", 0)
 	}
 	scheme := "http"
 	if pa.HTTPSEnabled {

@@ -504,16 +504,17 @@ func run(args []string) error {
 		return errors.Join(fmt.Errorf("open dbtools credential vault: %w", err), closeErr)
 	}
 	dbtoolsSvc := dbtoolssvc.New(dbtoolsStore, dbtoolsVault, dbtoolssvc.Deps{
-		Deploy:   toolx.NewGateway(),
-		Creds:    dbSvc,   // ToolCredentialGateway OHS（vault 解密仅服务端）
-		Pipeline: siteSvc, // ConfigWritePipeline OHS（R-06 四步）
-		Env:      envSvc,  // 环境实况读契约（PHP-FPM/Node/nginx 依赖就绪度）
-		Sysd:     sysdGateway,
-		PhpFpm:   phpfpmGw,
-		Nginx:    nginxxGw,
-		Panel:    panelSvc,
-		Session:  authSvc, // VerifyWs 只读会话校验（gating/signon 绑定）
-		Audit:    auditSvc,
+		Deploy:    toolx.NewGateway(),
+		Creds:     dbSvc,   // ToolCredentialGateway OHS（vault 解密仅服务端）
+		Pipeline:  siteSvc, // ConfigWritePipeline OHS（R-06 四步）
+		Env:       envSvc,  // 环境实况读契约（PHP-FPM/Node/nginx 依赖就绪度）
+		Sysd:      sysdGateway,
+		PhpFpm:    phpfpmGw,
+		Nginx:     nginxxGw,
+		Panel:     panelSvc,
+		PanelCert: panelSvc, // v1.4 D-24：CertMaterial 进程内复用（落地 TLS 证书落盘源）
+		Session:   authSvc,  // VerifyWs 只读会话校验（gating/signon 绑定）
+		Audit:     auditSvc,
 	}, dbtoolssvc.Options{DataDir: panelDataDir, Mirror: cfg.Tools.Mirror, NpmRegistry: cfg.Tools.NpmRegistry})
 	dbtoolsSvc.RecoverInFlight(ctx)
 	// v1.3（api-db-tools D-20③⑤，S-11-01）：bindDomain 变更钩子注册——

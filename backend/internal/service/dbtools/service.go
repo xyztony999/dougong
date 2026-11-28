@@ -18,19 +18,20 @@ import (
 // Service 是 db-tools 门面（面板面 9 接口 + 内部 2 端点业务承载 + 进程内
 // OHS 提供 ToolStatusForEngine）。分层纪律：不感知 HTTP。
 type Service struct {
-	store    *storedbt.Store
-	vault    *ToolVault
-	deploy   DeployGateway
-	creds    CredentialGateway
-	pipeline ConfigPipeline
-	env      EnvReadiness
-	sysd     SysdGateway
-	phpfpm   PhpFpmGateway
-	nginx    NginxConfReader
-	panel    PanelInfo
-	session  SessionVerifier
-	audit    AuditRecorder
-	signon   *SignonService
+	store     *storedbt.Store
+	vault     *ToolVault
+	deploy    DeployGateway
+	creds     CredentialGateway
+	pipeline  ConfigPipeline
+	env       EnvReadiness
+	sysd      SysdGateway
+	phpfpm    PhpFpmGateway
+	nginx     NginxConfReader
+	panel     PanelInfo
+	panelCert PanelCertReader
+	session   SessionVerifier
+	audit     AuditRecorder
+	signon    *SignonService
 
 	dataDir     string
 	toolDir     string // {dataDir}/tools（TOOL_DIR，D-13）
@@ -43,16 +44,17 @@ type Service struct {
 
 // Deps 网关与 OHS 装配组（main 注入；测试全替身）。
 type Deps struct {
-	Deploy   DeployGateway
-	Creds    CredentialGateway
-	Pipeline ConfigPipeline
-	Env      EnvReadiness
-	Sysd     SysdGateway
-	PhpFpm   PhpFpmGateway
-	Nginx    NginxConfReader
-	Panel    PanelInfo
-	Session  SessionVerifier
-	Audit    AuditRecorder
+	Deploy    DeployGateway
+	Creds     CredentialGateway
+	Pipeline  ConfigPipeline
+	Env       EnvReadiness
+	Sysd      SysdGateway
+	PhpFpm    PhpFpmGateway
+	Nginx     NginxConfReader
+	Panel     PanelInfo
+	PanelCert PanelCertReader
+	Session   SessionVerifier
+	Audit     AuditRecorder
 }
 
 // Options 构造选项（DataDir 必填——工具目录/密钥文件派生基点）。
@@ -81,7 +83,7 @@ func New(store *storedbt.Store, vault *ToolVault, deps Deps, opts Options) *Serv
 		store: store, vault: vault,
 		deploy: deps.Deploy, creds: deps.Creds, pipeline: deps.Pipeline,
 		env: deps.Env, sysd: deps.Sysd, phpfpm: deps.PhpFpm, nginx: deps.Nginx,
-		panel: deps.Panel, session: deps.Session, audit: deps.Audit,
+		panel: deps.Panel, panelCert: deps.PanelCert, session: deps.Session, audit: deps.Audit,
 		dataDir: dataDir, toolDir: filepath.Join(dataDir, "tools"),
 		mirror: opts.Mirror, npmRegistry: opts.NpmRegistry, clock: clock,
 		disableDispatch: opts.DisableDispatch,
@@ -113,6 +115,13 @@ func (s *Service) ToolList(ctx context.Context) (*ToolListData, error) {
 			inFlight[t.ToolType] = t.ID
 		}
 	}
+	// v1.4 落地 TLS 端口投影判定（D-24，面板全局一次）：HTTPS 面板+面板
+	// 证书可用→ToolLandingTLSPort；访问形态读失败/证书未配置→0（投影 null
+	// 不虚构——url 分支后端权威下发，此处仅卡片地址呈现口径）。
+	tlsPort := 0
+	if pa, perr := s.panel.PanelAccess(ctx); perr == nil {
+		tlsPort = s.landingTLSPort(ctx, pa)
+	}
 	items := make([]ToolItem, 0, len(Catalog))
 	for i := range Catalog {
 		e := &Catalog[i]
@@ -128,9 +137,14 @@ func (s *Service) ToolList(ctx context.Context) (*ToolListData, error) {
 			item.BoundInstanceID = a.InstanceID // phpmyadmin=NULL（打开时绑定）
 			item.Running = s.probeRunning(ctx, e.Type, &a)
 			// v1.3 落地形态投影（D-19/I-14）：siteRef 解析失败=null 不虚构。
+			// v1.4（D-24）：自动块+TLS 可用→landingTlsPort=2087。
 			if ref, rerr := parseSiteRef(a.SiteRef); rerr == nil {
 				port, auto := ref.Port, ref.AutoCreated
 				item.LandingPort, item.AutoCreated = &port, &auto
+				if port != 0 && auto && tlsPort != 0 {
+					tp := tlsPort
+					item.LandingTLSPort = &tp
+				}
 			}
 		}
 		if id, ok := inFlight[e.Type]; ok {

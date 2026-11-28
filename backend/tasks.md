@@ -1206,3 +1206,17 @@
 - [x] T07 · 合规：R-08 全参数数组（python3/pip/systemctl/journalctl/systemd-analyze）；SQL 仅 store 层参数化；goroutine 有限时自然终止（G-06）；%w 包装；ctx 首参
 - [x] 自验：go build/vet=0；全仓 test -race -count=1 55 包 0 FAIL（新增 appmgmt service 8+api 1）；gofmt 0；GOOS=linux CGO_ENABLED=0 交叉=0
 - [x] A-APP 实现裁定：A-APP1 fmtMtime 纳秒基线（RFC3339 秒级同秒碰撞失效）；A-APP2 创建参数经任务输出首行 plan:{json} 承载（worker 与发起解耦，pending 不续跑保守语义不变）；A-APP3 runTask 守卫仅终态早退（running=Retry 再入——原 pending 守卫会吞重试，测试锁定）；A-APP4 .env 0600 写入+备份 .dougong-bak；A-APP5 unit 模板 EnvironmentFile 引用（.env 缺失时 systemd 忽略该指令，服务照常启动——如实不影响）；A-APP6 建站 OHS 适配器内 domain 空=server_name "_"（site-mgmt 域名校验拒绝时 APP_011 透传引导站点管理）
+
+
+## db-tools 落地块 HTTPS 增量（2026-11-28，api-db-tools.md v1.4 D-24）
+
+> 设计输入：profiles/dougong-panel/workspace/02-detailed/api/api-db-tools.md v1.4（唯一事实源）。实机取证 v0.6.7（2026-11-28）：面板域名经 Cloudflare 橙云代理时 18090 不在 CF 转发端口集（HTTPS 443/2053/2083/2087/2096/8443）恒不可达（ERR_CONNECTION_REFUSED，用户实机 phpMyAdmin/mongo-express 均进不去）；灰云（仅 DNS）直连+面板 HTTPS 会话 cookie Secure 位致 http 工具落地 gating 失效；面板证书存 panel_cert 单行（GetCertificate 热读）磁盘无稳定文件路径；Origin CA 证书仅 CF 边缘信任（浏览器直连源站 ERR_CERT_AUTHORITY_INVALID 为设计使然）。
+
+- [x] T01 · consts.go：+ToolLandingTLSPort=2087（2083 面板已占用；2087 在 CF 代理端口集内、灰云直连同端口可达）+LandingCertFileName/LandingKeyFileName
+- [x] T02 · ports.go +PanelCertReader 契约（CertMaterial 进程内复用——panelsvc.Service 既有方法零新增，main 装配 PanelCert: panelSvc）；service.go Service/Deps +panelCert 字段
+- [x] T03 · landing.go：ensureLandingTLS（HTTPS 面板+证书可用→CertMaterial 物化 landing-cert/key.pem 0600+sha256 指纹；ErrNoRows/空 PEM=非 active nil err〔签发中=常态〕；读失败 fail loud 安装链如实）/renderLandingConf +TLS 行组（listen 2087 ssl+证书两行）+块外指纹注释（证书轮换→指纹变更→conf 重写→ConfigApply reload）/refreshLandingServerName→refreshLandingBlock 四段对账（server_name/if+TLS 行组+指纹注释，全一致零写入幂等，工具 location 字节不动；TLS 材料失败→钩子跳过刷新保住既有 TLS 行防降级删行）/autoCreateLanding +2087 探针（占用→DBT_012 reason「工具 HTTPS 端口 2087 被占用」）/lazyRefreshLanding 返回落盘实况 TLS 端口（landingTLSPortFromConf 判 listen 2087）/appendLandingHint TLS 态追加「、2087」/OnBindDomainChanged 取 pa+ensure 后刷新
+- [x] T04 · deploy.go toolBaseHost +tlsPort 参数（自动块 autoCreated=true 且 tlsPort≠0→https://{hostname}:2087 覆盖 scheme/port；既有块 port=0 不适用）；access.go Open/Reopen 接线 lazyRefreshLanding 返回值；signonBaseHost 沿 0（SignonURL 面板基址不变，A-DBT11 口径不变）
+- [x] T05 · dto.go ToolItem +LandingTLSPort（*int 无 omitempty 可空纪律）+service.go ToolList 投影（PanelAccess+landingTLSPort 面板全局一次；自动块+TLS 可用=2087，未装/既有块/非 HTTPS/证书未配=null 不虚构）
+- [x] T06 · 测试：landing_test.go +4 回归（TLS 安装全锚点〔2087 监听/证书 0600/双探针/https URL/提示含 2087/SignonURL 不变〕/升级自愈〔http-only 块补 TLS 行+location 字节不动+幂等零写入+证书轮换 conf 重写+HTTPS 关闭移除回落 http〕/刷新失败窗口磁盘实况两分支〔磁盘具 TLS 沿 https/磁盘无 TLS 沿 http 兜底〕/list 投影三态）+toolBaseHost 表驱动 +3 行（TLS 绑域名/未绑/既有块不适用）+fakes（fakePanel +CertMaterial 替身/tlsFakes/stripTLSLines）+newTestService 装配 PanelCert
+- [x] 自验：go build=0；全仓 test 56 包 0 FAIL（dbtools 既有全绿零语义改动+新增 4 函数 14 断言）
+- [x] A-DBT 实现裁定：A-DBT14 TLS 材料供给失败（非未配置证书）钩子跳过刷新保住既有 TLS 行（降级删行=HTTPS 落地悄然失联，OUT；惰性校正兜底自愈）；A-DBT15 URL 分支以落盘实况为准（刷新失败窗口不虚设 https——虚设致打开 404/拒连，landingTLSPortFromConf 权威）；A-DBT16 证书指纹注释为管线内 reload 机制（证书轮换后 conf 产生差异触发 ConfigApply→reload，绕过 R-06 直 reload OUT）；A-DBT17 fp=sha256(certPEM) 前 8 字节 hex16（轮换必变更，空 fp=非 active）

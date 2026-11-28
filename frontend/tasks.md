@@ -674,3 +674,11 @@ W1/W2 维持报告原判（WARN 非本轮 FAIL 修复项）：views/monitoring �
 - [x] F05 · 测试：stores/__tests__/app.test.ts 4 用例（成败流/保留上一投影/终态跃迁重拉/筛选透传）+ env.test ENV_TYPE 九值更新
 - [x] 自验：vue-tsc+vite build exit 0；vitest 22 文件 292 用例全过；dist 同步 backend/web/dist 后 go build=0
 - [x] 偏差登记：A-F1 AppItem 表格列（非卡片网格——应用为动态清单非固定条目，沿 PageSpec §4.1 表格形态）；A-F2 readonly「站点」列保留已建站链接（站点管理只读视图可达）
+
+
+## db-tools 落地块 HTTPS 前端增量（2026-11-28，api-db-tools.md v1.4 D-24 联动）
+
+- [x] F01 · types/dbtool.ts：DbToolItem +landingTlsPort: number|null（D-24 additive 可空，JSON null≠undefined 显式判空）+DBTOOL_LANDING_TLS_PORT=2087 静态引导常量+DBTOOL_PAGE_INTRO 两形态端口口径（IP 形态 18090/绑域名 HTTPS 形态 2087，说人话无内部术语）+四助手自适应（landingTag HTTPS 形态标注「独立访问端口 2087（HTTPS）」/landingAddress https://域名:2087/landingHint 放行 2087/installReadyAlertText scheme+port 自适应）
+- [x] F02 · 测试：types/__tests__/dbtool.test.ts +4 用例（HTTPS Tag/HTTPS 地址两工具/HTTPS 提示/HTTPS 安装成功文案）+夹具 landingTlsPort:null；stores/__tests__/dbtool.test.ts 夹具补字段（null 透传沿 v1.3 判空纪律）
+- [x] 自验：npm run typecheck=0；vitest 37 文件 544 用例全过
+- [x] 偏差登记：卡片地址行/放行提示为呈现口径——打开 URL 以后端 dbtoolOpen 权威下发为准（D-23 口径不变，前端不拼接不修改〔含 signon 令牌片段〕直接 window.open noopener）；v0.6.7 visit-urls 自适应话术与本轮 https:2087 形态并存（landingTlsPort≠null→HTTPS 话术分支）

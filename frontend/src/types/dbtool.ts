@@ -49,6 +49,10 @@ export interface DbToolItem {
   /** 落地块是否面板自动创建（v1.3 additive 可空，siteRef.autoCreated 投影）：
    * 未装=null；已装=true/false（旧格式档案缺省 false）——安装成功放行提示判定用 */
   autoCreated: boolean | null
+  /** 落地块 HTTPS 端口（v1.4 additive 可空，api D-24 投影）：HTTPS 面板且面板
+   * 证书可用=2087（工具 URL 走 https://域名:2087，Cloudflare 代理可转发）；
+   * 未装/既有块/面板非 HTTPS 或证书未配=null（不虚构） */
+  landingTlsPort: number | null
 }
 
 /** GET /dbtool/tool/list 响应 data */
@@ -263,10 +267,14 @@ export const DBTOOL_ACCESS_TOOLTIP =
  * 卡片/详情实际端口取 tool/list landingPort 投影——不虚构非零端口） */
 export const DBTOOL_LANDING_PORT = 18090
 
-/** 页头说明条文案（PageSpec 4.1 v1.2：gating 安全口径 + 自动落地端口 18090 每请求会话校验
- * + 绑域名仅域名访问语义〔api D-19/D-20〕+ 轻量入口并存 Q3） */
+/** 工具落地 HTTPS 端口（v1.4 api D-24 编译期常量 TOOL_LANDING_TLS_PORT=2087 同值；
+ * 同上仅静态引导文案用，实际呈现取 tool/list landingTlsPort 投影） */
+export const DBTOOL_LANDING_TLS_PORT = 2087
+
+/** 页头说明条文案（PageSpec 4.1 v1.3：gating 安全口径 + 两形态端口口径——IP 形态
+ * 18090/绑域名 HTTPS 形态 2087〔api D-24〕+ 绑域名仅域名访问语义〔api D-19/D-20〕） */
 export const DBTOOL_PAGE_INTRO =
-  `安装 phpMyAdmin、mongo-express 管理数据库。工具只在本机运行，登录面板后才能打开。用 IP 访问面板时会占用端口 ${DBTOOL_LANDING_PORT}，需要在防火墙放行；绑定域名后改走域名。数据库页里的表和文档浏览不受影响。`
+  `安装 phpMyAdmin、mongo-express 管理数据库。工具只在本机运行，登录面板后才能打开。用 IP 访问面板时会占用端口 ${DBTOOL_LANDING_PORT}，需要在防火墙放行；绑定域名后改走域名——面板启用 HTTPS 时走 https://域名:${DBTOOL_LANDING_TLS_PORT}（需放行 ${DBTOOL_LANDING_TLS_PORT}），未启用则走 http://域名:${DBTOOL_LANDING_PORT}。数据库页里的表和文档浏览不受影响。`
 
 /** 工具路径前缀（api D-13 TOOL_PATH_PREFIX_* 同值；访问地址展示引导用——
  * 实际打开 URL 以 dbtoolOpen 响应权威下发〔含端口/域名/signon 令牌片段〕，前端不拼接不修改，D-23） */
@@ -275,35 +283,43 @@ export const DBTOOL_PATH_PREFIX: Readonly<Record<DbToolType, string>> = {
   mongo_express: '/dbtool/mongo-express/'
 }
 
-/** 访问形态 Tag（PageSpec 4.1 v1.2，landingPort/autoCreated 投影）：
- * 已装+landingPort≠0 → info「独立访问端口 {port}」（自动落地块形态）；
+/** 访问形态 Tag（PageSpec 4.1 v1.3，landingPort/autoCreated/landingTlsPort 投影）：
+ * 已装+landingPort≠0 → info「独立访问端口 {port}」（自动落地块形态；HTTPS 形态标注）；
  * 已装+landingPort=0 → default「面板域路径访问」（既有面板域块，无独立端口）；
  * 未装/landingPort=null → null（整块不渲染，不虚构端口；JSON null≠undefined 显式判空） */
 export function landingTag(item: DbToolItem): DictItem | null {
   if (!item.installed || item.landingPort === null) return null
   if (item.landingPort === 0) return { label: '经面板域名访问', tag: 'default' }
+  if (item.landingTlsPort !== null) return { label: `独立访问端口 ${item.landingTlsPort}（HTTPS）`, tag: 'info' }
   return { label: `独立访问端口 ${item.landingPort}`, tag: 'info' }
 }
 
 /** 访问地址展示引导（hostname=当前面板访问主机 window.location.hostname——IP 直连呈现 IP，
- * 绑域名后经域名访问面板呈现域名，与 api D-23 BindDomain 优先口径一致）；
+ * 绑域名后经域名访问面板呈现域名，与 api D-23 BindDomain 优先口径一致；v1.4 D-24：
+ * landingTlsPort≠null → https://域名:{tlsPort}——与打开 URL 后端权威下发口径一致）；
  * 仅自动落地块形态（landingPort≠0）渲染，port=0/null → null 不渲染地址行 */
 export function landingAddress(item: DbToolItem, hostname: string): string | null {
   if (!item.installed || item.landingPort === null || item.landingPort === 0) return null
+  if (item.landingTlsPort !== null) {
+    return `https://${hostname}:${item.landingTlsPort}${DBTOOL_PATH_PREFIX[item.toolType]}`
+  }
   return `http://${hostname}:${item.landingPort}${DBTOOL_PATH_PREFIX[item.toolType]}`
 }
 
 /** 放行提示行（自动落地块形态；readonly 同等呈现——纯观测信息无放行操作能力，
- * PageSpec readonly 4.1 v1.2）；port=0/null → null */
+ * PageSpec readonly 4.1 v1.3；HTTPS 形态提示放行 2087）；port=0/null → null */
 export function landingHint(item: DbToolItem): string | null {
   if (!item.installed || item.landingPort === null || item.landingPort === 0) return null
+  if (item.landingTlsPort !== null) {
+    return `请在防火墙/云安全组开放 ${item.landingTlsPort} 端口；绑定域名后只能用域名访问`
+  }
   return `请在防火墙/云安全组开放 ${item.landingPort} 端口；绑定域名后只能用域名访问`
 }
 
-/** 安装成功放行提示（PageSpec 4.1/4.3 v1.2）：install 任务终态 succeeded 且工具档案
+/** 安装成功放行提示（PageSpec 4.1/4.3 v1.3）：install 任务终态 succeeded 且工具档案
  * autoCreated=true 且 landingPort≠0（自动落地块形态，经终态跃迁重拉 dbtoolList 判定）→
  * NAlert success 文案；既有面板域块形态（landingPort=0）/未装/非 install/非终态 → null 不渲染。
- * hostname 口径同卡片访问形态区块；绑域名后地址为 http://域名:{port}/...（api D-23） */
+ * hostname 口径同卡片访问形态区块；HTTPS 形态地址为 https://域名:{tlsPort}/...（api D-24） */
 export function installReadyAlertText(
   task: Pick<DbToolTaskItem, 'action' | 'status' | 'toolType'>,
   tool: DbToolItem | null,
@@ -312,6 +328,8 @@ export function installReadyAlertText(
   if (task.action !== 'install' || task.status !== 'succeeded') return null
   if (tool === null || tool.autoCreated !== true) return null
   if (tool.landingPort === null || tool.landingPort === 0) return null
-  const port = tool.landingPort
-  return `工具已安装好：请在防火墙/云安全组开放端口 ${port}，然后访问 http://${hostname}:${port}${DBTOOL_PATH_PREFIX[task.toolType]}（绑定域名后用 http://域名:${port}/...）`
+  const tls = tool.landingTlsPort
+  const port = tls ?? tool.landingPort
+  const scheme = tls !== null ? 'https' : 'http'
+  return `工具已安装好：请在防火墙/云安全组开放端口 ${port}，然后访问 ${scheme}://${hostname}:${port}${DBTOOL_PATH_PREFIX[task.toolType]}（绑定域名后用 ${scheme}://域名:${port}/...）`
 }

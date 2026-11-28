@@ -6,6 +6,7 @@ package dbtools
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -28,6 +29,31 @@ func autoLandingFakes() *testFakes {
 	f.pipeline.files = empty
 	f.panel.pa.BindDomain = ""
 	return f
+}
+
+// tlsFakes HTTPS 面板+证书可用形态替身（v1.4 D-24）：自动落地块追加
+// listen 2087 ssl（面板证书落盘引用）。
+func tlsFakes() *testFakes {
+	f := autoLandingFakes()
+	f.panel.pa.HTTPSEnabled = true
+	f.panel.certPEM = "-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n"
+	f.panel.keyPEM = "-----BEGIN PRIVATE KEY-----\nBBBB\n-----END PRIVATE KEY-----\n"
+	return f
+}
+
+// stripTLSLines 模拟旧版本 http-only 块（从 conf 剥离 TLS 行与指纹注释行）。
+func stripTLSLines(conf string) string {
+	var kept []string
+	for _, ln := range strings.Split(conf, "\n") {
+		switch {
+		case strings.Contains(ln, "2087 ssl"),
+			strings.Contains(ln, "ssl_certificate"),
+			strings.Contains(ln, "Landing cert fingerprint"):
+			continue
+		}
+		kept = append(kept, ln)
+	}
+	return strings.Join(kept, "\n")
 }
 
 // reasonOf 提取 errcode data.reason（D-22 断言用）。
@@ -436,7 +462,8 @@ func TestLazyRefreshOnOpen(t *testing.T) {
 }
 
 // TestToolBaseHostPortBranch D-23 端口分支表驱动：port≠0→scheme://
-// hostname:port（BindDomain 优先否则 requestHost 去端口）；port=0 沿旧形态。
+// hostname:port（BindDomain 优先否则 requestHost 去端口）；tlsPort≠0→
+// https://hostname:tlsPort 覆盖（D-24，仅自动块）；port=0 沿旧形态。
 func TestToolBaseHostPortBranch(t *testing.T) {
 	f := defaultFakes()
 	svc, _ := newTestService(t, f)
@@ -446,20 +473,24 @@ func TestToolBaseHostPortBranch(t *testing.T) {
 		ref         siteRef
 		pa          PanelAccess
 		requestHost string
+		tlsPort     int
 		wantBase    string
 		wantDynamic bool
 	}{
-		{"自动块+绑域名", auto, PanelAccess{BindDomain: "tools.example.test"}, "10.0.0.8:8687", "http://tools.example.test:18090", false},
-		{"自动块+未绑+请求Host去端口", auto, PanelAccess{}, "10.0.0.8:8687", "http://10.0.0.8:18090", false},
-		{"自动块+未绑+IPv6请求Host", auto, PanelAccess{}, "[::1]:8687", "http://[::1]:18090", false},
-		{"自动块+未绑+无请求语境→动态", auto, PanelAccess{}, "", "", true},
-		{"既有块port=0旧形态", siteRef{ServerName: "panel.example.test", Scheme: "https"}, PanelAccess{}, "", "https://panel.example.test", false},
-		{"既有块port=0回退BindDomain", siteRef{Scheme: "http"}, PanelAccess{BindDomain: "panel.example.test"}, "", "http://panel.example.test", false},
-		{"既有块port=0请求Host原样", siteRef{Scheme: "http"}, PanelAccess{}, "10.0.0.8:8687", "http://10.0.0.8:8687", false},
+		{"自动块+绑域名", auto, PanelAccess{BindDomain: "tools.example.test"}, "10.0.0.8:8687", 0, "http://tools.example.test:18090", false},
+		{"自动块+未绑+请求Host去端口", auto, PanelAccess{}, "10.0.0.8:8687", 0, "http://10.0.0.8:18090", false},
+		{"自动块+未绑+IPv6请求Host", auto, PanelAccess{}, "[::1]:8687", 0, "http://[::1]:18090", false},
+		{"自动块+未绑+无请求语境→动态", auto, PanelAccess{}, "", 0, "", true},
+		{"自动块+TLS+绑域名→https:2087", auto, PanelAccess{BindDomain: "tools.example.test"}, "10.0.0.8:8687", ToolLandingTLSPort, "https://tools.example.test:2087", false},
+		{"自动块+TLS+未绑+请求Host去端口", auto, PanelAccess{}, "10.0.0.8:8687", ToolLandingTLSPort, "https://10.0.0.8:2087", false},
+		{"既有块+tlsPort 不适用（非自动块）", siteRef{ServerName: "panel.example.test", Scheme: "https"}, PanelAccess{}, "", ToolLandingTLSPort, "https://panel.example.test", false},
+		{"既有块port=0旧形态", siteRef{ServerName: "panel.example.test", Scheme: "https"}, PanelAccess{}, "", 0, "https://panel.example.test", false},
+		{"既有块port=0回退BindDomain", siteRef{Scheme: "http"}, PanelAccess{BindDomain: "panel.example.test"}, "", 0, "http://panel.example.test", false},
+		{"既有块port=0请求Host原样", siteRef{Scheme: "http"}, PanelAccess{}, "10.0.0.8:8687", 0, "http://10.0.0.8:8687", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			base, dynamic := svc.toolBaseHost(tc.ref, tc.pa, tc.requestHost)
+			base, dynamic := svc.toolBaseHost(tc.ref, tc.pa, tc.requestHost, tc.tlsPort)
 			if base != tc.wantBase || dynamic != tc.wantDynamic {
 				t.Fatalf("toolBaseHost = %q dynamic=%v, want %q dynamic=%v", base, dynamic, tc.wantBase, tc.wantDynamic)
 			}
@@ -543,3 +574,205 @@ func TestOpenReopenAutoURL(t *testing.T) {
 }
 
 func ptrInt64(v int64) *int64 { return &v }
+
+// TestAutoLandingTLSInstall HTTPS 面板+证书可用形态安装（v1.4 D-24）：
+// 自动块追加 listen 2087 ssl+证书落盘行+指纹注释；证书/私钥落盘 0600；
+// 双端口探针；Open URL https://域名:2087；安装提示含 2087；SignonURL 仍
+// 指向面板基址（不受工具 TLS 影响，A-DBT11 口径不变）。
+func TestAutoLandingTLSInstall(t *testing.T) {
+	f := tlsFakes()
+	f.panel.pa.BindDomain = "tools.example.test"
+	svc, store := newTestService(t, f)
+	ctx := context.Background()
+	installAutoTool(t, svc, storedbt.ToolPHPMyAdmin, nil)
+
+	certPath := filepath.Join(svc.toolDir, LandingCertFileName)
+	keyPath := filepath.Join(svc.toolDir, LandingKeyFileName)
+	conf := f.pipeline.files[testLandingConf]
+	for _, want := range []string{
+		"listen 18090;",
+		fmt.Sprintf("listen %d ssl;", ToolLandingTLSPort),
+		fmt.Sprintf("ssl_certificate %q;", certPath),
+		fmt.Sprintf("ssl_certificate_key %q;", keyPath),
+		"# Landing cert fingerprint: ",
+	} {
+		if !strings.Contains(conf, want) {
+			t.Fatalf("TLS 落地块缺少 %q:\n%s", want, conf)
+		}
+	}
+	if b, ok := f.deploy.files[certPath]; !ok || !strings.Contains(string(b), "BEGIN CERTIFICATE") {
+		t.Fatalf("证书未落盘: %v", f.deploy.files)
+	}
+	if f.deploy.modes[certPath] != 0o600 || f.deploy.modes[keyPath] != 0o600 {
+		t.Fatalf("证书/私钥权限非 0600: %v %v", f.deploy.modes[certPath], f.deploy.modes[keyPath])
+	}
+	if f.deploy.probeCalls != 2 {
+		t.Fatalf("probe calls = %d, want 2（18090+2087）", f.deploy.probeCalls)
+	}
+	if issues := nginxx.ValidateSyntax(conf); len(issues) != 0 {
+		t.Fatalf("TLS 自动块语法问题: %v", issues)
+	}
+	inst := int64(9)
+	data, err := svc.Open(ctx, testActor(), storedbt.ToolPHPMyAdmin, &inst, "10.0.0.8:8687")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	if !strings.HasPrefix(data.URL, "https://tools.example.test:2087/dbtool/phpmyadmin/?dg_signon=") {
+		t.Fatalf("open url = %q", data.URL)
+	}
+	task, _ := store.Task().GetByID(ctx, 1)
+	if !strings.Contains(task.OutputTail, "请放行 TCP 18090、2087 端口（防火墙/云安全组）") {
+		t.Fatalf("outputTail 缺 2087 放行提示: %s", task.OutputTail)
+	}
+	cfg := string(f.deploy.files[filepath.Join(svc.toolDir, "phpmyadmin", "config.inc.php")])
+	if !strings.Contains(cfg, "https://tools.example.test:8687") {
+		t.Fatalf("SignonURL 面板基址缺失:\n%s", cfg)
+	}
+}
+
+// TestLandingTLSUpgradeRefresh 升级自愈（v1.4 D-24）：旧版本 http-only 块
+// +面板切 HTTPS/证书后装第二工具→幂等复用路径刷新补 TLS 行（工具 location
+// 字节不动）；一致后 open 零写入（幂等）；证书轮换→指纹行变更→conf 重写；
+// HTTPS 关闭→TLS 行+指纹注释移除、URL 回落 http。
+func TestLandingTLSUpgradeRefresh(t *testing.T) {
+	f := autoLandingFakes()
+	svc, _ := newTestService(t, f)
+	ctx := context.Background()
+	installAutoTool(t, svc, storedbt.ToolPHPMyAdmin, nil)
+	if strings.Contains(f.pipeline.files[testLandingConf], "listen 2087") {
+		t.Fatal("非 HTTPS 面板不应有 TLS 监听")
+	}
+	// 模拟升级：面板 HTTPS+证书可用+绑域名（旧 conf 不动），装第二工具。
+	f.panel.pa.HTTPSEnabled = true
+	f.panel.pa.BindDomain = "tools.example.test"
+	f.panel.certPEM = "-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n"
+	f.panel.keyPEM = "-----BEGIN PRIVATE KEY-----\nBBBB\n-----END PRIVATE KEY-----\n"
+	installAutoTool(t, svc, storedbt.ToolMongoExpress, ptrInt64(7))
+	conf := f.pipeline.files[testLandingConf]
+	for _, want := range []string{"listen 2087 ssl;", "ssl_certificate ", "# Landing cert fingerprint: ",
+		"server_name tools.example.test;"} {
+		if !strings.Contains(conf, want) {
+			t.Fatalf("升级刷新未补齐 %q:\n%s", want, conf)
+		}
+	}
+	if issues := nginxx.ValidateSyntax(conf); len(issues) != 0 {
+		t.Fatalf("升级后语法问题: %v", issues)
+	}
+	if !hasMarker(conf, storedbt.ToolPHPMyAdmin) || !hasMarker(conf, storedbt.ToolMongoExpress) ||
+		!hasMarker(conf, markerKeyGate) {
+		t.Fatal("刷新不得触及工具 location")
+	}
+	// 幂等：全一致 open 零写入。
+	n := len(f.pipeline.applies)
+	inst := int64(9)
+	data, err := svc.Open(ctx, testActor(), storedbt.ToolPHPMyAdmin, &inst, "10.0.0.8:8687")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	if len(f.pipeline.applies) != n {
+		t.Fatal("TLS/server_name 全一致应零写入（幂等）")
+	}
+	if !strings.HasPrefix(data.URL, "https://tools.example.test:2087/") {
+		t.Fatalf("open url = %q", data.URL)
+	}
+	// 证书轮换：指纹行变更→conf 重写（reload 载入新证书）。
+	n = len(f.pipeline.applies)
+	f.panel.certPEM = "-----BEGIN CERTIFICATE-----\nCCCC\n-----END CERTIFICATE-----\n"
+	if _, err := svc.Open(ctx, testActor(), storedbt.ToolPHPMyAdmin, &inst, "10.0.0.8:8687"); err != nil {
+		t.Fatalf("open after rotation: %v", err)
+	}
+	if len(f.pipeline.applies) != n+1 {
+		t.Fatal("证书轮换应触发 conf 重写（指纹行变更）")
+	}
+	rotated := f.pipeline.files[testLandingConf]
+	if issues := nginxx.ValidateSyntax(rotated); strings.Count(rotated, "Landing cert fingerprint") != 1 || len(issues) != 0 {
+		t.Fatalf("轮换后指纹行应恰好一条且语法完好 issues=%v:\n%s", issues, rotated)
+	}
+	// HTTPS 关闭：TLS 行+指纹注释移除，URL 回落 http。
+	f.panel.pa.HTTPSEnabled = false
+	data, err = svc.Open(ctx, testActor(), storedbt.ToolPHPMyAdmin, &inst, "10.0.0.8:8687")
+	if err != nil {
+		t.Fatalf("open after https off: %v", err)
+	}
+	off := f.pipeline.files[testLandingConf]
+	if strings.Contains(off, "2087") || strings.Contains(off, "ssl_certificate") ||
+		strings.Contains(off, "Landing cert fingerprint") {
+		t.Fatalf("HTTPS 关闭应移除 TLS 行与指纹注释:\n%s", off)
+	}
+	if issues := nginxx.ValidateSyntax(off); len(issues) != 0 {
+		t.Fatalf("移除后语法问题: %v", issues)
+	}
+	if !strings.HasPrefix(data.URL, "http://tools.example.test:18090/") {
+		t.Fatalf("open url = %q", data.URL)
+	}
+}
+
+// TestOpenTLSFallbackOnRefreshFailure 刷新失败窗口 URL 以磁盘实况为准（D-24）：
+// conf 已具 TLS+刷新失败→URL 仍 https；conf 无 TLS（旧块）+刷新失败→URL
+// http 兜底（不虚设 https——虚设将致打开 404/拒连）。
+func TestOpenTLSFallbackOnRefreshFailure(t *testing.T) {
+	f := tlsFakes()
+	f.panel.pa.BindDomain = "tools.example.test"
+	svc, _ := newTestService(t, f)
+	ctx := context.Background()
+	installAutoTool(t, svc, storedbt.ToolPHPMyAdmin, nil)
+	inst := int64(9)
+	f.pipeline.applyErr = errors.New("nginx down (fake)")
+	data, err := svc.Open(ctx, testActor(), storedbt.ToolPHPMyAdmin, &inst, "10.0.0.8:8687")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	if !strings.HasPrefix(data.URL, "https://tools.example.test:2087/") {
+		t.Fatalf("磁盘具 TLS+刷新失败应沿 https: %q", data.URL)
+	}
+	// 磁盘回落 http-only（模拟旧块）+刷新失败→URL http。
+	f.nginx.files[testLandingConf] = stripTLSLines(f.pipeline.files[testLandingConf])
+	data, err = svc.Open(ctx, testActor(), storedbt.ToolPHPMyAdmin, &inst, "10.0.0.8:8687")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	if !strings.HasPrefix(data.URL, "http://tools.example.test:18090/") {
+		t.Fatalf("磁盘无 TLS+刷新失败应沿 http 兜底: %q", data.URL)
+	}
+}
+
+// TestToolListTlsField tool/list +landingTlsPort（v1.4 D-24 additive 可空）：
+// HTTPS 面板+证书可用+自动块=2087；非 HTTPS 面板=null；未装=null。
+func TestToolListTlsField(t *testing.T) {
+	f := tlsFakes()
+	f.panel.pa.BindDomain = "tools.example.test"
+	svc, _ := newTestService(t, f)
+	ctx := context.Background()
+	installAutoTool(t, svc, storedbt.ToolPHPMyAdmin, nil)
+	data, _ := svc.ToolList(ctx)
+	for _, it := range data.Items {
+		if it.ToolType != storedbt.ToolPHPMyAdmin {
+			continue
+		}
+		if it.LandingTLSPort == nil || *it.LandingTLSPort != ToolLandingTLSPort {
+			t.Fatalf("TLS 投影 = %+v", it)
+		}
+	}
+	// 非 HTTPS 面板 → null。
+	f2 := autoLandingFakes()
+	svc2, _ := newTestService(t, f2)
+	installAutoTool(t, svc2, storedbt.ToolPHPMyAdmin, nil)
+	data2, _ := svc2.ToolList(ctx)
+	for _, it := range data2.Items {
+		if it.ToolType != storedbt.ToolPHPMyAdmin {
+			continue
+		}
+		if it.LandingTLSPort != nil {
+			t.Fatalf("非 HTTPS 应 null: %+v", it)
+		}
+	}
+	// 未装 → null。
+	f3 := tlsFakes()
+	svc3, _ := newTestService(t, f3)
+	data3, _ := svc3.ToolList(context.Background())
+	for _, it := range data3.Items {
+		if it.LandingTLSPort != nil {
+			t.Fatalf("未装应 null: %+v", it)
+		}
+	}
+}

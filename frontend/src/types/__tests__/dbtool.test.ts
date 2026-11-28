@@ -50,6 +50,7 @@ function toolItem(over: Partial<DbToolItem> = {}): DbToolItem {
     runningTaskId: null,
     landingPort: 18090,
     autoCreated: true,
+    landingTlsPort: null,
     ...over
   }
 }
@@ -272,12 +273,26 @@ describe('访问形态区块（v1.2，landingPort/autoCreated 投影，PageSpec 
       tag: 'info'
     })
   })
+  it('landingTag：HTTPS 形态（landingTlsPort≠null）→ info「独立访问端口 {tlsPort}（HTTPS）」（api D-24）', () => {
+    expect(landingTag(toolItem({ landingTlsPort: 2087 }))).toEqual({
+      label: '独立访问端口 2087（HTTPS）',
+      tag: 'info'
+    })
+  })
   it('landingAddress：hostname=当前面板访问主机（IP 直连呈现 IP，D-23 BindDomain 优先口径）', () => {
     expect(landingAddress(toolItem(), '192.168.1.10')).toBe(
       'http://192.168.1.10:18090/dbtool/phpmyadmin/'
     )
     expect(landingAddress(toolItem({ toolType: 'mongo_express' }), '192.168.1.10')).toBe(
       'http://192.168.1.10:18090/dbtool/mongo-express/'
+    )
+  })
+  it('landingAddress：HTTPS 形态 → https://域名:{tlsPort}（与打开 URL 后端权威口径一致，api D-24）', () => {
+    expect(landingAddress(toolItem({ landingTlsPort: 2087 }), 'panel.example.com')).toBe(
+      'https://panel.example.com:2087/dbtool/phpmyadmin/'
+    )
+    expect(landingAddress(toolItem({ toolType: 'mongo_express', landingTlsPort: 2087 }), 'panel.example.com')).toBe(
+      'https://panel.example.com:2087/dbtool/mongo-express/'
     )
   })
   it('landingAddress：绑域名后经域名访问面板呈现域名', () => {
@@ -297,6 +312,11 @@ describe('访问形态区块（v1.2，landingPort/autoCreated 投影，PageSpec 
     expect(landingHint(toolItem({ landingPort: 0 }))).toBeNull()
     expect(landingHint(toolItem({ landingPort: null }))).toBeNull()
   })
+  it('landingHint：HTTPS 形态提示放行 2087（api D-24）', () => {
+    expect(landingHint(toolItem({ landingTlsPort: 2087 }))).toBe(
+      '请在防火墙/云安全组开放 2087 端口；绑定域名后只能用域名访问'
+    )
+  })
 })
 
 describe('安装成功放行提示（v1.2，PageSpec 4.1/4.3，api D-19⑦/D-23）', () => {
@@ -305,6 +325,11 @@ describe('安装成功放行提示（v1.2，PageSpec 4.1/4.3，api D-19⑦/D-23�
   it('install succeeded + autoCreated=true + 非零端口 → 放行提示含端口/地址/绑域名注记', () => {
     expect(installReadyAlertText(task, toolItem(), '192.168.1.10')).toBe(
       '工具已安装好：请在防火墙/云安全组开放端口 18090，然后访问 http://192.168.1.10:18090/dbtool/phpmyadmin/（绑定域名后用 http://域名:18090/...）'
+    )
+  })
+  it('HTTPS 形态（landingTlsPort≠null）→ 提示放行 2087+https 地址（api D-24）', () => {
+    expect(installReadyAlertText(task, toolItem({ landingTlsPort: 2087 }), 'panel.example.com')).toBe(
+      '工具已安装好：请在防火墙/云安全组开放端口 2087，然后访问 https://panel.example.com:2087/dbtool/phpmyadmin/（绑定域名后用 https://域名:2087/...）'
     )
   })
   it('mongo_express 路径前缀同口径', () => {

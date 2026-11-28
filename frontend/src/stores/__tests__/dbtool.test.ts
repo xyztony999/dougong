@@ -25,7 +25,8 @@ const okPayload = {
       depsMissing: [],
       runningTaskId: null,
       landingPort: 18090,
-      autoCreated: true
+      autoCreated: true,
+      landingTlsPort: null
     },
     {
       toolType: 'mongo_express',
@@ -41,7 +42,8 @@ const okPayload = {
       depsMissing: [{ kind: 'env', name: 'node' }],
       runningTaskId: 7,
       landingPort: null,
-      autoCreated: null
+      autoCreated: null,
+      landingTlsPort: null
     }
   ],
   generatedAt: '2026-11-19T00:00:00Z'

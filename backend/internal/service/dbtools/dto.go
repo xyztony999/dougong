@@ -28,6 +28,10 @@ type ToolItem struct {
 	// 块=0）与是否自动创建（旧格式档案缺省 0/false，不虚构非零端口）。
 	LandingPort *int  `json:"landingPort"`
 	AutoCreated *bool `json:"autoCreated"`
+	// v1.4 additive 可空（D-24）：自动落地块 HTTPS 端口投影——HTTPS 面板
+	// 且面板证书可用=2087（工具 URL 走 https://域名:2087）；未装/既有块/
+	// 面板非 HTTPS 或证书未配=null（不虚构）。
+	LandingTLSPort *int `json:"landingTlsPort"`
 }
 
 // ToolListData GET /dbtool/tool/list 响应。

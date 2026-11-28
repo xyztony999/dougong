@@ -101,6 +101,14 @@ type PanelInfo interface {
 	PanelAccess(ctx context.Context) (PanelAccess, error)
 }
 
+// PanelCertReader 面板 TLS 证书读契约（v1.4 D-24：panelsvc.Service
+// CertMaterial 进程内消费复用——panel_cert 单行 PEM；key 永不经任何对外
+// 接口下发 I-P06。落地块 HTTPS 监听证书落盘源；未配置证书/无行→ok=false，
+// HTTPS 监听不落、URL 沿 http 口径）。
+type PanelCertReader interface {
+	CertMaterial(ctx context.Context) (certPEM, keyPEM string, err error)
+}
+
 // SessionVerifier 只读会话校验 OHS 消费契约（D-11：account-auth VerifyWs
 // 语义 session.go:59——I-11 判定 revoked/expired，只读不续期，避免工具静态
 // 资源逐请求滑动续期写放大；account-auth 无新增 HTTP 接口）。

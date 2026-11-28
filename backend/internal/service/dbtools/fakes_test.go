@@ -324,11 +324,18 @@ func (f *fakeNginx) ReadFile(path string) (string, time.Time, error) {
 }
 
 type fakePanel struct {
-	pa  PanelAccess
-	err error
+	pa      PanelAccess
+	err     error
+	certPEM string
+	keyPEM  string
+	certErr error
 }
 
 func (f *fakePanel) PanelAccess(_ context.Context) (PanelAccess, error) { return f.pa, f.err }
+
+func (f *fakePanel) CertMaterial(_ context.Context) (string, string, error) {
+	return f.certPEM, f.keyPEM, f.certErr
+}
 
 type fakeSession struct{ sessions map[string]string } // rawToken → role
 
@@ -437,7 +444,7 @@ func newTestService(t testing.TB, f *testFakes) (*Service, *storedbt.Store) {
 	}
 	svc := New(store, vault, Deps{
 		Deploy: f.deploy, Creds: f.creds, Pipeline: f.pipeline, Env: f.env,
-		Sysd: f.sysd, PhpFpm: f.phpfpm, Nginx: f.nginx, Panel: f.panel,
+		Sysd: f.sysd, PhpFpm: f.phpfpm, Nginx: f.nginx, Panel: f.panel, PanelCert: f.panel,
 		Session: f.session, Audit: f.audit,
 	}, Options{DataDir: t.TempDir(), DisableDispatch: true})
 	return svc, store

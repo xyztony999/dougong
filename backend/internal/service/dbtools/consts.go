@@ -64,6 +64,18 @@ const (
 	// ToolLandingPort 自动落地块监听端口（v1.3，D-19，编译期常量不可用户配
 	// OUT；占用→DBT_012 reason；安装成功提示放行）。
 	ToolLandingPort = 18090
+	// ToolLandingTLSPort 自动落地块 HTTPS 监听端口（v1.4，D-24，编译期常量
+	// 不可用户配 OUT）：Cloudflare 代理仅转发固定 HTTPS 端口集（443/2053/
+	// 2083/2087/2096/8443），18090 永远到不了源站；2083 已被面板监听占用，
+	// 取 2087。HTTPS 面板形态（面板证书可用）自动块追加 listen 2087 ssl，
+	// 工具 URL 改走 https://域名:2087；灰云直连同端口亦可达。
+	ToolLandingTLSPort = 2087
+	// LandingCertFileName 面板证书落盘文件名（toolDir 下，0600，D-24：
+	// panel_cert 单行 PEM 经 WriteSecretFile 物化，nginx ssl_certificate
+	// 引用；nginx master 以 root 读，面板进程属主）。
+	LandingCertFileName = "landing-cert.pem"
+	// LandingKeyFileName 面板私钥落盘文件名（toolDir 下，0600，D-24）。
+	LandingKeyFileName = "landing-key.pem"
 	// ToolLandingConfName 自动落地块文件名（v1.3，D-19；目录=nginxx
 	// PriorityDirs() 首个实存可写目录；块标记=文件名+listen 18090 判定，
 	// 幂等复用）。

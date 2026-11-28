@@ -51,8 +51,10 @@ func (s *Service) Open(ctx context.Context, actor *authsvc.Identity, toolType st
 	}
 	// v1.3 惰性校正（D-20④）：自动块 server_name 与当前 BindDomain 比对，
 	// 不一致刷新（自愈钩子失败/重启窗口）；失败不阻断打开（slog 降级）。
-	s.lazyRefreshLanding(ctx, ref, pa)
-	base, dynamic := s.toolBaseHost(ref, pa, requestHost)
+	// v1.4（D-24）：返回值=落盘实况 TLS 监听判定——URL 分支与 nginx 实际
+	// 监听一致（刷新失败窗口沿磁盘旧态，不虚设 https）。
+	tlsPort := s.lazyRefreshLanding(ctx, ref, pa)
+	base, dynamic := s.toolBaseHost(ref, pa, requestHost, tlsPort)
 	if dynamic {
 		return nil, errcode.ErrDBTDeployOpFailed.WithData(map[string]any{
 			"reason": "无法确定工具访问域名（落点无具体 server_name 且未绑定域名）"})
@@ -102,9 +104,9 @@ func (s *Service) Reopen(ctx context.Context, actor *authsvc.Identity, instanceI
 	if err != nil {
 		return "", err
 	}
-	// v1.3 惰性校正（D-20④，同 access/open 口径）。
-	s.lazyRefreshLanding(ctx, ref, pa)
-	base, dynamic := s.toolBaseHost(ref, pa, requestHost)
+	// v1.3 惰性校正（D-20④，同 access/open 口径）；v1.4 TLS 判定同口径（D-24）。
+	tlsPort := s.lazyRefreshLanding(ctx, ref, pa)
+	base, dynamic := s.toolBaseHost(ref, pa, requestHost, tlsPort)
 	if dynamic {
 		return "", errcode.ErrDBTDeployOpFailed.WithData(map[string]any{
 			"reason": "无法确定工具访问域名"})
