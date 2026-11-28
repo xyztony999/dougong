@@ -233,7 +233,9 @@ func TestInstallMongoExpressChain(t *testing.T) {
 		`ME_CONFIG_BASICAUTH_USERNAME="dougong"`,
 		`ME_CONFIG_SITE_BASEURL="/dbtool/mongo-express/"`,
 		`ME_CONFIG_SITE_PORT="8081"`,
-		`ME_CONFIG_SITE_BIND_ADDRESS="127.0.0.1"`,
+		// v0.6.9：变量名无下划线（ME_CONFIG_SITE_BIND_ADDRESS 错名时回落
+		// localhost，Node 17+ 绑 ::1 IPv6 回环——nginx 127.0.0.1 proxy 502）。
+		`ME_CONFIG_SITE_BINDADDRESS="127.0.0.1"`,
 	} {
 		if !strings.Contains(unit, want) {
 			t.Fatalf("unit missing %q:\n%s", want, unit)

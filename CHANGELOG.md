@@ -13,6 +13,10 @@
 - 现在这两类内部调用跟随面板 TLS 状态自动走 https：gating 子请求带 `proxy_ssl_verify off`（仅回环目标；安全仍由本机回环 + 内部秘密头 + 会话校验三层承载），signon 回调的 curl 同步豁免证书校验
 - 用 IP 明文访问面板的部署行为完全不变
 
+**修复：mongo-express 只监听 IPv6 回环导致 502**
+- 面板生成的 mongo-express 服务单元把绑定地址变量名写错了（`ME_CONFIG_SITE_BIND_ADDRESS`，mongo-express 认的是 `ME_CONFIG_SITE_BINDADDRESS`），导致回落默认 `localhost`——新版 Node 解析到 IPv6 的 `::1`，只监听 IPv6 回环，nginx 按 IPv4 转发连不上（502）
+- 已生成的单元改为正确变量名，绑定固定 127.0.0.1
+
 **升级注意**：已经装了工具且面板开 HTTPS 的服务器，升级后需要**卸载重装**一次两个工具（或按 release 附带的手工补丁说明改两处文件），让 gating 配置重新生成为新形态；卸载重装不影响任何数据库数据。
 
 ### 安装与升级

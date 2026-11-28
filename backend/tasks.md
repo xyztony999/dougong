@@ -1230,3 +1230,5 @@
 - [x] T02 · 测试：TestPanelLoopbackBaseScheme 两态锚点；TestAutoLandingTLSInstall +4 断言（gate https://127.0.0.1:8687+verify off；signon.php https+VERIFYPEER）；既有 http 形态断言全保（非 TLS 面板行为零变化）
 - [x] 自验：go build=0；全仓 test 56 包 0 FAIL；gofmt 净
 - [x] A-DBT18 实现裁定：证书校验豁免仅限回环目标（gate 上游 127.0.0.1+秘密头+会话校验三重防护不变；不涉任何公网 TLS 目标）；刷新对账不触及 location 字节——既有 HTTPS+自动块装机需卸载重装（或手工补丁）重新烘焙 gate/signon，v0.6.9 起新装机原生正确
+
+- [x] T03 · templates.go mongoExpressUnit 绑定变量名更正：ME_CONFIG_SITE_BIND_ADDRESS→**ME_CONFIG_SITE_BINDADDRESS**（实机取证：错名回落 localhost，Node 17+ 解析 ::1 只监听 IPv6 回环 ss 实证、nginx 127.0.0.1 proxy_pass 502）；deploy_test.go 单元断言同步

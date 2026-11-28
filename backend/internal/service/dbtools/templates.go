@@ -267,7 +267,10 @@ func mongoExpressUnit(p mongoUnitParams) string {
 	b.WriteString(env("ME_CONFIG_BASICAUTH_PASSWORD", p.BasicPassword))
 	b.WriteString(env("ME_CONFIG_SITE_BASEURL", ToolPathPrefixMongoExpress))
 	b.WriteString(env("ME_CONFIG_SITE_PORT", strconv.Itoa(MongoExpressPort)))
-	b.WriteString(env("ME_CONFIG_SITE_BIND_ADDRESS", MongoExpressBind))
+	// v0.6.9 实机修复：mongo-express 认的是 ME_CONFIG_SITE_BINDADDRESS（无
+	// 下划线）——写错变量名时回落默认 localhost，Node 17+ 解析到 ::1 只监听
+	// IPv6 回环，nginx 127.0.0.1 proxy_pass 连不上（502）。
+	b.WriteString(env("ME_CONFIG_SITE_BINDADDRESS", MongoExpressBind))
 	b.WriteString(env("ME_CONFIG_SITE_COOKIESECRET", p.CookieSecret))
 	b.WriteString(env("ME_CONFIG_SITE_SESSIONSECRET", p.SessionSecret))
 	b.WriteString(env("ME_CONFIG_OPTIONS_READONLY", "false"))
