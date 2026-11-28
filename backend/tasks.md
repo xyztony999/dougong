@@ -1231,4 +1231,4 @@
 - [x] 自验：go build=0；全仓 test 56 包 0 FAIL；gofmt 净
 - [x] A-DBT18 实现裁定：证书校验豁免仅限回环目标（gate 上游 127.0.0.1+秘密头+会话校验三重防护不变；不涉任何公网 TLS 目标）；刷新对账不触及 location 字节——既有 HTTPS+自动块装机需卸载重装（或手工补丁）重新烘焙 gate/signon，v0.6.9 起新装机原生正确
 
-- [x] T03 · templates.go mongoExpressUnit 绑定变量名更正：ME_CONFIG_SITE_BIND_ADDRESS→**ME_CONFIG_SITE_BINDADDRESS**（实机取证：错名回落 localhost，Node 17+ 解析 ::1 只监听 IPv6 回环 ss 实证、nginx 127.0.0.1 proxy_pass 502）；deploy_test.go 单元断言同步
+- [x] T03 · mongo bind 修复（实机裁定升级：config.default.js grep 证实 1.0.0 **bind host 无 env 支持**——env 写任何变量名都回落 localhost，Node 17+ 解析 ::1 只监听 IPv6 回环 ss 实证、nginx 127.0.0.1 proxy_pass 502）：templates.go +mongoExpressConfigJS（包根 config.js 覆盖 require config.default 后钉死 site.host=127.0.0.1/port=8081）+unit 移除 bind env 行；consts.go +MongoExpressConfigFileName；deploy.go install/upgrade 在 npm install 后重写 config.js 0644（StartUnit/RestartUnit 前）；deploy_test.go 断言 config.js 三锚点+unit 无 bind env

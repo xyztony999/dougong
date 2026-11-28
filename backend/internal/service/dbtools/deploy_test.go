@@ -225,7 +225,8 @@ func TestInstallMongoExpressChain(t *testing.T) {
 			t.Fatalf("credentials leaked into command argv: %q", c)
 		}
 	}
-	// 单元文件：env 注入 + localhost 绑定 + baseUrl + 0600。
+	// 单元文件：env 注入 + localhost 绑定 + baseUrl + 0600。bind host 不经
+	// env（mongo-express 1.0.0 无 host env——写什么都不生效）。
 	unit := string(f.deploy.files[MongoExpressUnitPath])
 	for _, want := range []string{
 		"ExecStart=/usr/bin/node /usr/lib/node_modules/mongo-express/app.js",
@@ -233,16 +234,32 @@ func TestInstallMongoExpressChain(t *testing.T) {
 		`ME_CONFIG_BASICAUTH_USERNAME="dougong"`,
 		`ME_CONFIG_SITE_BASEURL="/dbtool/mongo-express/"`,
 		`ME_CONFIG_SITE_PORT="8081"`,
-		// v0.6.9：变量名无下划线（ME_CONFIG_SITE_BIND_ADDRESS 错名时回落
-		// localhost，Node 17+ 绑 ::1 IPv6 回环——nginx 127.0.0.1 proxy 502）。
-		`ME_CONFIG_SITE_BINDADDRESS="127.0.0.1"`,
 	} {
 		if !strings.Contains(unit, want) {
 			t.Fatalf("unit missing %q:\n%s", want, unit)
 		}
 	}
+	if strings.Contains(unit, "BINDADDRESS") || strings.Contains(unit, "BIND_ADDRESS") {
+		t.Fatalf("unit 不应携带 bind env（无 env 支持，写坏变量名会静默回落 localhost）:\n%s", unit)
+	}
 	if f.deploy.modes[MongoExpressUnitPath] != 0o600 {
 		t.Fatal("unit file must be 0600")
+	}
+	// v0.6.9：包根 config.js 覆盖文件钉死 127.0.0.1 回环绑定（config.default
+	// 的 localhost 被 Node 17+ 解析到 ::1 单栈 IPv6 回环——nginx 127.0.0.1
+	// proxy_pass 502，实机取证）。
+	cfgjs := string(f.deploy.files[f.deploy.globalRoot+"/mongo-express/"+MongoExpressConfigFileName])
+	for _, want := range []string{
+		"require('./config.default')",
+		"config.site.host = '127.0.0.1'",
+		"config.site.port = 8081",
+	} {
+		if !strings.Contains(cfgjs, want) {
+			t.Fatalf("config.js missing %q:\n%s", want, cfgjs)
+		}
+	}
+	if f.deploy.modes[f.deploy.globalRoot+"/mongo-express/"+MongoExpressConfigFileName] != 0o644 {
+		t.Fatal("config.js must be 0644 (php-free node read)")
 	}
 	// systemd 编排：daemon-reload → enable → start。
 	joined := strings.Join(f.sysd.calls, ";")

@@ -14,8 +14,8 @@
 - 用 IP 明文访问面板的部署行为完全不变
 
 **修复：mongo-express 只监听 IPv6 回环导致 502**
-- 面板生成的 mongo-express 服务单元把绑定地址变量名写错了（`ME_CONFIG_SITE_BIND_ADDRESS`，mongo-express 认的是 `ME_CONFIG_SITE_BINDADDRESS`），导致回落默认 `localhost`——新版 Node 解析到 IPv6 的 `::1`，只监听 IPv6 回环，nginx 按 IPv4 转发连不上（502）
-- 已生成的单元改为正确变量名，绑定固定 127.0.0.1
+- mongo-express 1.0.0 **不支持用环境变量设置监听地址**（实测其 config.default.js 只有 BASEURL/COOKIESECRET/SESSIONSECRET/SSL/GRIDFS 等变量的 env 读取），服务回落默认 `localhost`——新版 Node 把 localhost 解析到 IPv6 的 `::1`，只监听 IPv6 回环，nginx 按 IPv4 转发连不上（502）
+- 现在安装/升级 mongo-express 时会在包目录生成 `config.js` 覆盖文件，把监听地址钉死在 127.0.0.1 回环（升级会自动重写，无需手工处理）
 
 **升级注意**：已经装了工具且面板开 HTTPS 的服务器，升级后需要**卸载重装**一次两个工具（或按 release 附带的手工补丁说明改两处文件），让 gating 配置重新生成为新形态；卸载重装不影响任何数据库数据。
 

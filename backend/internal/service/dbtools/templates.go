@@ -267,10 +267,10 @@ func mongoExpressUnit(p mongoUnitParams) string {
 	b.WriteString(env("ME_CONFIG_BASICAUTH_PASSWORD", p.BasicPassword))
 	b.WriteString(env("ME_CONFIG_SITE_BASEURL", ToolPathPrefixMongoExpress))
 	b.WriteString(env("ME_CONFIG_SITE_PORT", strconv.Itoa(MongoExpressPort)))
-	// v0.6.9 实机修复：mongo-express 认的是 ME_CONFIG_SITE_BINDADDRESS（无
-	// 下划线）——写错变量名时回落默认 localhost，Node 17+ 解析到 ::1 只监听
-	// IPv6 回环，nginx 127.0.0.1 proxy_pass 连不上（502）。
-	b.WriteString(env("ME_CONFIG_SITE_BINDADDRESS", MongoExpressBind))
+	// bind host 无 env 支持（mongo-express 1.0.0 config.default.js 仅
+	// BASEURL/COOKIESECRET/SESSIONSECRET/SSL/GRIDFS 有 env）——由包根
+	// config.js 覆盖文件钉死 127.0.0.1（mongoExpressConfigJS，install/
+	// upgrade 均在 npm install 后重写）。
 	b.WriteString(env("ME_CONFIG_SITE_COOKIESECRET", p.CookieSecret))
 	b.WriteString(env("ME_CONFIG_SITE_SESSIONSECRET", p.SessionSecret))
 	b.WriteString(env("ME_CONFIG_OPTIONS_READONLY", "false"))
@@ -298,6 +298,22 @@ func buildMongoURL(c ToolCreds) string {
 		RawQuery: "authSource=admin",
 	}
 	return u.String()
+}
+
+// mongoExpressConfigJS 包根 config.js 覆盖文件（v0.6.9 实机修复：mongo-express
+// 1.0.0 的 bind host 无 env 支持——config.default.js 仅 BASEURL/COOKIESECRET/
+// SESSIONSECRET/SSL/GRIDFS 有 env，默认 localhost 被 Node 17+ 解析到 ::1 单栈
+// IPv6 回环，nginx 127.0.0.1 proxy_pass 连不上 502）。app.js 存在自定义
+// config.js 即加载并优先于 config.default.js；require 默认配置后覆盖
+// site.host/port 钉死 127.0.0.1 回环（⚠️A6 安全边界不变）。install/upgrade
+// 在 npm install（覆盖包目录）之后重写。
+func mongoExpressConfigJS() string {
+	return `/* dougong panel db-tools generated - pin loopback bind (env unsupported in mongo-express 1.0.0). */
+var config = require('./config.default');
+config.site.host = '127.0.0.1';
+config.site.port = ` + strconv.Itoa(MongoExpressPort) + `;
+module.exports = config;
+`
 }
 
 // mongoExpressAuthConf basic auth 注入秘密文件内容（D-08：nginx 服务端

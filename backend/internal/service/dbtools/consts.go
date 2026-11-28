@@ -29,6 +29,10 @@ const (
 	MongoExpressPackage = "mongo-express"
 	// MongoExpressPort 监听端口（编译期定死，⚠️A6）。
 	MongoExpressPort = 8081
+	// MongoExpressConfigFileName mongo-express 包根 config.js 覆盖文件名
+	// （v1.5 D-07：bind host 无 env 支持，钉死 127.0.0.1 回环；npm install
+	// 覆盖包目录后由 install/upgrade 重写，0644）。
+	MongoExpressConfigFileName = "config.js"
 	// MongoExpressBind 绑定地址（仅 localhost，⚠️A6 安全底线）。
 	MongoExpressBind = "127.0.0.1"
 	// MongoExpressUnitName systemd 单元全名（D-07）。

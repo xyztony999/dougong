@@ -430,6 +430,14 @@ func (s *Service) installMongoExpress(ctx context.Context, task storedbt.Task, r
 	if err := s.deploy.WriteSecretFile(MongoExpressUnitPath, []byte(unit)); err != nil {
 		return nil, err
 	}
+	// v0.6.9 实机修复：bind host 无法经 env 设定（mongo-express 1.0.0 无 host
+	// env——默认 localhost 被 Node 17+ 解析到 ::1 单栈 IPv6 回环，nginx
+	// 127.0.0.1 proxy_pass 502）；包根 config.js 覆盖文件钉死 127.0.0.1。
+	// 须在 StartUnit 前落盘（npm install 覆盖包目录后此处重写）。
+	if err := s.deploy.WriteFile(globalRoot+"/mongo-express/"+MongoExpressConfigFileName,
+		[]byte(mongoExpressConfigJS()), 0o644); err != nil {
+		return nil, err
+	}
 	unitCreated := true
 	defer func() {
 		if retErr != nil && unitCreated {
@@ -594,6 +602,12 @@ func (s *Service) upgradeMongoExpress(ctx context.Context, ring *outputRing) (st
 		CookieSecret: cookieSecret, SessionSecret: sessionSecret,
 	})
 	if err := s.deploy.WriteSecretFile(MongoExpressUnitPath, []byte(unit)); err != nil {
+		return "", err
+	}
+	// v0.6.9 实机修复（同 install）：npm install 覆盖包目录后重写 config.js
+	// 钉死 127.0.0.1 回环绑定（bind host 无 env 支持）。
+	if err := s.deploy.WriteFile(globalRoot+"/mongo-express/"+MongoExpressConfigFileName,
+		[]byte(mongoExpressConfigJS()), 0o644); err != nil {
 		return "", err
 	}
 	if err := s.sysd.DaemonReload(ctx); err != nil {
