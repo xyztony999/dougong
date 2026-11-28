@@ -188,26 +188,45 @@ func signonPHP(verifyURL, secret string) string {
 	return `<?php
 /* dougong panel db-tools generated — signon loopback callback (server-side only).
    phpMyAdmin SignonScript contract: define get_login_credentials() returning
-   array(user, password) — called with a single argument (defaults required). */
+   array(user, password) — called with a single argument (defaults required).
+   Login requests (dg_signon present) verify + PERSIST credentials into the
+   PHP session (A-DBT4 host/port included); calls without a token (PMA AJAX
+   requests) return the persisted credentials — without this PMA treats AJAX
+   as logged out and 302s to SignonURL (cross-origin for the tool port, fetch
+   blocks it -> "error (rejected)"). */
 function get_login_credentials($dgUser, $dgPass = '') {
     $dgToken = isset($_GET['dg_signon']) ? $_GET['dg_signon'] : '';
     $dgSession = isset($_COOKIE['dg_session']) ? $_COOKIE['dg_session'] : '';
     $dgInstance = isset($_COOKIE['` + ToolInstanceCookie + `']) ? $_COOKIE['` + ToolInstanceCookie + `'] : '';
-    $dgPayload = json_encode(array('token' => $dgToken, 'session' => $dgSession, 'instanceCookie' => $dgInstance));
-    $dgCh = curl_init('` + phpEscape(verifyURL) + `');
-    curl_setopt_array($dgCh, array(
-        CURLOPT_POST => true,
-        CURLOPT_POSTFIELDS => $dgPayload,
-        CURLOPT_HTTPHEADER => array('Content-Type: application/json', '` + InternalSecretHeader + `: ` + phpEscape(secret) + `'),
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT => 10,
-        CURLOPT_CONNECTTIMEOUT => 5,` + tlsOpts + `
-    ));
-    $dgResp = curl_exec($dgCh);
-    curl_close($dgCh);
-    $dgData = json_decode((string)$dgResp, true);
-    if (is_array($dgData) && isset($dgData['code']) && $dgData['code'] === 0 && isset($dgData['data']['user'])) {
-        return array($dgData['data']['user'], $dgData['data']['password']);
+    if ($dgToken !== '') {
+        $dgPayload = json_encode(array('token' => $dgToken, 'session' => $dgSession, 'instanceCookie' => $dgInstance));
+        $dgCh = curl_init('` + phpEscape(verifyURL) + `');
+        curl_setopt_array($dgCh, array(
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => $dgPayload,
+            CURLOPT_HTTPHEADER => array('Content-Type: application/json', '` + InternalSecretHeader + `: ` + phpEscape(secret) + `'),
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 10,
+            CURLOPT_CONNECTTIMEOUT => 5,` + tlsOpts + `
+        ));
+        $dgResp = curl_exec($dgCh);
+        curl_close($dgCh);
+        $dgData = json_decode((string)$dgResp, true);
+        if (is_array($dgData) && isset($dgData['code']) && $dgData['code'] === 0 && isset($dgData['data']['user'])) {
+            $_SESSION['PMA_single_signon_user'] = $dgData['data']['user'];
+            $_SESSION['PMA_single_signon_password'] = $dgData['data']['password'];
+            if (isset($dgData['data']['host']) && $dgData['data']['host'] !== '') {
+                $_SESSION['PMA_single_signon_host'] = $dgData['data']['host'];
+            }
+            if (isset($dgData['data']['port']) && (int)$dgData['data']['port'] > 0) {
+                $_SESSION['PMA_single_signon_port'] = (int)$dgData['data']['port'];
+            }
+            return array($_SESSION['PMA_single_signon_user'], $_SESSION['PMA_single_signon_password']);
+        }
+        return array($dgUser, $dgPass);
+    }
+    if (isset($_SESSION['PMA_single_signon_user'])) {
+        return array($_SESSION['PMA_single_signon_user'], $_SESSION['PMA_single_signon_password']);
     }
     return array($dgUser, $dgPass);
 }

@@ -136,7 +136,9 @@ func TestInstallPHPMyAdminChain(t *testing.T) {
 		// v0.6.9：SignonScript 契约——PMA include 后调用 get_login_credentials
 		//（AuthenticationSignon.php:156 单参调用，$dgPass 须带默认值）。
 		!strings.Contains(signon, "function get_login_credentials($dgUser, $dgPass = '')") ||
-		!strings.Contains(signon, "return array($dgData['data']['user'], $dgData['data']['password'])") {
+		!strings.Contains(signon, "$_SESSION['PMA_single_signon_user'] = $dgData['data']['user']") ||
+		!strings.Contains(signon, "return array($_SESSION['PMA_single_signon_user'], $_SESSION['PMA_single_signon_password'])") ||
+		!strings.Contains(signon, "PMA_single_signon_host") {
 		t.Fatalf("signon.php content invalid")
 	}
 	if !phpSingleQuoteBalance(signon) {
