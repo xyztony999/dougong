@@ -150,3 +150,86 @@ func (s *Service) RenameUserViaCLI(ctx context.Context, operator, oldName, newNa
 	}
 	return &RenameUserCLIResult{OldUsername: target.Username, NewUsername: newName, Changed: true}, nil
 }
+
+// DisableSecondFactorsCLIResult 是 DisableSecondFactorsViaCLI 的结果投影：
+// 各因子清除明细（cmd 层据此输出；audit detail 同口径）。
+type DisableSecondFactorsCLIResult struct {
+	Username        string
+	TotpRemoved     bool
+	PasskeysRemoved int
+	RecoveryUnused  int
+}
+
+// DisableSecondFactorsViaCLI `dougong disable-2fa -username <name> -yes`（写，
+// 紧急救援）：终端紧急清除目标用户全部第二登录因子——TOTP 绑定、全部 passkey、
+// 全部恢复码（含已用行），登录恢复为仅用户名+密码。两步验证丢失（换机后无法
+// 出断言、动态码不可用、恢复码用尽）时的最后通道；语义=全部清除（2026-11-28
+// 用户拍板）。单事务：解绑 TOTP → 删除全部 passkey → 删除全部恢复码 → 审计
+// second_factor_disabled（security，source=cli，detail 带清除明细）。会话不吊销
+// （清因子不改变既有会话有效性）。目标用户不存在返回 ErrUserNotFound；本无任何
+// 因子时零写入零审计（result 各项为 0/false）。
+func (s *Service) DisableSecondFactorsViaCLI(ctx context.Context, operator, username string) (*DisableSecondFactorsCLIResult, error) {
+	now := s.now()
+	if strings.TrimSpace(username) == "" {
+		return nil, invalid(errcode.FieldError{Field: "username", Message: "用户名不能为空"})
+	}
+	target, err := s.st.Users().GetByUsername(ctx, username)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrUserNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("auth: cli disable 2fa get user: %w", err)
+	}
+	_, totpErr := s.st.Totp().GetByUser(ctx, target.ID)
+	hasTotp := totpErr == nil
+	if totpErr != nil && !errors.Is(totpErr, sql.ErrNoRows) {
+		return nil, fmt.Errorf("auth: cli disable 2fa totp: %w", totpErr)
+	}
+	passkeys, err := s.st.Webauthn().CountByUser(ctx, target.ID)
+	if err != nil {
+		return nil, fmt.Errorf("auth: cli disable 2fa passkey count: %w", err)
+	}
+	recoveryUnused, err := s.st.Recovery().CountUnused(ctx, target.ID)
+	if err != nil {
+		return nil, fmt.Errorf("auth: cli disable 2fa recovery count: %w", err)
+	}
+	if !hasTotp && passkeys == 0 {
+		// 本无第二因子：零写入零审计，如实返回（恢复码行数与 passkey 一致以 0 记）。
+		return &DisableSecondFactorsCLIResult{Username: target.Username}, nil
+	}
+	err = s.withTx(ctx, func(tx *storeauth.TxStore) error {
+		if hasTotp {
+			if err := tx.Totp().Delete(ctx, target.ID); err != nil {
+				return fmt.Errorf("delete totp: %w", err)
+			}
+		}
+		if passkeys > 0 {
+			if _, err := tx.Webauthn().DeleteAllByUser(ctx, target.ID); err != nil {
+				return fmt.Errorf("delete passkeys: %w", err)
+			}
+		}
+		if _, err := tx.Recovery().DeleteAllByUser(ctx, target.ID); err != nil {
+			return fmt.Errorf("delete recovery codes: %w", err)
+		}
+		entry := audit.Entry{
+			ActorName:  operator,
+			Category:   audit.CategorySecurity,
+			Action:     audit.ActionSecondFactorDisabled,
+			ObjectType: audit.ObjectTypeUser,
+			ObjectID:   strconv.FormatInt(target.ID, 10),
+			Detail:     map[string]any{"username": target.Username, "totp": hasTotp, "passkeys": passkeys, "recoveryUnused": recoveryUnused},
+			Result:     audit.ResultSuccess,
+			Source:     audit.SourceCLI,
+		}
+		return tx.Audit().Append(ctx, entry, now)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &DisableSecondFactorsCLIResult{
+		Username:        target.Username,
+		TotpRemoved:     hasTotp,
+		PasskeysRemoved: passkeys,
+		RecoveryUnused:  recoveryUnused,
+	}, nil
+}

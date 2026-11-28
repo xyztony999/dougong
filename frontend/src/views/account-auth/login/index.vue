@@ -325,10 +325,53 @@ async function onRecoveryLogin(): Promise<void> {
           </div>
         </template>
 
-        <!-- 登录方式分段切换（密码 / passkey / 恢复码），各方式一份完整表单 -->
-        <n-tabs v-else :value="mode" type="segment" size="small" class="mode-tabs" @update:value="switchMode">
-          <n-tab-pane name="password" tab="密码">
-            <n-form-item label="密码" path="password" class="pane-first">
+        <!-- 登录方式（密码 / passkey 分段切换）；恢复码是恢复手段，不与登录方式并列 -->
+        <template v-else-if="mode !== 'recovery'">
+          <n-tabs
+            v-if="supportsPasskey"
+            :value="mode"
+            type="segment"
+            size="small"
+            class="mode-tabs"
+            @update:value="switchMode"
+          >
+            <n-tab-pane name="password" tab="密码">
+              <n-form-item label="密码" path="password" class="pane-first">
+                <n-input
+                  v-model:value="password"
+                  type="password"
+                  show-password-on="click"
+                  placeholder="密码"
+                />
+              </n-form-item>
+              <n-button
+                type="primary"
+                block
+                attr-type="submit"
+                :loading="submitting"
+                :disabled="locked"
+                @click="onSubmit"
+              >
+                {{ submitText }}
+              </n-button>
+            </n-tab-pane>
+            <n-tab-pane name="passkey" tab="passkey">
+              <n-button
+                type="primary"
+                block
+                :loading="submitting"
+                :disabled="locked"
+                class="pane-first"
+                @click="onPasskeyLogin"
+              >
+                <n-icon :component="FingerPrintOutline" class="btn-icon" />
+                使用 passkey 登录
+              </n-button>
+              <p class="method-hint">验证本机的指纹、面部或安全密钥</p>
+            </n-tab-pane>
+          </n-tabs>
+          <template v-else>
+            <n-form-item label="密码" path="password">
               <n-input
                 v-model:value="password"
                 type="password"
@@ -346,36 +389,29 @@ async function onRecoveryLogin(): Promise<void> {
             >
               {{ submitText }}
             </n-button>
-          </n-tab-pane>
-          <n-tab-pane v-if="supportsPasskey" name="passkey" tab="passkey">
-            <n-button
-              type="primary"
-              block
-              :loading="submitting"
-              :disabled="locked"
-              class="pane-first"
-              @click="onPasskeyLogin"
-            >
-              <n-icon :component="FingerPrintOutline" class="btn-icon" />
-              使用 passkey 登录
-            </n-button>
-            <p class="method-hint">验证本机的指纹、面部或安全密钥</p>
-          </n-tab-pane>
-          <n-tab-pane name="recovery" tab="恢复码">
-            <n-form-item label="恢复码" path="recovery" class="pane-first">
-              <n-input v-model:value="recoveryCode" placeholder="如 1A2B-3C4D-5E6F-7G8H" />
-            </n-form-item>
-            <n-button
-              type="primary"
-              block
-              :loading="submitting"
-              :disabled="locked"
-              @click="onRecoveryLogin"
-            >
-              登录
-            </n-button>
-          </n-tab-pane>
-        </n-tabs>
+          </template>
+          <div class="recovery-entry">
+            <n-button text @click="switchMode('recovery')">登录遇到问题？用恢复码登录</n-button>
+          </div>
+        </template>
+        <!-- 恢复码登录（恢复手段）：passkey/动态码不可用时的兜底 -->
+        <template v-else>
+          <n-form-item label="恢复码" path="recovery">
+            <n-input v-model:value="recoveryCode" placeholder="如 1A2B-3C4D-5E6F-7G8H" />
+          </n-form-item>
+          <n-button
+            type="primary"
+            block
+            :loading="submitting"
+            :disabled="locked"
+            @click="onRecoveryLogin"
+          >
+            登录
+          </n-button>
+          <div class="recovery-entry">
+            <n-button text @click="switchMode('password')">返回密码登录</n-button>
+          </div>
+        </template>
       </n-form>
       <p class="hint">本面板不提供注册与找回密码；重置请使用命令行或联系其他管理员。</p>
     </n-card>
@@ -423,6 +459,10 @@ async function onRecoveryLogin(): Promise<void> {
   font-size: 18px;
 }
 .alt-actions {
+  margin-top: 10px;
+}
+/* 恢复码入口：安静的一行，与登录方式区分层级 */
+.recovery-entry {
   margin-top: 10px;
 }
 </style>

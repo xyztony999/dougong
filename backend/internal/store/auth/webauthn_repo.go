@@ -82,6 +82,16 @@ func (r *WebauthnRepo) Delete(ctx context.Context, userID, id int64) error {
 	return wrapErr("webauthn delete", err)
 }
 
+// DeleteAllByUser 删除该用户全部 passkey（紧急关闭两步验证），返回删除行数。
+func (r *WebauthnRepo) DeleteAllByUser(ctx context.Context, userID int64) (int64, error) {
+	res, err := r.x.ExecContext(ctx, `DELETE FROM panel_user_webauthn WHERE user_id = ?`, userID)
+	if err != nil {
+		return 0, wrapErr("webauthn delete all", err)
+	}
+	n, err := res.RowsAffected()
+	return n, wrapErr("webauthn delete all rows", err)
+}
+
 // CountByUser 凭据数（登录二因素判定用）。
 func (r *WebauthnRepo) CountByUser(ctx context.Context, userID int64) (int, error) {
 	var n int

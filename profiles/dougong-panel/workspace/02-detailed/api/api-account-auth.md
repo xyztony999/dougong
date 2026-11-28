@@ -176,7 +176,7 @@ audit_log * ─── 引用任意业务对象（object_type/object_id 弱引用
 | audit_source | web \| cli \| system | 审计来源 |
 | init_status | uninitialized \| initialized | 初始化状态 |
 
-**业务常量**（审计细粒度动作码，非枚举池条目）：`login_success / login_failed / account_locked / account_unlocked / logout / force_logout / user_created / user_deleted / password_reset / password_changed / totp_enabled / totp_disabled / init_completed / audit_exported / audit_purged`（action 列存此码，category 存 audit_action 枚举）。
+**业务常量**（审计细粒度动作码，非枚举池条目）：`login_success / login_failed / account_locked / account_unlocked / logout / force_logout / user_created / user_deleted / password_reset / password_changed / totp_enabled / totp_disabled / init_completed / audit_exported / audit_purged / webauthn_registered / webauthn_deleted / username_changed（panel-core CLI 救援，source=cli） / second_factor_disabled（panel-core CLI disable-2fa 紧急关闭两步验证：清除动态码/passkey/恢复码，security，source=cli，v2.5 增量）`（action 列存此码，category 存 audit_action 枚举）。
 
 **配置项**（会话有效期策略，D-10 自持；载体=配置文件非表，Gate 1 W2 修正）：
 

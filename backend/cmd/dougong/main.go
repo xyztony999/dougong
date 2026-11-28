@@ -125,7 +125,7 @@ func main() {
 	explicitStart := false
 	if len(args) > 0 {
 		switch args[0] {
-		case "status", "info", "reset-password", "rename-user", "unbind-domain", "set-port", "entrypath", "service":
+		case "status", "info", "reset-password", "rename-user", "unbind-domain", "disable-2fa", "visit-urls", "set-port", "entrypath", "service":
 			os.Exit(runCLI(args, newCLIEnv()))
 		case "start", "serve":
 			// 显式启动别名（systemd ExecStart 推荐 dougong start）；剥离后走启动路径。
@@ -750,7 +750,15 @@ func run(args []string) error {
 	if useTLS {
 		visitScheme = "https"
 	}
-	logVisitURLs(visitScheme, addr)
+	visitDomain := ""
+	if bootCfg.BindDomain != nil {
+		visitDomain = *bootCfg.BindDomain
+	}
+	visitEntry := ""
+	if bootCfg.EntryPathEnabled && bootCfg.EntryPath != nil {
+		visitEntry = *bootCfg.EntryPath
+	}
+	logVisitURLs(visitScheme, addr, visitDomain, visitEntry)
 
 	var runErr error
 	select {

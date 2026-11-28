@@ -2,8 +2,11 @@ package auth
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/dougong/dougong/internal/errcode"
 	storeauth "github.com/dougong/dougong/internal/store/auth"
@@ -271,6 +274,56 @@ func TestWebAuthnProviderTolerantOrigins(t *testing.T) {
 		if !found {
 			t.Fatalf("origins %v missing %q", gotOrigins, w)
 		}
+	}
+}
+
+// 紧急关闭两步验证（CLI，2026-11-28 用户拍板语义=全部清除）：动态码/passkey/
+// 恢复码单事务全清，登录恢复为仅用户名+密码；本无因子零写入；用户不存在报错。
+func TestDisableSecondFactorsViaCLI(t *testing.T) {
+	svc, st, _ := newTestService(t)
+	withFakeWA(svc)
+	ctx := context.Background()
+	_, _ = bootstrapAdmin(t, svc, "admin", "admin12345")
+	id := &Identity{UserID: 1, Username: "admin", Role: "admin"}
+	registerPasskey(t, svc, id)
+	res, err := svc.GenerateRecoveryCodes(ctx, id)
+	if err != nil || len(res.Codes) != 10 {
+		t.Fatalf("generate recovery: %v %d", err, len(res.Codes))
+	}
+	now := time.Now().UTC()
+	if err := st.Totp().Upsert(ctx, storeauth.TotpCredential{UserID: 1, Secret: "SECRET", Enabled: true, ConfirmedAt: &now}); err != nil {
+		t.Fatalf("seed totp: %v", err)
+	}
+
+	out, err := svc.DisableSecondFactorsViaCLI(ctx, "root", "admin")
+	if err != nil {
+		t.Fatalf("disable 2fa: %v", err)
+	}
+	if !out.TotpRemoved || out.PasskeysRemoved != 1 || out.RecoveryUnused != 10 {
+		t.Fatalf("result = %+v", out)
+	}
+	if n, _ := st.Webauthn().CountByUser(ctx, 1); n != 0 {
+		t.Fatalf("passkeys = %d, want 0", n)
+	}
+	if n, _ := st.Recovery().CountUnused(ctx, 1); n != 0 {
+		t.Fatalf("recovery unused = %d, want 0", n)
+	}
+	if _, terr := st.Totp().GetByUser(ctx, 1); !errors.Is(terr, sql.ErrNoRows) {
+		t.Fatalf("totp 应已解绑: %v", terr)
+	}
+	// 登录恢复为仅用户名+密码（不再索要 passkey）
+	issued, err := svc.Login(ctx, LoginRequest{Username: "admin", Password: "admin12345"}, waMeta())
+	if err != nil || issued.RequiresPasskey || issued.Session.RawToken == "" {
+		t.Fatalf("password login after disable: %v %+v", err, issued)
+	}
+	// 本无因子：零写入
+	out2, err := svc.DisableSecondFactorsViaCLI(ctx, "root", "admin")
+	if err != nil || out2.TotpRemoved || out2.PasskeysRemoved != 0 || out2.RecoveryUnused != 0 {
+		t.Fatalf("second call: %v %+v", err, out2)
+	}
+	// 用户不存在
+	if _, err := svc.DisableSecondFactorsViaCLI(ctx, "root", "ghost"); !errors.Is(err, ErrUserNotFound) {
+		t.Fatalf("ghost: %v", err)
 	}
 }
 

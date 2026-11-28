@@ -3,6 +3,7 @@ package main
 import (
 	"log/slog"
 	"net"
+	"strings"
 )
 
 // visitURLs 由 scheme 与绑定地址枚举可直接访问的候选 URL（纯函数，v2.1
@@ -57,10 +58,41 @@ func visitURLs(scheme, addr string) []string {
 	return urls
 }
 
-// logVisitURLs 服务启动时打印可直接访问的候选 URL（visitURLs 的日志消费方）。
-func logVisitURLs(scheme, addr string) {
-	urls := visitURLs(scheme, addr)
+// accessURLs 访问地址纯函数：绑定域名时仅返回域名 URL——HostGuard（ADR-028）
+// 在绑定后拦截一切非绑定 Host，列出 IP 只会误导；未绑定时回退本机非环回 IPv4
+// 枚举（visitURLs）。非默认端口显式携带（https 默认 443 / http 默认 80 省略）；
+// entryPath 非空统一追加前缀（D-P03）。scheme/addr/域名/入口路径来自面板配置，
+// 调用方负责读取（status/visit-urls/启动日志三处共用同一结论）。
+func accessURLs(scheme, addr, domain, entryPath string) []string {
+	var urls []string
+	if domain != "" {
+		u := scheme + "://" + domain
+		if _, port, err := net.SplitHostPort(addr); err == nil && port != "" {
+			if !(scheme == "https" && port == "443") && !(scheme == "http" && port == "80") {
+				u += ":" + port
+			}
+		}
+		urls = []string{u + "/"}
+	} else {
+		urls = visitURLs(scheme, addr)
+	}
+	if entryPath != "" {
+		for i, u := range urls {
+			urls[i] = strings.TrimSuffix(u, "/") + "/" + entryPath
+		}
+	}
+	return urls
+}
+
+// logVisitURLs 服务启动时打印可直接访问的候选 URL（accessURLs 的日志消费方）。
+// 绑定域名时仅列域名地址并附注（IP 已被 HostGuard 拦截）。
+func logVisitURLs(scheme, addr, domain, entryPath string) {
+	urls := accessURLs(scheme, addr, domain, entryPath)
 	if len(urls) == 0 {
+		return
+	}
+	if domain != "" {
+		slog.Info("panel ready — open in browser", "urls", urls, "note", "已绑定域名，仅此地址可访问（IP 直连已被拦截）")
 		return
 	}
 	slog.Info("panel ready — open in browser", "urls", urls)

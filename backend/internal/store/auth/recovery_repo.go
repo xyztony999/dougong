@@ -62,3 +62,13 @@ func (r *RecoveryRepo) CountUnused(ctx context.Context, userID int64) (int, erro
 		`SELECT COUNT(*) FROM panel_user_recovery_codes WHERE user_id = ? AND used_at IS NULL`, userID).Scan(&n)
 	return n, wrapErr("recovery count", err)
 }
+
+// DeleteAllByUser 删除该用户全部恢复码（含已用行，紧急关闭两步验证），返回删除行数。
+func (r *RecoveryRepo) DeleteAllByUser(ctx context.Context, userID int64) (int64, error) {
+	res, err := r.x.ExecContext(ctx, `DELETE FROM panel_user_recovery_codes WHERE user_id = ?`, userID)
+	if err != nil {
+		return 0, wrapErr("recovery delete all", err)
+	}
+	n, err := res.RowsAffected()
+	return n, wrapErr("recovery delete all rows", err)
+}

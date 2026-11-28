@@ -160,8 +160,12 @@ func runCLI(args []string, env cliEnv) int {
 		return cliRenameUser(ctx, env, rest)
 	case "unbind-domain":
 		return cliUnbindDomain(ctx, env, rest)
+	case "disable-2fa":
+		return cliDisableSecondFactors(ctx, env, rest)
+	case "visit-urls":
+		return cliVisitURLs(ctx, env, rest)
 	default:
-		fmt.Fprintf(env.stdout, "AUTH_012: 参数错误 — 未知子命令 %q（可用：status / info / reset-password / rename-user / unbind-domain / set-port / entrypath / service）\n", args[0])
+		fmt.Fprintf(env.stdout, "AUTH_012: 参数错误 — 未知子命令 %q（可用：status / info / reset-password / rename-user / unbind-domain / disable-2fa / visit-urls / set-port / entrypath / service）\n", args[0])
 		return cliExitUsage
 	}
 }
@@ -280,12 +284,15 @@ func cliStatus(ctx context.Context, env cliEnv, _ []string) int {
 	if pc.HTTPSMode != storepanel.HTTPSModeOff {
 		scheme = "https"
 	}
-	urls := visitURLs(scheme, panelListenAddr(pc))
-	if pc.EntryPathEnabled && pc.EntryPath != nil && *pc.EntryPath != "" {
-		for i, u := range urls { // 开启安全入口：URL 前缀形态 /{entryPath}（D-P03）
-			urls[i] = strings.TrimSuffix(u, "/") + "/" + *pc.EntryPath
-		}
+	boundDomain := ""
+	if pc.BindDomain != nil {
+		boundDomain = *pc.BindDomain
 	}
+	entryPath := ""
+	if pc.EntryPathEnabled && pc.EntryPath != nil && *pc.EntryPath != "" {
+		entryPath = *pc.EntryPath
+	}
+	urls := accessURLs(scheme, panelListenAddr(pc), boundDomain, entryPath)
 
 	fmt.Fprintf(env.stdout, "systemd 状态: %s=%s\n", cliUnitName, unitState)
 	initState := "未初始化（先运行 dougong init）"
@@ -296,6 +303,9 @@ func cliStatus(ctx context.Context, env cliEnv, _ []string) int {
 	fmt.Fprintf(env.stdout, "访问入口:\n")
 	for _, u := range urls {
 		fmt.Fprintf(env.stdout, "  %s\n", u)
+	}
+	if boundDomain != "" {
+		fmt.Fprintf(env.stdout, "  （已绑定域名 %s：仅此地址可访问，IP 直连已被拦截）\n", boundDomain)
 	}
 	return cliExitOK
 }
@@ -654,4 +664,112 @@ func cliUnbindDomain(ctx context.Context, env cliEnv, args []string) int {
 	fmt.Fprintf(env.stdout, "已解除域名绑定（原域名 %s）——现在可用 IP 直接访问面板\n", before)
 	fmt.Fprintln(env.stdout, restartHint)
 	return cliExitOK
+}
+
+// cliDisableSecondFactors `dougong disable-2fa -username <name> -yes`（写，紧急
+// 救援）：紧急清除目标用户全部两步验证因子（动态码绑定/全部 passkey/全部恢复码），
+// 登录恢复为仅用户名+密码（2026-11-28 用户拍板语义=全部清除）。破坏性操作：
+// 直接命令须带 -yes 才执行（缺省只打印将执行的内容，退出码 2 防误触）；目标
+// 用户不存在=退出码 1。菜单通道经交互确认后以 -yes 复用本命令。
+func cliDisableSecondFactors(ctx context.Context, env cliEnv, args []string) int {
+	fs := flag.NewFlagSet("disable-2fa", flag.ContinueOnError)
+	fs.SetOutput(env.stdout)
+	username := fs.String("username", "", "目标用户名（必填）")
+	yes := fs.Bool("yes", false, "确认执行（破坏性操作）")
+	if err := fs.Parse(args); err != nil {
+		return cliExitUsage
+	}
+	if strings.TrimSpace(*username) == "" {
+		fmt.Fprintln(env.stdout, "AUTH_012: 参数错误 — 缺少 -username（用法：dougong disable-2fa -username <用户名> -yes）")
+		return cliExitUsage
+	}
+	if !*yes {
+		fmt.Fprintf(env.stdout, "即将清除用户 %q 的全部两步验证因子：动态码绑定、全部 passkey、全部恢复码（不可恢复，登录恢复为仅用户名+密码）。\n确认执行请追加 -yes 重新运行。\n", *username)
+		return cliExitUsage
+	}
+	svc, err := openCLIServices(ctx, env)
+	if err != nil {
+		fmt.Fprintf(env.stdout, "打开面板数据失败: %v\n", err)
+		return cliExitFail
+	}
+	defer svc.close()
+
+	res, err := svc.authSvc.DisableSecondFactorsViaCLI(ctx, env.operator, *username)
+	if err != nil {
+		if errors.Is(err, authsvc.ErrUserNotFound) {
+			fmt.Fprintf(env.stdout, "目标用户 %q 不存在\n", *username)
+			return cliExitFail
+		}
+		if _, usage := printErrcode(env.stdout, err); usage {
+			return cliExitUsage
+		}
+		fmt.Fprintf(env.stdout, "关闭两步验证失败: %v\n", err)
+		return cliExitFail
+	}
+	fmt.Fprintf(env.stdout, "已清除用户 %s 的两步验证因子：动态码 %s、passkey %d 个、恢复码（未用）%d 个\n",
+		res.Username, yesNo(res.TotpRemoved), res.PasskeysRemoved, res.RecoveryUnused)
+	fmt.Fprintf(env.stdout, "登录已恢复为仅用户名+密码\n")
+	return cliExitOK
+}
+
+// cliVisitURLs `dougong visit-urls`（读）：打印访问话术与地址，供安装脚本与
+// 用户查询。话术按初始化态——已初始化「面板已就绪」；未初始化「完成初始化向导」。
+// 地址按配置——绑定域名仅列域名地址（HostGuard 绑定后拦截 IP，列出反而误导）
+// 并附注；未绑定列本机非环回 IPv4（visitURLs）。输出无「>> 完成。」前缀（调用
+// 方自行包装）。
+func cliVisitURLs(ctx context.Context, env cliEnv, _ []string) int {
+	svc, err := openCLIServices(ctx, env)
+	if err != nil {
+		fmt.Fprintf(env.stdout, "打开面板数据失败: %v\n", err)
+		return cliExitFail
+	}
+	defer svc.close()
+
+	if err := svc.authRepo.Init().EnsureRow(ctx); err != nil {
+		fmt.Fprintf(env.stdout, "读取初始化状态失败: %v\n", err)
+		return cliExitFail
+	}
+	initialized, err := svc.authSvc.IsInitialized(ctx)
+	if err != nil {
+		fmt.Fprintf(env.stdout, "读取初始化状态失败: %v\n", err)
+		return cliExitFail
+	}
+	pc, err := svc.panelSvc.Bootstrap(ctx)
+	if err != nil {
+		fmt.Fprintf(env.stdout, "读取面板配置失败: %v\n", err)
+		return cliExitFail
+	}
+	scheme := "http"
+	if pc.HTTPSMode != storepanel.HTTPSModeOff {
+		scheme = "https"
+	}
+	boundDomain := ""
+	if pc.BindDomain != nil {
+		boundDomain = *pc.BindDomain
+	}
+	entryPath := ""
+	if pc.EntryPathEnabled && pc.EntryPath != nil && *pc.EntryPath != "" {
+		entryPath = *pc.EntryPath
+	}
+	if initialized {
+		fmt.Fprintln(env.stdout, "面板已就绪，浏览器访问以下地址：")
+	} else {
+		fmt.Fprintln(env.stdout, "浏览器访问以下地址完成初始化向导：")
+	}
+	urls := accessURLs(scheme, panelListenAddr(pc), boundDomain, entryPath)
+	for _, u := range urls {
+		fmt.Fprintf(env.stdout, "  %s\n", u)
+	}
+	if boundDomain != "" {
+		fmt.Fprintln(env.stdout, "  （已绑定域名，仅此地址可访问，IP 直连已被拦截）")
+	}
+	return cliExitOK
+}
+
+// yesNo 布尔中文呈现（结果明细行用）。
+func yesNo(b bool) string {
+	if b {
+		return "已清除"
+	}
+	return "无"
 }

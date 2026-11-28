@@ -176,19 +176,26 @@ systemctl daemon-reload
 systemctl enable dougong >/dev/null
 systemctl restart dougong
 sleep 1
-msg ">> 完成。浏览器访问以下地址完成初始化向导（默认随机高位端口）：" ">> Done. Open one of the addresses below to run the first-time wizard (random high port by default):"
-LISTEN="$(journalctl -u dougong -n 20 --no-pager 2>/dev/null | grep -oE 'addr=[0-9.]+:[0-9]+.*tls=(true|false)' | tail -1)"
-ADDR="$(echo "$LISTEN" | grep -oE 'addr=[0-9.]+:[0-9]+' | cut -d= -f2)"
-SCHEME="http"
-echo "$LISTEN" | grep -q 'tls=true' && SCHEME="https"
-if [ -n "$ADDR" ]; then
-  HOST_PART="${ADDR%%:*}"; PORT="${ADDR##*:}"
-  if [ "$HOST_PART" = "0.0.0.0" ]; then
-    for ip in $(hostname -I 2>/dev/null); do echo "     ${SCHEME}://${ip}:${PORT}/"; done
-  else
-    echo "     ${SCHEME}://${ADDR}/"
-  fi
+# 访问地址话术经 CLI 读取面板配置（绑定域名仅列域名；已初始化不再说"完成初始化向导"）。
+# CLI 失败（旧版二进制等）回退到解析启动日志的旧行为。
+if VISIT="$(dougong visit-urls -config /var/lib/dougong/dougong.json 2>/dev/null)"; then
+  msg ">> 完成。" ">> Done."
+  echo "$VISIT" | sed 's/^/     /'
 else
-  journalctl -u dougong -n 10 --no-pager
+  msg ">> 完成。浏览器访问以下地址完成初始化向导（默认随机高位端口）：" ">> Done. Open one of the addresses below to run the first-time wizard (random high port by default):"
+  LISTEN="$(journalctl -u dougong -n 20 --no-pager 2>/dev/null | grep -oE 'addr=[0-9.]+:[0-9]+.*tls=(true|false)' | tail -1)"
+  ADDR="$(echo "$LISTEN" | grep -oE 'addr=[0-9.]+:[0-9]+' | cut -d= -f2)"
+  SCHEME="http"
+  echo "$LISTEN" | grep -q 'tls=true' && SCHEME="https"
+  if [ -n "$ADDR" ]; then
+    HOST_PART="${ADDR%%:*}"; PORT="${ADDR##*:}"
+    if [ "$HOST_PART" = "0.0.0.0" ]; then
+      for ip in $(hostname -I 2>/dev/null); do echo "     ${SCHEME}://${ip}:${PORT}/"; done
+    else
+      echo "     ${SCHEME}://${ADDR}/"
+    fi
+  else
+    journalctl -u dougong -n 10 --no-pager
+  fi
 fi
 msg ">> 升级=重复执行本脚本；服务管理=systemctl status/restart dougong。" ">> Re-run this script to upgrade; manage with systemctl status/restart dougong."

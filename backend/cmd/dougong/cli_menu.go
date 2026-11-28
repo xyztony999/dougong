@@ -37,6 +37,7 @@ const menuBanner = `================ 斗拱面板管理 ================
   8) 重启面板服务
   9) 启动面板服务
  10) 停止面板服务
+ 11) 紧急关闭两步验证（清除动态码/passkey/恢复码）
   0) 退出
 ==============================================`
 
@@ -88,6 +89,8 @@ func cliMenu(env cliEnv, in io.Reader) int {
 			cliService(ctx, env, []string{"start"})
 		case "10":
 			cliService(ctx, env, []string{"stop"})
+		case "11":
+			menuDisableSecondFactors(ctx, env, reader)
 		case "":
 			// 空回车：重印菜单
 		default:
@@ -146,4 +149,20 @@ func menuSetPort(ctx context.Context, env cliEnv, reader *bufio.Reader) {
 		return
 	}
 	cliSetPort(ctx, env, []string{port})
+}
+
+// menuDisableSecondFactors 菜单 11：交互问目标用户名并要求输入 y 确认（破坏性：
+// 清除动态码/passkey/恢复码，不可恢复），复用 cliDisableSecondFactors（-yes）。
+func menuDisableSecondFactors(ctx context.Context, env cliEnv, reader *bufio.Reader) {
+	username := prompt(env, reader, "目标用户名: ")
+	if username == "" {
+		fmt.Fprintln(env.stdout, "已取消（用户名不能为空）")
+		return
+	}
+	confirm := prompt(env, reader, "确认清除该用户全部动态码/passkey/恢复码？输入 y 继续: ")
+	if confirm != "y" && confirm != "Y" {
+		fmt.Fprintln(env.stdout, "已取消")
+		return
+	}
+	cliDisableSecondFactors(ctx, env, []string{"-username", username, "-yes"})
 }
