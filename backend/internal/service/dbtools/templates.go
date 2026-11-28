@@ -11,7 +11,12 @@ import (
 
 // gateLocationInsert 内部 gate location（internal 指令外部请求 404；
 // auth_request 子请求携面板会话 cookie 原样透传 + 内部秘密头；Host 头按
-// bind_domain 设定过 HostGuard，未绑定透传 $host）。
+// bind_domain 设定过 HostGuard，未绑定透传 $host）。TLS 面板形态（v0.6.9
+// 实机修复）：回环目标为 https——Go TLS 监听对明文请求回 400（"Client sent
+// an HTTP request to an HTTPS server"），auth_request 拿到非 401/403 状态
+// 即 500；证书为面板托管（Origin CA/自签/ACME）无法走系统 CA 校验，安全由
+// 回环地址+内部秘密头承载（D-11 三重防护不变），proxy_ssl_verify off 仅关
+// 公网语义的证书校验。
 func gateLocationInsert(indent string, pa PanelAccess, secret string) string {
 	host := "$host"
 	if pa.BindDomain != "" {
@@ -24,6 +29,9 @@ func gateLocationInsert(indent string, pa PanelAccess, secret string) string {
 	fmt.Fprintf(&b, "%s        internal;\n", indent)
 	fmt.Fprintf(&b, "%s        proxy_pass %s;\n", indent, loopback)
 	fmt.Fprintf(&b, "%s        proxy_pass_request_body off;\n", indent)
+	if pa.HTTPSEnabled {
+		fmt.Fprintf(&b, "%s        proxy_ssl_verify off;\n", indent)
+	}
 	fmt.Fprintf(&b, "%s        proxy_set_header Content-Length \"\";\n", indent)
 	fmt.Fprintf(&b, "%s        proxy_set_header %s %s;\n", indent, InternalSecretHeader, secret)
 	fmt.Fprintf(&b, "%s        proxy_set_header Host %s;\n", indent, host)
@@ -82,9 +90,16 @@ func mongoExpressLocationInsert(indent, toolDir string) string {
 }
 
 // panelLoopbackBase 面板后端 loopback 基址（内部端点 URL 构造：gate 子请求
-// /signon 回调共用；entryPath 安装时烘焙，A-DBT6）。
+// /signon 回调共用；entryPath 安装时烘焙，A-DBT6）。scheme 跟随面板 TLS 态
+// （v0.6.9 实机修复：TLS 面板的 Go 监听只讲 TLS，明文回环请求被 Go 以 400
+// 拒答——gate/signon 须 https，配合 gate proxy_ssl_verify off 与 signon
+// curl 校验豁免，安全由回环地址+秘密头承载不变）。
 func panelLoopbackBase(pa PanelAccess) string {
-	return "http://127.0.0.1:" + strconv.Itoa(pa.ListenPort) + pa.EntryPath
+	scheme := "http"
+	if pa.HTTPSEnabled {
+		scheme = "https"
+	}
+	return scheme + "://127.0.0.1:" + strconv.Itoa(pa.ListenPort) + pa.EntryPath
 }
 
 // ---- phpMyAdmin 配置模板（D-06/D-09；R-09 零遥测 VersionCheck=false）----
@@ -151,8 +166,16 @@ func signonURLExprPanelPort(pa PanelAccess, staticBase string) string {
 // signonPHP SignonScript（PHP 服务端 loopback 回调面板 signon/verify；
 // 凭据响应仅服务端通道设 $_SESSION，永不进浏览器，D-09/D-11；W4：转发
 // dg_session cookie 供 sessionDigest 绑定校验 + dg_tool_instance 供实例
-// 绑定校验）。
+// 绑定校验）。verifyURL 为 https（TLS 面板，v0.6.9）时 curl 关闭证书校验
+// ——面板证书为托管形态（Origin CA/自签）无系统 CA 链，安全由回环地址+
+// 内部秘密头承载（同 gate proxy_ssl_verify off 口径）。
 func signonPHP(verifyURL, secret string) string {
+	tlsOpts := ""
+	if strings.HasPrefix(verifyURL, "https://") {
+		tlsOpts = `
+    CURLOPT_SSL_VERIFYPEER => false,
+    CURLOPT_SSL_VERIFYHOST => 0,`
+	}
 	return `<?php
 /* dougong panel db-tools generated — signon loopback callback (server-side only). */
 $dgToken = isset($_GET['dg_signon']) ? $_GET['dg_signon'] : '';
@@ -166,7 +189,7 @@ curl_setopt_array($dgCh, array(
     CURLOPT_HTTPHEADER => array('Content-Type: application/json', '` + InternalSecretHeader + `: ` + phpEscape(secret) + `'),
     CURLOPT_RETURNTRANSFER => true,
     CURLOPT_TIMEOUT => 10,
-    CURLOPT_CONNECTTIMEOUT => 5,
+    CURLOPT_CONNECTTIMEOUT => 5,` + tlsOpts + `
 ));
 $dgResp = curl_exec($dgCh);
 curl_close($dgCh);

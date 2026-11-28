@@ -628,6 +628,28 @@ func TestAutoLandingTLSInstall(t *testing.T) {
 	if !strings.Contains(cfg, "https://tools.example.test:8687") {
 		t.Fatalf("SignonURL 面板基址缺失:\n%s", cfg)
 	}
+	// TLS 面板回环形态（v0.6.9 实机修复）：gate 子请求 https+proxy_ssl_verify
+	// off；signon.php https+curl 校验豁免（Go TLS 监听对明文回环回 400）。
+	if !strings.Contains(conf, "proxy_pass https://127.0.0.1:8687/dbtool/gate/verify;") ||
+		!strings.Contains(conf, "proxy_ssl_verify off;") {
+		t.Fatalf("TLS 面板 gate 回环应走 https+verify off:\n%s", conf)
+	}
+	signon := string(f.deploy.files[filepath.Join(svc.toolDir, "phpmyadmin", "signon.php")])
+	if !strings.Contains(signon, "curl_init('https://127.0.0.1:8687/dbtool/signon/verify')") ||
+		!strings.Contains(signon, "CURLOPT_SSL_VERIFYPEER => false") {
+		t.Fatalf("signon.php TLS 回调形态缺失:\n%s", signon)
+	}
+}
+
+// TestPanelLoopbackBaseScheme 回环基址 scheme 跟随面板 TLS 态（v0.6.9：
+// TLS 面板 Go 监听只讲 TLS，明文回环请求被 Go 以 400 拒答——实机 500 根因）。
+func TestPanelLoopbackBaseScheme(t *testing.T) {
+	if got := panelLoopbackBase(PanelAccess{ListenPort: 8687}); got != "http://127.0.0.1:8687" {
+		t.Fatalf("非 TLS 面板回环 = %q", got)
+	}
+	if got := panelLoopbackBase(PanelAccess{ListenPort: 2083, HTTPSEnabled: true, EntryPath: "/ent"}); got != "https://127.0.0.1:2083/ent" {
+		t.Fatalf("TLS 面板回环 = %q", got)
+	}
 }
 
 // TestLandingTLSUpgradeRefresh 升级自愈（v1.4 D-24）：旧版本 http-only 块

@@ -1220,3 +1220,13 @@
 - [x] T06 · 测试：landing_test.go +4 回归（TLS 安装全锚点〔2087 监听/证书 0600/双探针/https URL/提示含 2087/SignonURL 不变〕/升级自愈〔http-only 块补 TLS 行+location 字节不动+幂等零写入+证书轮换 conf 重写+HTTPS 关闭移除回落 http〕/刷新失败窗口磁盘实况两分支〔磁盘具 TLS 沿 https/磁盘无 TLS 沿 http 兜底〕/list 投影三态）+toolBaseHost 表驱动 +3 行（TLS 绑域名/未绑/既有块不适用）+fakes（fakePanel +CertMaterial 替身/tlsFakes/stripTLSLines）+newTestService 装配 PanelCert
 - [x] 自验：go build=0；全仓 test 56 包 0 FAIL（dbtools 既有全绿零语义改动+新增 4 函数 14 断言）
 - [x] A-DBT 实现裁定：A-DBT14 TLS 材料供给失败（非未配置证书）钩子跳过刷新保住既有 TLS 行（降级删行=HTTPS 落地悄然失联，OUT；惰性校正兜底自愈）；A-DBT15 URL 分支以落盘实况为准（刷新失败窗口不虚设 https——虚设致打开 404/拒连，landingTLSPortFromConf 权威）；A-DBT16 证书指纹注释为管线内 reload 机制（证书轮换后 conf 产生差异触发 ConfigApply→reload，绕过 R-06 直 reload OUT）；A-DBT17 fp=sha256(certPEM) 前 8 字节 hex16（轮换必变更，空 fp=非 active）
+
+
+## db-tools 内部回环 TLS 跟随热修（2026-11-29，api-db-tools.md v1.5 D-25）
+
+> 实机取证（v0.6.8 用户服务器续）：include 补齐后 18090/2087 监听正常，但两工具一律 500——nginx error `auth request unexpected status: 400`。根因=panelLoopbackBase/gate 子请求/signon.php 回调硬编码 http://127.0.0.1:{port}，TLS 面板的 Go 监听对明文请求回标准 400（"Client sent an HTTP request to an HTTPS server"）；v0.1.16 设计仅覆盖 IP 明文形态（tls=false），HTTPS 面板+自动块从未实机跑过。同机部署事实补记：nginx.conf 缺 sites-enabled include（面板写入配置从未加载，18090 自 v0.1.16 起从未监听）——应急补 include 行生效；site-mgmt 证书扫描器把落地块当站点导入（影子行）。
+
+- [x] T01 · templates.go：panelLoopbackBase scheme 跟随 pa.HTTPSEnabled（gate 子请求+signon.php 回调同出处）；gateLocationInsert HTTPS 态追加 `proxy_ssl_verify off;`（面板托管证书无系统 CA 链，安全由回环+秘密头承载 D-11 不变）；signonPHP https 态 curl 追加 VERIFYPEER false/VERIFYHOST 0
+- [x] T02 · 测试：TestPanelLoopbackBaseScheme 两态锚点；TestAutoLandingTLSInstall +4 断言（gate https://127.0.0.1:8687+verify off；signon.php https+VERIFYPEER）；既有 http 形态断言全保（非 TLS 面板行为零变化）
+- [x] 自验：go build=0；全仓 test 56 包 0 FAIL；gofmt 净
+- [x] A-DBT18 实现裁定：证书校验豁免仅限回环目标（gate 上游 127.0.0.1+秘密头+会话校验三重防护不变；不涉任何公网 TLS 目标）；刷新对账不触及 location 字节——既有 HTTPS+自动块装机需卸载重装（或手工补丁）重新烘焙 gate/signon，v0.6.9 起新装机原生正确

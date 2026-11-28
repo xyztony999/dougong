@@ -2,6 +2,26 @@
 
 发布说明按版本倒序排列；每个版本的完整说明也会作为 GitHub Release 正文发布。
 
+## v0.6.9 - 2026-11-29
+
+修复：面板启用 HTTPS 时，phpMyAdmin / mongo-express 打开报 500 的问题（上一版 2087 修复的收尾）。
+
+### 变更内容
+
+**修复：HTTPS 面板下工具 gating 回环调用 500**
+- 上一版让工具落地块加上了 2087 HTTPS 监听，但面板内部的会话校验子请求（gating）与 phpMyAdmin 重认证回调仍按明文 `http://127.0.0.1:端口` 发往面板——面板是 HTTPS 监听时，Go 会对该请求回 400（"Client sent an HTTP request to an HTTPS server"），nginx 转成 500 给浏览器
+- 现在这两类内部调用跟随面板 TLS 状态自动走 https：gating 子请求带 `proxy_ssl_verify off`（仅回环目标；安全仍由本机回环 + 内部秘密头 + 会话校验三层承载），signon 回调的 curl 同步豁免证书校验
+- 用 IP 明文访问面板的部署行为完全不变
+
+**升级注意**：已经装了工具且面板开 HTTPS 的服务器，升级后需要**卸载重装**一次两个工具（或按 release 附带的手工补丁说明改两处文件），让 gating 配置重新生成为新形态；卸载重装不影响任何数据库数据。
+
+### 安装与升级
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/xyztony999/dougong/main/install.sh | sudo bash
+dougong version   # 应为 v0.6.9
+```
+
 ## v0.6.8 - 2026-11-28
 
 修复：数据库工具（phpMyAdmin / mongo-express）在域名经 Cloudflare 代理或面板启用 HTTPS 时进不去的问题。工具独立访问新增 HTTPS 端口 2087，与面板共用证书。
