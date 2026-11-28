@@ -12,9 +12,10 @@
 - 面板生成的 phpMyAdmin 配置里，重认证跳转地址的表达式把结构性闭合引号也转义了，生成的 PHP 字符串永不闭合、吞掉下一行——phpMyAdmin 报配置读取失败（该文件只在装完工具后第一次真正打开时才被 PHP 加载，所以此前一直没暴露）
 - 已修正生成逻辑，并加静态配平回归锁；升级后需重装一次 phpMyAdmin（或按 Release 附带说明改一行）
 
-**修复：phpMyAdmin 打开后显示空白「Error」页（signon 回调契约）**
+**修复：phpMyAdmin 登录后一切点击报「error (rejected)」/ 配置文件语法错误（signon 回调两处）**
 - phpMyAdmin 的 signon 机制要求配置里的回调脚本定义 `get_login_credentials()` 函数（并在登录时调用它拿凭据）；面板生成的回调脚本缺这个函数，phpMyAdmin 一调用就 fatal，呈现只有「Error」两个字的页面
-- 回调脚本已按 phpMyAdmin 契约重写（定义该函数、校验通过时返回实例凭据），TLS 面板下同样跳过回环证书校验
+- 回调脚本已按 phpMyAdmin 契约重写：登录请求（带令牌）验签通过后把数据库凭据持久化进 PHP 会话；后续不带令牌的 AJAX 请求直接读会话凭据——否则 phpMyAdmin 会把 AJAX 当成未登录、302 跳回面板重认证（跨源），前端 fetch 被拦，表现为「Error in processing request / error (rejected)」
+- TLS 面板下回调同样跳过回环证书校验
 
 **修复：HTTPS 面板下工具 gating 回环调用 500**
 - 上一版让工具落地块加上了 2087 HTTPS 监听，但面板内部的会话校验子请求（gating）与 phpMyAdmin 重认证回调仍按明文 `http://127.0.0.1:端口` 发往面板——面板是 HTTPS 监听时，Go 会对该请求回 400（"Client sent an HTTP request to an HTTPS server"），nginx 转成 500 给浏览器

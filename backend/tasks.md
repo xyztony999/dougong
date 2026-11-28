@@ -1236,3 +1236,5 @@
 - [x] T04 · templates.go SignonURL 表达式结构引号修正（实机 php -l 取证：`unexpected identifier "Servers"` line 13——原 suffix 携 `?instanceId='` 结构引号进 phpEscape，字符串永不闭合吞下一行；修=URL 前缀进转义、闭合引号+` . $dgToolInstance` 裸露，signonURLExpr/signonURLExprPanelPort 四分支全改）+phpSingleQuoteBalance 静态配平回归锁（unbound/bound/TLS/deploy 四用例）——substring 断言查不出坏 PHP 的教训入案
 
 - [x] T05 · dbtools 内部回环 TLS 轮续：templates.go signonPHP 重写为 SignonScript 契约形态（实机取证 AuthenticationSignon.php:131/156：include 后调用 get_login_credentials **单参**——原文件作用域 curl+$_SESSION 形态缺函数→PMA include 即 fatal→裸 "Error" 页 200）：定义 `get_login_credentials($dgUser, $dgPass='')`〔默认值防 ArgumentCountError〕、code===0 时 return array(user, password)、失败回退入参；deploy_test/landing_test 断言函数签名+返回形态+配平
+
+- [x] T06 · dbtools signonPHP 凭据持久化补全（实机取证：函数形态漏掉 $_SESSION 写入——AJAX 无 dg_signon→get_login_credentials 返回空凭据→PMA 视为未登录 302 SignonURL 跨源→fetch CORS 拦截→「error (rejected)」）：登录请求验签通过恢复 $_SESSION['PMA_single_signon_user/password/host/port'] 持久化（A-DBT4 语义）+无令牌调用读回持久化凭据；deploy_test 断言更新
